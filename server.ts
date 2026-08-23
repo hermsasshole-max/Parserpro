@@ -336,8 +336,22 @@ self.addEventListener('fetch', (e) => {
     "/public/serviceworker.js"
   ], sendServiceWorker);
 
+  // Health check endpoint for connection verification and Render keep-alive
+  app.all(["/api/health", "/api/ping"], (req, res) => {
+    res.setHeader("Access-Control-Allow-Origin", "*");
+    res.setHeader("Content-Type", "application/json; charset=utf-8");
+    res.json({
+      status: "ok",
+      serverTime: new Date().toISOString(),
+      hasGeminiKey: !!process.env.GEMINI_API_KEY
+    });
+  });
+
   // Receipt OCR extraction endpoint supporting both Multipart Form and JSON payloads
-  app.post("/api/parse-receipt", upload.single("receipt"), async (req, res) => {
+  app.post(["/api/parse-receipt", "/api/parse-receipt/"], upload.single("receipt"), async (req, res) => {
+    res.setHeader("Access-Control-Allow-Origin", "*");
+    res.setHeader("Content-Type", "application/json; charset=utf-8");
+
     try {
       let base64Data = "";
       let mimeType = "image/jpeg";

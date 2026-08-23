@@ -1,6 +1,6 @@
 import React, { useState, useRef } from 'react';
-import { UploadCloud, FileType, CheckCircle2, AlertCircle, Loader2, Calendar, Store, ArrowRight, RefreshCw, Camera } from 'lucide-react';
-import type { ReceiptData, SavedReceipt } from '../types';
+import { UploadCloud, FileType, CheckCircle2, AlertCircle, Loader2, Calendar, Store, ArrowRight, RefreshCw, Camera, Edit3, X, Plus, Trash2 } from 'lucide-react';
+import type { ReceiptData, SavedReceipt, LineItem } from '../types';
 import { compressAndPrepareImage } from '../utils/imageUtils';
 
 interface ReceiptScannerProps {
@@ -22,6 +22,18 @@ export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
   const [parsedData, setParsedData] = useState<ReceiptData | null>(null);
   const [savedReceipt, setSavedReceipt] = useState<SavedReceipt | null>(null);
   const [isCopied, setIsCopied] = useState(false);
+
+  // Manual Entry Form State
+  const [showManualModal, setShowManualModal] = useState(false);
+  const [manualVendor, setManualVendor] = useState('Pick n Pay');
+  const [manualDate, setManualDate] = useState(() => new Date().toISOString().split('T')[0]);
+  const [manualCategory, setManualCategory] = useState<'Food & Groceries' | 'Electricity & Utilities' | 'Home Maintenance' | 'Transport' | 'Other'>('Food & Groceries');
+  const [manualCurrency, setManualCurrency] = useState('ZAR');
+  const [manualTotal, setManualTotal] = useState('241.71');
+  const [manualItems, setManualItems] = useState<LineItem[]>([
+    { description: 'Carrier Bag 24L', quantity: 2, unit_price: 1.40, total_price: 2.80 },
+    { description: 'Household & Grocery Items', quantity: 8, unit_price: 29.86, total_price: 238.91 }
+  ]);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
@@ -76,41 +88,75 @@ export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
 
       setLoadingStage('Extracting items with AI OCR...');
 
-      // Attempt multipart form upload with the optimized file
-      const formData = new FormData();
-      formData.append('receipt', prepared.file);
+      // Attempt multipart form upload with the optimized file, with auto-fallback to JSON base64
+      let data: any = null;
+      let lastErrorMessage = '';
 
-      let response: Response;
-      try {
-        response = await fetch('/api/parse-receipt', {
-          method: 'POST',
-          body: formData,
-        });
-      } catch (fetchErr: any) {
-        console.warn('[ReceiptScanner] Multipart upload failed, trying JSON base64 fallback:', fetchErr);
-        // Fallback to direct JSON payload if multipart failed
-        response = await fetch('/api/parse-receipt', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            imageBase64: prepared.base64Data,
-            mimeType: prepared.mimeType,
-          }),
-        });
+      // Up to 2 attempts for server cold starts (common on free-tier hosting like Render)
+      for (let attempt = 1; attempt <= 2; attempt++) {
+        try {
+          if (attempt > 1) {
+            setLoadingStage(`Waking server & retrying OCR (attempt ${attempt}/2)...`);
+            await new Promise((r) => setTimeout(r, 1500));
+          }
+
+          let response: Response;
+          const formData = new FormData();
+          formData.append('receipt', prepared.file);
+
+          try {
+            response = await fetch('/api/parse-receipt', {
+              method: 'POST',
+              body: formData,
+            });
+          } catch (fetchErr) {
+            // Direct JSON payload fallback if multipart network request fails
+            response = await fetch('/api/parse-receipt', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+              body: JSON.stringify({
+                imageBase64: prepared.base64Data,
+                mimeType: prepared.mimeType,
+              }),
+            });
+          }
+
+          const contentType = response.headers.get('content-type') || '';
+          const responseText = await response.text();
+
+          // Check if server returned HTML (e.g. SPA fallback, 502 Bad Gateway page, or Render spin-up)
+          const trimmed = responseText.trim();
+          if (trimmed.startsWith('<!DOCTYPE') || trimmed.startsWith('<html') || contentType.includes('text/html')) {
+            console.warn('[ReceiptScanner] Server returned HTML instead of JSON. Server may be in cold start.', response.status);
+            lastErrorMessage = 'Server is waking up or returned an HTML page. Please wait 10 seconds and tap Retry, or enter details manually.';
+            if (attempt < 2) continue;
+            throw new Error(lastErrorMessage);
+          }
+
+          try {
+            data = JSON.parse(responseText);
+          } catch (jsonErr) {
+            console.error('[ReceiptScanner] JSON parse error on response:', response.status, responseText);
+            lastErrorMessage = `Server returned an invalid response format (Status ${response.status}). Please retry or use manual entry.`;
+            if (attempt < 2) continue;
+            throw new Error(lastErrorMessage);
+          }
+
+          if (!response.ok) {
+            console.error('[ReceiptScanner] Server error response:', response.status, data);
+            throw new Error(data?.error || `Failed to extract receipt (Status ${response.status})`);
+          }
+
+          // Successfully received valid parsed JSON
+          break;
+        } catch (attemptErr: any) {
+          lastErrorMessage = attemptErr.message || 'Failed to extract receipt';
+          if (attempt === 2) throw attemptErr;
+        }
       }
 
-      const responseText = await response.text();
-      let data: any;
-      try {
-        data = JSON.parse(responseText);
-      } catch (jsonErr) {
-        console.error('[ReceiptScanner] Server returned non-JSON response:', response.status, responseText);
-        throw new Error(`Server returned status ${response.status}. Please retry.`);
-      }
-
-      if (!response.ok) {
-        console.error('[ReceiptScanner] Server error response:', response.status, data);
-        throw new Error(data?.error || `Failed to extract receipt (Status ${response.status})`);
+      if (!data) {
+        throw new Error(lastErrorMessage || 'Failed to parse receipt after multiple attempts.');
       }
 
       setParsedData(data);
@@ -159,6 +205,62 @@ export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
 
   const triggerCameraInput = () => {
     cameraInputRef.current?.click();
+  };
+
+  const handleSaveManual = (e: React.FormEvent) => {
+    e.preventDefault();
+    const total = parseFloat(manualTotal) || 0;
+    const invDate = manualDate || new Date().toISOString().split('T')[0];
+    const mYear = invDate.substring(0, 7);
+
+    const manualData: ReceiptData = {
+      vendor_name: manualVendor || 'Household Expense',
+      invoice_date: invDate,
+      month_year: mYear,
+      category: manualCategory,
+      currency: manualCurrency || 'ZAR',
+      line_items: manualItems.length > 0 ? manualItems : [
+        { description: 'General Store Purchase', quantity: 1, unit_price: total, total_price: total }
+      ],
+      total_amount: total,
+      subtotal: total,
+      tax: 0,
+      notes: 'Manually logged / corrected receipt'
+    };
+
+    const newSaved: SavedReceipt = {
+      ...manualData,
+      id: `rec-${Date.now()}`,
+      created_at: new Date().toISOString(),
+      file_name: file?.name || 'manual-entry.jpg',
+      image_preview: preview || undefined
+    };
+
+    setParsedData(manualData);
+    setSavedReceipt(newSaved);
+    onReceiptSaved(newSaved);
+    setError(null);
+    setShowManualModal(false);
+    console.log('[ReceiptScanner] Manual receipt filed successfully:', newSaved);
+  };
+
+  const addManualItem = () => {
+    setManualItems([...manualItems, { description: 'Item', quantity: 1, unit_price: 0, total_price: 0 }]);
+  };
+
+  const updateManualItem = (index: number, field: keyof LineItem, val: any) => {
+    const updated = [...manualItems];
+    updated[index] = { ...updated[index], [field]: val };
+    if (field === 'quantity' || field === 'unit_price') {
+      const q = field === 'quantity' ? Number(val) : updated[index].quantity;
+      const u = field === 'unit_price' ? Number(val) : updated[index].unit_price;
+      updated[index].total_price = parseFloat((q * u).toFixed(2));
+    }
+    setManualItems(updated);
+  };
+
+  const removeManualItem = (index: number) => {
+    setManualItems(manualItems.filter((_, i) => i !== index));
   };
 
   const copyJsonToClipboard = () => {
@@ -237,6 +339,14 @@ export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
               )}
             </h2>
             <div className="flex items-center gap-2">
+              <button
+                onClick={() => setShowManualModal(true)}
+                className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-bold transition-colors flex items-center gap-1 border border-slate-200"
+                title="Enter details manually if receipt is blurred or server is offline"
+              >
+                <Edit3 className="w-3.5 h-3.5 text-emerald-600" />
+                <span>Manual Entry</span>
+              </button>
               <button
                 onClick={triggerCameraInput}
                 className="px-2.5 py-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 rounded-lg text-xs font-bold transition-colors flex items-center gap-1 border border-emerald-200"
@@ -344,22 +454,33 @@ export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
             </button>
 
             {error && (
-              <div className="p-3.5 bg-red-50 text-red-700 border border-red-200 rounded-xl flex items-start justify-between gap-2.5 text-xs">
+              <div className="p-3.5 bg-red-50 text-red-700 border border-red-200 rounded-xl flex flex-col sm:flex-row items-start justify-between gap-3 text-xs">
                 <div className="flex items-start gap-2">
                   <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 text-red-600" />
                   <div>
                     <p className="font-semibold">{error}</p>
-                    <p className="text-[11px] text-red-500 mt-0.5">You can click retry or select another photo.</p>
+                    <p className="text-[11px] text-red-500 mt-0.5">
+                      You can retry the scan or enter receipt details directly.
+                    </p>
                   </div>
                 </div>
-                <button
-                  onClick={parseReceipt}
-                  disabled={isLoading}
-                  className="px-2.5 py-1 bg-red-600 hover:bg-red-700 text-white font-bold text-xs rounded-lg transition-colors shrink-0 shadow-xs flex items-center gap-1"
-                >
-                  <RefreshCw className="w-3 h-3" />
-                  <span>Retry</span>
-                </button>
+                <div className="flex items-center gap-2 self-end sm:self-auto shrink-0">
+                  <button
+                    onClick={() => setShowManualModal(true)}
+                    className="px-2.5 py-1 bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 font-bold text-xs rounded-lg transition-colors shadow-xs flex items-center gap-1 cursor-pointer"
+                  >
+                    <Edit3 className="w-3 h-3 text-emerald-600" />
+                    <span>Enter Manually</span>
+                  </button>
+                  <button
+                    onClick={parseReceipt}
+                    disabled={isLoading}
+                    className="px-2.5 py-1 bg-red-600 hover:bg-red-700 active:bg-red-800 text-white font-bold text-xs rounded-lg transition-colors shadow-xs flex items-center gap-1 cursor-pointer disabled:opacity-50"
+                  >
+                    <RefreshCw className="w-3 h-3" />
+                    <span>Retry</span>
+                  </button>
+                </div>
               </div>
             )}
           </div>
@@ -462,6 +583,164 @@ export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
           )}
         </div>
       </section>
+
+      {/* Manual Entry & Correction Modal */}
+      {showManualModal && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-fade-in">
+          <div className="bg-white rounded-3xl max-w-lg w-full max-h-[90vh] flex flex-col shadow-2xl border border-slate-200 overflow-hidden">
+            <div className="p-5 border-b border-slate-100 flex items-center justify-between bg-slate-50/70">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-lg bg-emerald-100 text-emerald-700 flex items-center justify-center">
+                  <Edit3 className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-slate-900 text-base leading-tight">Manual Receipt Entry</h3>
+                  <p className="text-xs text-slate-500">File slip directly into month expenditure</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowManualModal(false)}
+                className="p-1 text-slate-400 hover:text-slate-600 rounded-lg transition-colors cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveManual} className="p-5 overflow-y-auto space-y-4 flex-1">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">Vendor / Store Name</label>
+                  <input
+                    type="text"
+                    required
+                    value={manualVendor}
+                    onChange={(e) => setManualVendor(e.target.value)}
+                    placeholder="e.g. Pick n Pay, Checkers, Eskom"
+                    className="w-full px-3 py-2 border border-slate-200 rounded-xl text-xs font-medium focus:ring-2 focus:ring-emerald-500 focus:outline-none"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">Receipt Date</label>
+                  <input
+                    type="date"
+                    required
+                    value={manualDate}
+                    onChange={(e) => setManualDate(e.target.value)}
+                    className="w-full px-3 py-2 border border-slate-200 rounded-xl text-xs font-medium focus:ring-2 focus:ring-emerald-500 focus:outline-none"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">Category</label>
+                  <select
+                    value={manualCategory}
+                    onChange={(e: any) => setManualCategory(e.target.value)}
+                    className="w-full px-3 py-2 border border-slate-200 rounded-xl text-xs font-medium focus:ring-2 focus:ring-emerald-500 focus:outline-none bg-white"
+                  >
+                    <option value="Food & Groceries">Food & Groceries</option>
+                    <option value="Electricity & Utilities">Electricity & Utilities</option>
+                    <option value="Home Maintenance">Home Maintenance</option>
+                    <option value="Transport">Transport</option>
+                    <option value="Other">Other</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">Currency</label>
+                  <input
+                    type="text"
+                    value={manualCurrency}
+                    onChange={(e) => setManualCurrency(e.target.value)}
+                    className="w-full px-3 py-2 border border-slate-200 rounded-xl text-xs font-medium focus:ring-2 focus:ring-emerald-500 focus:outline-none"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">Total Spend</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    required
+                    value={manualTotal}
+                    onChange={(e) => setManualTotal(e.target.value)}
+                    placeholder="241.71"
+                    className="w-full px-3 py-2 border border-slate-200 rounded-xl text-xs font-bold text-emerald-700 focus:ring-2 focus:ring-emerald-500 focus:outline-none"
+                  />
+                </div>
+              </div>
+
+              {/* Line items section */}
+              <div className="space-y-2 pt-2 border-t border-slate-100">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-slate-700">Line Items (Optional)</span>
+                  <button
+                    type="button"
+                    onClick={addManualItem}
+                    className="text-[11px] text-emerald-600 font-bold hover:underline flex items-center gap-1 cursor-pointer"
+                  >
+                    <Plus className="w-3 h-3" /> Add Item
+                  </button>
+                </div>
+
+                <div className="space-y-2 max-h-36 overflow-y-auto pr-1">
+                  {manualItems.map((item, idx) => (
+                    <div key={idx} className="flex items-center gap-2 bg-slate-50 p-2 rounded-xl border border-slate-200 text-xs">
+                      <input
+                        type="text"
+                        placeholder="Item description"
+                        value={item.description}
+                        onChange={(e) => updateManualItem(idx, 'description', e.target.value)}
+                        className="flex-1 px-2 py-1 bg-white border border-slate-200 rounded-lg text-xs"
+                      />
+                      <input
+                        type="number"
+                        placeholder="Qty"
+                        value={item.quantity}
+                        onChange={(e) => updateManualItem(idx, 'quantity', e.target.value)}
+                        className="w-14 px-2 py-1 bg-white border border-slate-200 rounded-lg text-xs"
+                      />
+                      <input
+                        type="number"
+                        step="0.01"
+                        placeholder="Total"
+                        value={item.total_price}
+                        onChange={(e) => updateManualItem(idx, 'total_price', e.target.value)}
+                        className="w-20 px-2 py-1 bg-white border border-slate-200 rounded-lg text-xs font-bold text-emerald-700"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => removeManualItem(idx)}
+                        className="text-red-500 hover:text-red-700 p-1 cursor-pointer"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="pt-3 border-t border-slate-100 flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShowManualModal(false)}
+                  className="flex-1 py-2.5 px-4 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl text-xs transition-colors cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="flex-1 py-2.5 px-4 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white font-bold rounded-xl text-xs transition-colors shadow-md cursor-pointer"
+                >
+                  Save & File to Month
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
