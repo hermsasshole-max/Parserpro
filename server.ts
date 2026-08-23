@@ -298,11 +298,30 @@ async function startServer() {
 
     // Default inline service worker script
     const defaultSw = `
+const CACHE_NAME = 'parserpro-v2';
 self.addEventListener('install', (e) => { self.skipWaiting(); });
 self.addEventListener('activate', (e) => { self.clients.claim(); });
 self.addEventListener('fetch', (e) => {
-  if (e.request.url.includes('/api/')) return;
-  e.respondWith(fetch(e.request).catch(() => caches.match(e.request)));
+  if (e.request.method !== 'GET' || e.request.url.includes('/api/')) return;
+  e.respondWith(
+    fetch(e.request)
+      .then((res) => {
+        if (res && res.status === 200 && (res.type === 'basic' || res.type === 'cors')) {
+          const clone = res.clone();
+          caches.open(CACHE_NAME).then((c) => c.put(e.request, clone).catch(() => {}));
+        }
+        return res;
+      })
+      .catch(async () => {
+        const cached = await caches.match(e.request);
+        if (cached) return cached;
+        if (e.request.mode === 'navigate') {
+          const index = (await caches.match('/index.html')) || (await caches.match('/'));
+          if (index) return index;
+        }
+        return new Response('Offline', { status: 503, headers: { 'Content-Type': 'text/plain' } });
+      })
+  );
 });
 `;
     res.send(defaultSw);

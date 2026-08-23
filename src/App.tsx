@@ -30,7 +30,20 @@ export default function App() {
     return [];
   });
 
-  const [activeTab, setActiveTab] = useState<'scanner' | 'receipts' | 'report' | 'settings'>('scanner');
+  const [activeTab, setActiveTab] = useState<'scanner' | 'receipts' | 'report' | 'settings'>(() => {
+    try {
+      if (typeof window !== 'undefined') {
+        const params = new URLSearchParams(window.location.search);
+        const tab = params.get('tab');
+        if (tab === 'receipts' || tab === 'report' || tab === 'settings' || tab === 'scanner') {
+          return tab;
+        }
+      }
+    } catch (e) {
+      console.warn('Error reading url params:', e);
+    }
+    return 'scanner';
+  });
   const [selectedMonth, setSelectedMonth] = useState<string>(currentMonthDefault);
   const [comparisonMonth, setComparisonMonth] = useState<string>(currentMonthDefault);
   const [isPrintModalOpen, setIsPrintModalOpen] = useState(false);
@@ -142,7 +155,7 @@ export default function App() {
   };
 
   return (
-    <div className="h-screen bg-slate-50 flex flex-col font-sans text-slate-900 overflow-hidden select-none sm:select-auto">
+    <div className="h-[100dvh] min-h-[100dvh] w-full bg-slate-50 flex flex-col font-sans text-slate-900 overflow-hidden select-none sm:select-auto">
       {/* Sleek Navigation Bar */}
       <Navigation
         activeTab={activeTab}
