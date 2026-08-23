@@ -1,0 +1,6 @@
+{
+  "name": "Receipt Parser",
+  "description": "Scan household receipts, extract items with AI OCR, file by month and date, and generate live month-to-month expenditure reports.",
+  "requestFramePermissions": ["camera"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
