@@ -32,6 +32,7 @@ interface SettingsViewProps {
   onDeleteReceipt: (id: string) => void;
   onAddManualReceipt: () => void;
   onImportData: (importedReceipts: SavedReceipt[]) => void;
+  onLoadSampleData?: () => void;
 }
 
 export const SettingsView: React.FC<SettingsViewProps> = ({
@@ -42,6 +43,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   onDeleteReceipt,
   onAddManualReceipt,
   onImportData,
+  onLoadSampleData,
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedMonthFilter, setSelectedMonthFilter] = useState<string>('all');
@@ -138,11 +140,22 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap">
+          {onLoadSampleData && (
+            <button
+              onClick={onLoadSampleData}
+              className="px-3.5 py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer"
+              title="Load realistic South African sample grocery receipts"
+            >
+              <Sparkles className="w-3.5 h-3.5 text-emerald-600" />
+              <span>Load Samples</span>
+            </button>
+          )}
+
           <button
             onClick={handleExportData}
             disabled={receipts.length === 0}
-            className="px-3.5 py-2 bg-slate-100 hover:bg-slate-200 disabled:opacity-50 text-slate-700 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors"
+            className="px-3.5 py-2 bg-slate-100 hover:bg-slate-200 disabled:opacity-50 text-slate-700 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer"
             title="Download JSON Backup"
           >
             <Download className="w-3.5 h-3.5" />
