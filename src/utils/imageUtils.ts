@@ -15,7 +15,7 @@ export interface ProcessedImageResult {
 export async function compressAndPrepareImage(
   inputFile: File,
   maxDimension = 1600,
-  quality = 0.85
+  quality = 0.78
 ): Promise<ProcessedImageResult> {
   const originalSizeKb = Math.round(inputFile.size / 1024);
 

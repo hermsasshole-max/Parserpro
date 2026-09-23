@@ -15,9 +15,14 @@ import {
   HardDrive, 
   DollarSign, 
   FileText,
-  Plus
+  Plus,
+  Key,
+  Sparkles,
+  Zap
 } from 'lucide-react';
 import type { SavedReceipt } from '../types';
+import { getActiveGeminiApiKey } from '../utils/geminiVision';
+import { ApiKeyModal } from './ApiKeyModal';
 
 interface SettingsViewProps {
   receipts: SavedReceipt[];
@@ -43,6 +48,9 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   const [showConfirmResetAll, setShowConfirmResetAll] = useState(false);
   const [monthToReset, setMonthToReset] = useState<string | null>(null);
   const [feedbackToast, setFeedbackToast] = useState<string | null>(null);
+  const [showApiKeyModal, setShowApiKeyModal] = useState(false);
+
+  const activeApiKey = getActiveGeminiApiKey();
 
   // Available distinct months
   const availableMonths = Array.from(new Set<string>(receipts.map(r => r.month_year)))
@@ -156,6 +164,39 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
 
       {/* Storage & Reset Totals Section */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+        {/* Gemini Vision Client-Side Integration Card */}
+        <div className="bg-white p-5 rounded-2xl border border-emerald-100 bg-gradient-to-b from-white to-emerald-50/20 shadow-sm space-y-4">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-bold uppercase tracking-wider text-emerald-700 flex items-center gap-1.5">
+              <Key className="w-3.5 h-3.5 text-emerald-600" /> Direct Gemini AI OCR
+            </span>
+            <span className={`px-2 py-0.5 text-[10px] font-bold rounded-full border ${
+              activeApiKey
+                ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                : 'bg-amber-50 text-amber-700 border-amber-300 animate-pulse'
+            }`}>
+              {activeApiKey ? 'Connected & Ready' : 'Key Required'}
+            </span>
+          </div>
+
+          <p className="text-xs text-slate-600 leading-relaxed">
+            Running standalone on GitHub Pages with <strong>zero server cold starts</strong>. The browser communicates directly with Google's Gemini Vision API.
+          </p>
+
+          <div className="pt-1 flex items-center justify-between">
+            <div className="text-[11px] text-slate-500 font-mono">
+              {activeApiKey ? `Key: AIza...${activeApiKey.slice(-4)}` : 'No API key set'}
+            </div>
+            <button
+              onClick={() => setShowApiKeyModal(true)}
+              className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors shadow-xs cursor-pointer"
+            >
+              <Zap className="w-3 h-3" />
+              <span>{activeApiKey ? 'Change Key' : 'Configure Key'}</span>
+            </button>
+          </div>
+        </div>
+
         {/* Total Metrics Card */}
         <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm space-y-4">
           <div className="flex items-center justify-between">
@@ -458,6 +499,16 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           </div>
         </div>
       )}
+
+      {/* Gemini API Key Modal */}
+      <ApiKeyModal
+        isOpen={showApiKeyModal}
+        onClose={() => setShowApiKeyModal(false)}
+        onKeySaved={() => {
+          setFeedbackToast('Gemini API key updated!');
+          setTimeout(() => setFeedbackToast(null), 3000);
+        }}
+      />
     </div>
   );
 };

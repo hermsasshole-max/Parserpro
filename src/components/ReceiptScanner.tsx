@@ -1,7 +1,10 @@
 import React, { useState, useRef } from 'react';
-import { UploadCloud, FileType, CheckCircle2, AlertCircle, Loader2, Calendar, Store, ArrowRight, RefreshCw, Camera, Edit3, X, Plus, Trash2 } from 'lucide-react';
+import { UploadCloud, FileType, CheckCircle2, AlertCircle, Loader2, Calendar, Store, ArrowRight, RefreshCw, Camera, Edit3, X, Plus, Trash2, Key, Sparkles, Smartphone } from 'lucide-react';
 import type { ReceiptData, SavedReceipt, LineItem } from '../types';
 import { compressAndPrepareImage } from '../utils/imageUtils';
+import { parseReceiptWithGemini, getActiveGeminiApiKey } from '../utils/geminiVision';
+import { captureReceiptWithNativeCamera, isCapacitorPlatform } from '../utils/nativeCamera';
+import { ApiKeyModal } from './ApiKeyModal';
 
 interface ReceiptScannerProps {
   onReceiptSaved: (receipt: SavedReceipt) => void;
@@ -22,6 +25,10 @@ export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
   const [parsedData, setParsedData] = useState<ReceiptData | null>(null);
   const [savedReceipt, setSavedReceipt] = useState<SavedReceipt | null>(null);
   const [isCopied, setIsCopied] = useState(false);
+
+  // Gemini API Key Modal
+  const [showApiKeyModal, setShowApiKeyModal] = useState(false);
+  const hasConfiguredKey = !!getActiveGeminiApiKey();
 
   // Manual Entry Form State
   const [showManualModal, setShowManualModal] = useState(false);
@@ -73,91 +80,35 @@ export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
   const parseReceipt = async () => {
     if (!file) return;
 
+    // Check if Gemini API key is configured
+    const activeKey = getActiveGeminiApiKey();
+    if (!activeKey) {
+      setShowApiKeyModal(true);
+      return;
+    }
+
     setIsLoading(true);
     setError(null);
     setParsedData(null);
     setSavedReceipt(null);
 
     try {
-      setLoadingStage('Optimizing receipt image...');
-      console.log('[ReceiptScanner] Starting receipt optimization for:', file.name, `(${Math.round(file.size / 1024)} KB)`);
+      setLoadingStage('Optimizing image (Canvas compression)...');
+      console.log('[ReceiptScanner] Starting client-side image compression for:', file.name, `(${Math.round(file.size / 1024)} KB)`);
 
-      // Compress and prepare image to prevent payload overflow / network disconnects
-      const prepared = await compressAndPrepareImage(file);
-      console.log(`[ReceiptScanner] Optimization complete. Sending ${prepared.processedSizeKb} KB payload.`);
+      // 1. Client-Side Compression: max 1600px, JPEG at 0.80 (80%) quality for low memory lag on Android
+      const prepared = await compressAndPrepareImage(file, 1600, 0.80);
+      console.log(`[ReceiptScanner] Optimization complete. Prepared ${prepared.processedSizeKb} KB inline payload.`);
 
-      setLoadingStage('Extracting items with AI OCR...');
-
-      // Attempt multipart form upload with the optimized file, with auto-fallback to JSON base64
-      let data: any = null;
-      let lastErrorMessage = '';
-
-      // Up to 2 attempts for server cold starts (common on free-tier hosting like Render)
-      for (let attempt = 1; attempt <= 2; attempt++) {
-        try {
-          if (attempt > 1) {
-            setLoadingStage(`Waking server & retrying OCR (attempt ${attempt}/2)...`);
-            await new Promise((r) => setTimeout(r, 1500));
-          }
-
-          let response: Response;
-          const formData = new FormData();
-          formData.append('receipt', prepared.file);
-
-          try {
-            response = await fetch('/api/parse-receipt', {
-              method: 'POST',
-              body: formData,
-            });
-          } catch (fetchErr) {
-            // Direct JSON payload fallback if multipart network request fails
-            response = await fetch('/api/parse-receipt', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-              body: JSON.stringify({
-                imageBase64: prepared.base64Data,
-                mimeType: prepared.mimeType,
-              }),
-            });
-          }
-
-          const contentType = response.headers.get('content-type') || '';
-          const responseText = await response.text();
-
-          // Check if server returned HTML (e.g. SPA fallback, 502 Bad Gateway page, or Render spin-up)
-          const trimmed = responseText.trim();
-          if (trimmed.startsWith('<!DOCTYPE') || trimmed.startsWith('<html') || contentType.includes('text/html')) {
-            console.warn('[ReceiptScanner] Server returned HTML instead of JSON. Server may be in cold start.', response.status);
-            lastErrorMessage = 'Server is waking up or returned an HTML page. Please wait 10 seconds and tap Retry, or enter details manually.';
-            if (attempt < 2) continue;
-            throw new Error(lastErrorMessage);
-          }
-
-          try {
-            data = JSON.parse(responseText);
-          } catch (jsonErr) {
-            console.error('[ReceiptScanner] JSON parse error on response:', response.status, responseText);
-            lastErrorMessage = `Server returned an invalid response format (Status ${response.status}). Please retry or use manual entry.`;
-            if (attempt < 2) continue;
-            throw new Error(lastErrorMessage);
-          }
-
-          if (!response.ok) {
-            console.error('[ReceiptScanner] Server error response:', response.status, data);
-            throw new Error(data?.error || `Failed to extract receipt (Status ${response.status})`);
-          }
-
-          // Successfully received valid parsed JSON
-          break;
-        } catch (attemptErr: any) {
-          lastErrorMessage = attemptErr.message || 'Failed to extract receipt';
-          if (attempt === 2) throw attemptErr;
+      // 2. Direct client-side Gemini Vision OCR call with 45s timeout & 3-attempt backoff
+      const data: ReceiptData = await parseReceiptWithGemini(
+        prepared.base64Data,
+        prepared.mimeType,
+        {
+          onProgress: (stage) => setLoadingStage(stage),
+          apiKey: activeKey
         }
-      }
-
-      if (!data) {
-        throw new Error(lastErrorMessage || 'Failed to parse receipt after multiple attempts.');
-      }
+      );
 
       setParsedData(data);
 
@@ -173,7 +124,7 @@ export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
         ...data,
         id: `rec-${Date.now()}`,
         invoice_date: invoiceDate,
-        month_year: monthYear || '2026-08',
+        month_year: monthYear || new Date().toISOString().substring(0, 7),
         created_at: new Date().toISOString(),
         file_name: file.name,
         image_preview: preview || undefined
@@ -181,17 +132,24 @@ export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
 
       setSavedReceipt(newSaved);
       onReceiptSaved(newSaved);
-      console.log('[ReceiptScanner] Receipt successfully processed and filed:', newSaved);
+      console.log('[ReceiptScanner] Receipt successfully processed client-side and filed:', newSaved);
     } catch (err: any) {
       console.error('[ReceiptScanner] Error occurred during receipt parsing:', err);
+
+      const errMsg = err?.message || 'Failed to scan receipt';
+      if (errMsg.includes('MISSING_API_KEY') || errMsg.includes('Invalid Gemini API Key')) {
+        setShowApiKeyModal(true);
+      }
+
       const isNetworkError =
-        err?.message?.includes('Failed to fetch') ||
-        err?.message?.includes('NetworkError') ||
+        errMsg.includes('Failed to fetch') ||
+        errMsg.includes('NetworkError') ||
+        errMsg.includes('Timeout') ||
         err?.name === 'TypeError';
 
       const userMsg = isNetworkError
-        ? 'Connection error while uploading receipt. Please retry.'
-        : (err.message || 'An error occurred during parsing');
+        ? 'Network timeout or connection drop while scanning. Please retry or enter manually.'
+        : errMsg;
 
       setError(userMsg);
     } finally {
@@ -203,7 +161,20 @@ export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
     fileInputRef.current?.click();
   };
 
-  const triggerCameraInput = () => {
+  const triggerCameraInput = async () => {
+    // If running inside Capacitor native Android app, use native camera directly
+    if (isCapacitorPlatform()) {
+      try {
+        const photo = await captureReceiptWithNativeCamera();
+        if (photo) {
+          processSelectedFile(photo.file);
+          return;
+        }
+      } catch (err) {
+        console.warn('[ReceiptScanner] Native camera failed, falling back to input:', err);
+      }
+    }
+    // Fallback for standard mobile browsers and WebView
     cameraInputRef.current?.click();
   };
 
@@ -340,6 +311,18 @@ export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
             </h2>
             <div className="flex items-center gap-2">
               <button
+                onClick={() => setShowApiKeyModal(true)}
+                className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-colors flex items-center gap-1 border ${
+                  hasConfiguredKey
+                    ? 'bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border-emerald-200'
+                    : 'bg-amber-50 hover:bg-amber-100 text-amber-700 border-amber-300 animate-pulse'
+                }`}
+                title="Configure Google Gemini API Key for client-side OCR"
+              >
+                <Key className="w-3.5 h-3.5" />
+                <span>{hasConfiguredKey ? 'Gemini AI Active' : 'Set Gemini Key'}</span>
+              </button>
+              <button
                 onClick={() => setShowManualModal(true)}
                 className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-bold transition-colors flex items-center gap-1 border border-slate-200"
                 title="Enter details manually if receipt is blurred or server is offline"
@@ -394,15 +377,34 @@ export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
               />
 
               {preview ? (
-                <div className="space-y-3 w-full h-full flex flex-col items-center justify-center relative">
-                  <img
-                    src={preview}
-                    alt="Receipt Preview"
-                    className="max-h-[280px] object-contain rounded-lg shadow-sm border border-slate-200 bg-white"
-                  />
-                  <p className="text-xs text-slate-500 font-medium bg-white/90 px-3 py-1 rounded-full shadow-sm border border-slate-200">
-                    {file?.name}
-                  </p>
+                <div className="space-y-3 w-full h-full flex flex-col items-center justify-center relative overflow-hidden rounded-xl">
+                  <div className="relative max-h-[280px] rounded-lg overflow-hidden border border-slate-200 shadow-sm bg-white">
+                    <img
+                      src={preview}
+                      alt="Receipt Preview"
+                      className="max-h-[280px] object-contain rounded-lg"
+                    />
+
+                    {/* Animated Scanning Laser Overlay */}
+                    {isLoading && (
+                      <div className="absolute inset-0 pointer-events-none overflow-hidden rounded-lg bg-emerald-500/10 backdrop-contrast-125">
+                        <div className="absolute left-0 right-0 h-1.5 bg-gradient-to-r from-emerald-400 via-teal-300 to-emerald-400 shadow-[0_0_16px_3px_rgba(16,185,129,0.9)] animate-scan-laser" />
+                        <div className="absolute inset-0 bg-gradient-to-b from-transparent via-emerald-500/15 to-transparent animate-pulse" />
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Active Scan Stage Badge */}
+                  {isLoading ? (
+                    <div className="px-3.5 py-1.5 bg-slate-900/90 text-white rounded-full shadow-lg border border-slate-700 flex items-center gap-2 text-xs font-semibold animate-pulse">
+                      <Sparkles className="w-3.5 h-3.5 text-emerald-400 animate-spin" />
+                      <span className="text-emerald-300">{loadingStage}</span>
+                    </div>
+                  ) : (
+                    <p className="text-xs text-slate-500 font-medium bg-white/90 px-3 py-1 rounded-full shadow-sm border border-slate-200">
+                      {file?.name}
+                    </p>
+                  )}
                 </div>
               ) : file ? (
                 <div className="space-y-3 flex flex-col items-center justify-center text-slate-600">
@@ -741,6 +743,12 @@ export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
           </div>
         </div>
       )}
+
+      {/* Gemini API Key Configuration Modal */}
+      <ApiKeyModal
+        isOpen={showApiKeyModal}
+        onClose={() => setShowApiKeyModal(false)}
+      />
     </div>
   );
 };

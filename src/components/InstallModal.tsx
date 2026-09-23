@@ -24,6 +24,7 @@ export const InstallModal: React.FC<InstallModalProps> = ({
   deferredPrompt,
   onInstallSuccess,
 }) => {
+  const [activeTab, setActiveTab] = useState<'apk' | 'pwa'>('apk');
   const [copied, setCopied] = useState(false);
   const [isAndroid, setIsAndroid] = useState(false);
   const [isStandalone, setIsStandalone] = useState(false);
@@ -128,163 +129,236 @@ export const InstallModal: React.FC<InstallModalProps> = ({
 
         {/* Content Body */}
         <div className="p-6 space-y-5 max-h-[75vh] overflow-y-auto">
-          {/* Standalone state notification */}
-          {isStandalone && (
-            <div className="p-3.5 bg-emerald-50 border border-emerald-200 rounded-xl flex items-center gap-3 text-emerald-800 text-xs font-medium">
-              <Check className="w-5 h-5 text-emerald-600 shrink-0" />
-              <span>You are already running ParserPro in Standalone App Mode!</span>
-            </div>
-          )}
-
-          {/* Instant 1-Click Install Button (When browser trigger is ready) */}
-          <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 flex flex-col sm:flex-row items-center justify-between gap-3">
-            <div className="text-left w-full sm:w-auto">
-              <div className="text-sm font-bold text-slate-800 flex items-center gap-2">
-                <Download className="w-4 h-4 text-emerald-600" />
-                1-Click Direct Install
-              </div>
-              <p className="text-xs text-slate-500 mt-0.5">
-                {deferredPrompt 
-                  ? 'Ready to install on this device right now' 
-                  : 'Triggers Android Chrome native install popup'}
-              </p>
-            </div>
+          {/* Tab Navigation between Native APK & PWA */}
+          <div className="flex bg-slate-100 p-1 rounded-xl border border-slate-200">
             <button
-              onClick={handleTriggerInstall}
-              disabled={installing}
-              className="w-full sm:w-auto px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white font-bold text-xs rounded-xl transition-all shadow-md hover:shadow-lg flex items-center justify-center gap-2 shrink-0 disabled:opacity-50"
+              onClick={() => setActiveTab('apk')}
+              className={`flex-1 py-2 px-3 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                activeTab === 'apk'
+                  ? 'bg-emerald-600 text-white shadow-sm'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
             >
-              <Download className="w-4 h-4" />
-              <span>{installing ? 'Prompting...' : 'Install on Android'}</span>
+              <Smartphone className="w-3.5 h-3.5" />
+              <span>Native Android APK</span>
+            </button>
+            <button
+              onClick={() => setActiveTab('pwa')}
+              className={`flex-1 py-2 px-3 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                activeTab === 'pwa'
+                  ? 'bg-white text-slate-900 shadow-sm'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              <Sparkles className="w-3.5 h-3.5" />
+              <span>Mobile PWA & QR</span>
             </button>
           </div>
 
-          {installStatus && (
-            <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-900 font-medium">
-              {installStatus}
-            </div>
-          )}
-
-          {/* Quick QR Code for Scanning from PC / Preview */}
-          <div className="border border-slate-200 rounded-xl p-4 bg-white">
-            <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-slate-500 mb-3">
-              <QrCode className="w-4 h-4 text-emerald-600" />
-              <span>Scan QR Code with Android Phone Camera</span>
-            </div>
-
-            <div className="flex flex-col sm:flex-row items-center gap-4">
-              <div className="p-2 bg-slate-50 border border-slate-200 rounded-xl shrink-0 shadow-inner">
-                <img
-                  src={qrCodeUrl}
-                  alt="Scan on Android Phone"
-                  className="w-28 h-28 object-contain"
-                  referrerPolicy="no-referrer"
-                />
-              </div>
-              <div className="space-y-2 text-xs text-slate-600">
-                <p className="leading-relaxed">
-                  Open your <strong>Android Camera</strong> or <strong>Google Lens</strong> and point it at this QR code to open the app on your phone.
+          {activeTab === 'apk' ? (
+            /* Native Android APK Build & Download Guide */
+            <div className="space-y-4">
+              <div className="p-4 bg-emerald-50/80 border border-emerald-200 rounded-xl space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold uppercase tracking-wider text-emerald-800 flex items-center gap-1.5">
+                    <Check className="w-4 h-4 text-emerald-600" /> Capacitor + Gradle Configured
+                  </span>
+                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-200/80 text-emerald-900">
+                    GitHub Actions Ready
+                  </span>
+                </div>
+                <p className="text-xs text-emerald-950 leading-relaxed">
+                  Your project is packaged with <strong>@capacitor/core</strong> and native permissions in <code className="bg-emerald-100 px-1 py-0.5 rounded text-[11px] font-mono">AndroidManifest.xml</code>. Download the APK artifact directly from GitHub without needing Android Studio installed!
                 </p>
-                <div className="flex flex-wrap items-center gap-2 pt-1">
-                  <button
-                    onClick={handleCopyLink}
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-lg transition-colors border border-slate-200"
-                  >
-                    {copied ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
-                    <span>{copied ? 'Link Copied!' : 'Copy App Link'}</span>
-                  </button>
-
-                  <button
-                    onClick={handleNativeShare}
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 font-bold text-xs rounded-lg transition-colors border border-emerald-200"
-                  >
-                    <Share2 className="w-3.5 h-3.5" />
-                    <span>Share to Phone</span>
-                  </button>
-                </div>
               </div>
-            </div>
-          </div>
 
-          {/* 3 Step Android Chrome Manual Instructions */}
-          <div className="space-y-3">
-            <div className="text-xs font-bold uppercase tracking-wider text-slate-500">
-              Manual 3-Step Guide (Chrome for Android)
-            </div>
-
-            <div className="grid grid-cols-1 gap-2.5 text-xs">
-              <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl flex items-start gap-3">
-                <div className="w-6 h-6 rounded-full bg-emerald-600 text-white flex items-center justify-center font-bold text-xs shrink-0">
-                  1
+              {/* Steps to Download APK */}
+              <div className="space-y-3">
+                <div className="text-xs font-bold uppercase tracking-wider text-slate-500">
+                  How to get your .APK from GitHub Actions:
                 </div>
-                <div>
-                  <div className="font-bold text-slate-800">Open in Chrome or Samsung Internet</div>
-                  <div className="text-slate-500 mt-0.5">
-                    Navigate to this app link on your Android browser.
+
+                <div className="space-y-2.5 text-xs">
+                  <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl flex items-start gap-3">
+                    <div className="w-6 h-6 rounded-full bg-emerald-600 text-white flex items-center justify-center font-bold text-xs shrink-0">
+                      1
+                    </div>
+                    <div>
+                      <div className="font-bold text-slate-800">Push to GitHub or Run Workflow</div>
+                      <div className="text-slate-500 mt-0.5 leading-relaxed">
+                        Push your code to the <code className="font-mono bg-slate-200 px-1 rounded text-[11px]">main</code> branch, or open your GitHub repo &gt; <strong>Actions</strong> &gt; <strong>Build Android APK (Capacitor)</strong> &gt; <strong>Run workflow</strong>.
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl flex items-start gap-3">
+                    <div className="w-6 h-6 rounded-full bg-emerald-600 text-white flex items-center justify-center font-bold text-xs shrink-0">
+                      2
+                    </div>
+                    <div>
+                      <div className="font-bold text-slate-800">Wait for Build Completion (~2 mins)</div>
+                      <div className="text-slate-500 mt-0.5 leading-relaxed">
+                        GitHub Actions installs the Android SDK, syncs Capacitor, and runs <code className="font-mono bg-slate-200 px-1 rounded text-[11px]">./gradlew assembleDebug</code>.
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl flex items-start gap-3">
+                    <div className="w-6 h-6 rounded-full bg-emerald-600 text-white flex items-center justify-center font-bold text-xs shrink-0">
+                      3
+                    </div>
+                    <div>
+                      <div className="font-bold text-slate-800">Download Artifact on your Phone</div>
+                      <div className="text-slate-500 mt-0.5 leading-relaxed">
+                        Click the completed workflow run, scroll down to <strong>Artifacts</strong>, and download <strong className="text-emerald-700">receipt-scanner-android-apk</strong> (<code className="font-mono text-[11px]">app-debug.apk</code>). Tap to install on your phone!
+                      </div>
+                    </div>
                   </div>
                 </div>
               </div>
 
-              <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl flex items-start gap-3">
-                <div className="w-6 h-6 rounded-full bg-emerald-600 text-white flex items-center justify-center font-bold text-xs shrink-0">
-                  2
+              {/* CLI Command Summary for Local Dev */}
+              <div className="border border-slate-200 rounded-xl p-3.5 bg-slate-900 text-slate-200 space-y-2">
+                <div className="text-[11px] font-bold text-emerald-400 uppercase tracking-wider">
+                  Local Android Commands:
                 </div>
-                <div>
-                  <div className="font-bold text-slate-800">Tap Browser Menu (3 Dots ⋮)</div>
-                  <div className="text-slate-500 mt-0.5">
-                    Tap the three dots in the top right corner of Chrome and select <strong>"Install app"</strong> or <strong>"Add to Home screen"</strong>.
+                <div className="space-y-1 font-mono text-[11px]">
+                  <div className="text-slate-400"># Sync web dist to Android:</div>
+                  <div className="text-emerald-300 bg-slate-800/80 px-2 py-1 rounded">npm run android:sync</div>
+                  <div className="text-slate-400 pt-1"># Build dist & sync:</div>
+                  <div className="text-emerald-300 bg-slate-800/80 px-2 py-1 rounded">npm run android:build</div>
+                  <div className="text-slate-400 pt-1"># Open in Android Studio:</div>
+                  <div className="text-emerald-300 bg-slate-800/80 px-2 py-1 rounded">npm run android:open</div>
+                </div>
+              </div>
+            </div>
+          ) : (
+            /* Mobile PWA & QR Code Section */
+            <>
+              {/* Standalone state notification */}
+              {isStandalone && (
+                <div className="p-3.5 bg-emerald-50 border border-emerald-200 rounded-xl flex items-center gap-3 text-emerald-800 text-xs font-medium">
+                  <Check className="w-5 h-5 text-emerald-600 shrink-0" />
+                  <span>You are already running ParserPro in Standalone App Mode!</span>
+                </div>
+              )}
+
+              {/* Instant 1-Click Install Button */}
+              <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 flex flex-col sm:flex-row items-center justify-between gap-3">
+                <div className="text-left w-full sm:w-auto">
+                  <div className="text-sm font-bold text-slate-800 flex items-center gap-2">
+                    <Download className="w-4 h-4 text-emerald-600" />
+                    1-Click Direct Install
+                  </div>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    {deferredPrompt 
+                      ? 'Ready to install on this device right now' 
+                      : 'Triggers Android Chrome native install popup'}
+                  </p>
+                </div>
+                <button
+                  onClick={handleTriggerInstall}
+                  disabled={installing}
+                  className="w-full sm:w-auto px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white font-bold text-xs rounded-xl transition-all shadow-md hover:shadow-lg flex items-center justify-center gap-2 shrink-0 disabled:opacity-50 cursor-pointer"
+                >
+                  <Download className="w-4 h-4" />
+                  <span>{installing ? 'Prompting...' : 'Install on Android'}</span>
+                </button>
+              </div>
+
+              {installStatus && (
+                <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-900 font-medium">
+                  {installStatus}
+                </div>
+              )}
+
+              {/* Quick QR Code for Scanning from PC / Preview */}
+              <div className="border border-slate-200 rounded-xl p-4 bg-white">
+                <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-slate-500 mb-3">
+                  <QrCode className="w-4 h-4 text-emerald-600" />
+                  <span>Scan QR Code with Android Phone Camera</span>
+                </div>
+
+                <div className="flex flex-col sm:flex-row items-center gap-4">
+                  <div className="p-2 bg-slate-50 border border-slate-200 rounded-xl shrink-0 shadow-inner">
+                    <img
+                      src={qrCodeUrl}
+                      alt="Scan on Android Phone"
+                      className="w-28 h-28 object-contain"
+                      referrerPolicy="no-referrer"
+                    />
+                  </div>
+                  <div className="space-y-2 text-xs text-slate-600">
+                    <p className="leading-relaxed">
+                      Open your <strong>Android Camera</strong> or <strong>Google Lens</strong> and point it at this QR code to open the app on your phone.
+                    </p>
+                    <div className="flex flex-wrap items-center gap-2 pt-1">
+                      <button
+                        onClick={handleCopyLink}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-lg transition-colors border border-slate-200 cursor-pointer"
+                      >
+                        {copied ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
+                        <span>{copied ? 'Link Copied!' : 'Copy App Link'}</span>
+                      </button>
+
+                      <button
+                        onClick={handleNativeShare}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 font-bold text-xs rounded-lg transition-colors border border-emerald-200 cursor-pointer"
+                      >
+                        <Share2 className="w-3.5 h-3.5" />
+                        <span>Share to Phone</span>
+                      </button>
+                    </div>
                   </div>
                 </div>
               </div>
 
-              <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl flex items-start gap-3">
-                <div className="w-6 h-6 rounded-full bg-emerald-600 text-white flex items-center justify-center font-bold text-xs shrink-0">
-                  3
+              {/* 3 Step Android Chrome Manual Instructions */}
+              <div className="space-y-3">
+                <div className="text-xs font-bold uppercase tracking-wider text-slate-500">
+                  Manual 3-Step Guide (Chrome for Android)
                 </div>
-                <div>
-                  <div className="font-bold text-slate-800">Tap Install to Confirm</div>
-                  <div className="text-slate-500 mt-0.5">
-                    ParserPro will be added directly to your Android Home Screen & App Drawer like a native app.
+
+                <div className="grid grid-cols-1 gap-2.5 text-xs">
+                  <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl flex items-start gap-3">
+                    <div className="w-6 h-6 rounded-full bg-emerald-600 text-white flex items-center justify-center font-bold text-xs shrink-0">
+                      1
+                    </div>
+                    <div>
+                      <div className="font-bold text-slate-800">Open in Chrome or Samsung Internet</div>
+                      <div className="text-slate-500 mt-0.5">
+                        Navigate to this app link on your Android browser.
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl flex items-start gap-3">
+                    <div className="w-6 h-6 rounded-full bg-emerald-600 text-white flex items-center justify-center font-bold text-xs shrink-0">
+                      2
+                    </div>
+                    <div>
+                      <div className="font-bold text-slate-800">Tap Browser Menu (3 Dots ⋮)</div>
+                      <div className="text-slate-500 mt-0.5">
+                        Tap the three dots in the top right corner of Chrome and select <strong>"Install app"</strong> or <strong>"Add to Home screen"</strong>.
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl flex items-start gap-3">
+                    <div className="w-6 h-6 rounded-full bg-emerald-600 text-white flex items-center justify-center font-bold text-xs shrink-0">
+                      3
+                    </div>
+                    <div>
+                      <div className="font-bold text-slate-800">Tap Install to Confirm</div>
+                      <div className="text-slate-500 mt-0.5">
+                        ParserPro will be added directly to your Android Home Screen & App Drawer like a native app.
+                      </div>
+                    </div>
                   </div>
                 </div>
               </div>
-            </div>
-          </div>
-
-          {/* PWABuilder APK Generator Section */}
-          <div className="border border-teal-200 bg-teal-50/60 rounded-xl p-4 space-y-2.5">
-            <div className="flex items-center justify-between">
-              <div className="text-xs font-bold text-teal-900 flex items-center gap-1.5">
-                <ExternalLink className="w-3.5 h-3.5 text-teal-700" />
-                <span>Package as .APK with PWABuilder</span>
-              </div>
-              <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 border border-emerald-300">
-                Manifest 100% Ready
-              </span>
-            </div>
-            <p className="text-[11px] text-teal-800 leading-relaxed">
-              The Web App Manifest (<code className="bg-white/80 px-1 py-0.5 rounded border border-teal-200 text-teal-900 font-mono">manifest.json</code>) has been generated with 192px/512px PNG icons, maskable icons, screenshots, and Service Worker caching for PWABuilder.
-            </p>
-            <div className="flex items-center gap-2 pt-1">
-              <a
-                href={`https://www.pwabuilder.com/reportcard?site=${encodeURIComponent(currentUrl)}`}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-teal-700 hover:bg-teal-800 text-white font-bold text-xs rounded-lg transition-colors shadow-xs"
-              >
-                <span>Open in PWABuilder</span>
-                <ExternalLink className="w-3 h-3" />
-              </a>
-              <a
-                href="/manifest.json"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-1 px-2.5 py-1.5 bg-white hover:bg-slate-100 text-slate-700 font-medium text-xs rounded-lg transition-colors border border-slate-300"
-              >
-                <span>View Manifest</span>
-              </a>
-            </div>
-          </div>
+            </>
+          )}
         </div>
 
         {/* Modal Footer */}

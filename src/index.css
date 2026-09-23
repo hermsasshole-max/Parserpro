@@ -50,3 +50,22 @@
     display: none !important;
   }
 }
+
+@keyframes scanLaser {
+  0% {
+    top: 2%;
+    opacity: 0.9;
+  }
+  50% {
+    opacity: 1;
+  }
+  100% {
+    top: 96%;
+    opacity: 0.9;
+  }
+}
+
+.animate-scan-laser {
+  animation: scanLaser 2s ease-in-out infinite alternate;
+}
+

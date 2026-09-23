@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+    <title>ParserPro - Household Receipt & Expenditure Tracker</title>
+    <meta name="description" content="Scan household receipts, extract items with AI OCR, file by month and date, and generate live month-to-month expenditure reports." />
+    <meta name="theme-color" content="#059669" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-title" content="ParserPro" />
+    <meta name="application-name" content="ParserPro" />
+    <link rel="manifest" href="./manifest.json" />
+    <link rel="icon" type="image/png" sizes="192x192" href="./icon-192.png" />
+    <link rel="icon" type="image/png" sizes="512x512" href="./icon-512.png" />
+    <link rel="icon" type="image/svg+xml" href="./icon.svg" />
+    <link rel="apple-touch-icon" sizes="192x192" href="./icon-192.png" />
+    <link rel="apple-touch-icon" sizes="512x512" href="./icon-512.png" />
+    <meta property="og:title" content="ParserPro - Household Receipt & Expenditure Tracker" />
+    <meta property="og:description" content="AI Receipt scanner, automated monthly filing by date, and live month-to-month expenditure reports." />
+    <meta property="og:type" content="website" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <script>
+      if ('serviceWorker' in navigator) {
+        window.addEventListener('DOMContentLoaded', function() {
+          var swUrl = './sw.js';
+          navigator.serviceWorker.register(swUrl)
+            .then(function(registration) {
+              console.log('[PWA] Service Worker registered successfully at:', registration.scope);
+            })
+            .catch(function(err) {
+              console.warn('[PWA] Service Worker failed to register:', err);
+            });
+        });
+      }
+    </script>
+    <script type="module" crossorigin src="./assets/index-CKPTB0ue.js"></script>
+    <link rel="stylesheet" crossorigin href="./assets/index-DUXMS7zI.css">
+  </head>
+  <body>
+    <div id="root">
+      <div id="app-initial-splash" style="position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; background-color: #f8fafc; font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; color: #0f172a; padding: 24px; text-align: center; z-index: 9999;">
+        <div style="width: 68px; height: 68px; background: #059669; border-radius: 18px; display: flex; align-items: center; justify-content: center; box-shadow: 0 10px 25px -5px rgba(5, 150, 105, 0.4); margin-bottom: 20px;">
+          <svg style="width: 38px; height: 38px; color: white;" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+          </svg>
+        </div>
+        <div style="font-size: 22px; font-weight: 800; letter-spacing: -0.5px; margin-bottom: 8px;">
+          Parser<span style="color: #059669;">Pro</span>
+        </div>
+        <div style="font-size: 13px; color: #64748b; font-weight: 500; margin-bottom: 24px;">
+          Expenditure & Grocery Intelligence
+        </div>
+        <div style="display: inline-flex; align-items: center; gap: 8px; font-size: 12px; color: #059669; font-weight: 600; background: #ecfdf5; padding: 6px 14px; border-radius: 20px; border: 1px solid #a7f3d0;">
+          <span style="display: inline-block; width: 8px; height: 8px; background: #059669; border-radius: 50%;"></span>
+          Loading application...
+        </div>
+        <div id="splash-error" style="display: none; margin-top: 24px; max-width: 320px;">
+          <div style="font-size: 12px; color: #ef4444; margin-bottom: 12px;">App is taking longer to start or encountered a network issue.</div>
+          <button onclick="window.location.reload()" style="padding: 8px 18px; background: #059669; color: white; border: none; border-radius: 10px; font-size: 12px; font-weight: bold; cursor: pointer;">
+            Reload Application
+          </button>
+        </div>
+      </div>
+      <script>
+        setTimeout(function() {
+          var errDiv = document.getElementById('splash-error');
+          if (errDiv && document.getElementById('app-initial-splash')) {
+            errDiv.style.display = 'block';
+          }
+        }, 6000);
+      </script>
+    </div>
+  </body>
+</html>
+

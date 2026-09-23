@@ -1,0 +1,32 @@
+{
+  "type": "AdaptiveCard",
+  "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+  "version": "1.5",
+  "body": [
+    {
+      "type": "TextBlock",
+      "text": "ParserPro Expense Tracker",
+      "weight": "Bolder",
+      "size": "Medium",
+      "color": "Good"
+    },
+    {
+      "type": "TextBlock",
+      "text": "${monthlyTotal}",
+      "size": "ExtraLarge",
+      "weight": "Bolder"
+    },
+    {
+      "type": "TextBlock",
+      "text": "${receiptCount} receipts filed this month",
+      "isSubtle": true
+    }
+  ],
+  "actions": [
+    {
+      "type": "Action.OpenUrl",
+      "title": "Scan Receipt",
+      "url": "https://ais-pre-2rlwl6cro4ngjv3tqdpf67-598552103997.europe-west2.run.app/?tab=scanner"
+    }
+  ]
+}
