@@ -11,7 +11,6 @@ import { EditReceiptModal } from './components/EditReceiptModal';
 import { InstallModal } from './components/InstallModal';
 import { GlobalSearchModal } from './components/GlobalSearchModal';
 import { QuickMenuModal } from './components/QuickMenuModal';
-import { ApiKeyModal } from './components/ApiKeyModal';
 import { INITIAL_SAMPLE_RECEIPTS } from './sampleData';
 import type { SavedReceipt } from './types';
 
@@ -58,7 +57,6 @@ export default function App() {
   const [isInstallModalOpen, setIsInstallModalOpen] = useState(false);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [isQuickMenuOpen, setIsQuickMenuOpen] = useState(false);
-  const [showApiKeyModal, setShowApiKeyModal] = useState(false);
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
   const [saveToast, setSaveToast] = useState<{ message: string; month?: string } | null>(null);
 
@@ -310,7 +308,6 @@ export default function App() {
         onOpenPrintReport={() => setIsPrintModalOpen(true)}
         onOpenInstallModal={() => setIsInstallModalOpen(true)}
         onLoadSampleData={handleLoadSampleData}
-        onOpenApiKeyModal={() => setShowApiKeyModal(true)}
         receiptCount={receipts.length}
       />
 
@@ -350,19 +347,6 @@ export default function App() {
           deferredPrompt={deferredPrompt}
           onInstallSuccess={() => {
             setIsInstallModalOpen(false);
-          }}
-        />
-      )}
-
-      {/* Gemini API Key Modal */}
-      {showApiKeyModal && (
-        <ApiKeyModal
-          isOpen={showApiKeyModal}
-          onClose={() => setShowApiKeyModal(false)}
-          onKeySaved={() => {
-            setShowApiKeyModal(false);
-            setSaveToast({ message: 'Gemini API Key saved successfully!' });
-            setTimeout(() => setSaveToast(null), 3000);
           }}
         />
       )}

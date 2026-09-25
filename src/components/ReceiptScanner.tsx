@@ -1,10 +1,9 @@
 import React, { useState, useRef } from 'react';
-import { UploadCloud, FileType, CheckCircle2, AlertCircle, Loader2, Calendar, Store, ArrowRight, RefreshCw, Camera, Edit3, X, Plus, Trash2, Key, Sparkles, Smartphone } from 'lucide-react';
+import { UploadCloud, FileType, CheckCircle2, AlertCircle, Loader2, Calendar, Store, ArrowRight, RefreshCw, Camera, Edit3, X, Plus, Trash2, Sparkles, Smartphone } from 'lucide-react';
 import type { ReceiptData, SavedReceipt, LineItem } from '../types';
 import { compressAndPrepareImage } from '../utils/imageUtils';
 import { parseReceiptWithGemini, getActiveGeminiApiKey } from '../utils/geminiVision';
 import { captureReceiptWithNativeCamera, isCapacitorPlatform } from '../utils/nativeCamera';
-import { ApiKeyModal } from './ApiKeyModal';
 
 interface ReceiptScannerProps {
   onReceiptSaved: (receipt: SavedReceipt) => void;
@@ -25,10 +24,6 @@ export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
   const [parsedData, setParsedData] = useState<ReceiptData | null>(null);
   const [savedReceipt, setSavedReceipt] = useState<SavedReceipt | null>(null);
   const [isCopied, setIsCopied] = useState(false);
-
-  // Gemini API Key Modal
-  const [showApiKeyModal, setShowApiKeyModal] = useState(false);
-  const hasConfiguredKey = !!getActiveGeminiApiKey();
 
   // Manual Entry Form State
   const [showManualModal, setShowManualModal] = useState(false);
@@ -80,13 +75,6 @@ export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
   const parseReceipt = async () => {
     if (!file) return;
 
-    // Check if Gemini API key is configured
-    const activeKey = getActiveGeminiApiKey();
-    if (!activeKey) {
-      setShowApiKeyModal(true);
-      return;
-    }
-
     setIsLoading(true);
     setError(null);
     setParsedData(null);
@@ -100,15 +88,54 @@ export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
       const prepared = await compressAndPrepareImage(file, 1600, 0.80);
       console.log(`[ReceiptScanner] Optimization complete. Prepared ${prepared.processedSizeKb} KB inline payload.`);
 
-      // 2. Direct client-side Gemini Vision OCR call with 45s timeout & 3-attempt backoff
-      const data: ReceiptData = await parseReceiptWithGemini(
-        prepared.base64Data,
-        prepared.mimeType,
-        {
-          onProgress: (stage) => setLoadingStage(stage),
-          apiKey: activeKey
+      let data: ReceiptData | null = null;
+      let lastErr: any = null;
+
+      // 2. Try server-side proxy route (/api/parse-receipt)
+      try {
+        setLoadingStage('Scanning receipt with AI Vision engine...');
+        const res = await fetch('/api/parse-receipt', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            imageBase64: prepared.base64Data,
+            mimeType: prepared.mimeType,
+          }),
+        });
+
+        if (res.ok) {
+          data = await res.json();
+          console.log('[ReceiptScanner] Successfully parsed receipt via server proxy');
+        } else {
+          const errData = await res.json().catch(() => ({}));
+          console.warn('[ReceiptScanner] Server OCR failed:', errData);
+          lastErr = new Error(errData.error || `Server OCR returned ${res.status}`);
         }
-      );
+      } catch (networkErr: any) {
+        console.warn('[ReceiptScanner] Server proxy unreachable, checking client fallback:', networkErr);
+        lastErr = networkErr;
+      }
+
+      // 3. Fallback to client-side GoogleGenAI if client has a configured key
+      if (!data) {
+        const clientKey = getActiveGeminiApiKey();
+        if (clientKey) {
+          data = await parseReceiptWithGemini(
+            prepared.base64Data,
+            prepared.mimeType,
+            {
+              onProgress: (stage) => setLoadingStage(stage),
+              apiKey: clientKey,
+            }
+          );
+        } else if (lastErr) {
+          throw lastErr;
+        } else {
+          throw new Error('Could not parse receipt. Please verify image clarity or enter manually.');
+        }
+      }
 
       setParsedData(data);
 
@@ -132,15 +159,11 @@ export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
 
       setSavedReceipt(newSaved);
       onReceiptSaved(newSaved);
-      console.log('[ReceiptScanner] Receipt successfully processed client-side and filed:', newSaved);
+      console.log('[ReceiptScanner] Receipt successfully processed and filed:', newSaved);
     } catch (err: any) {
       console.error('[ReceiptScanner] Error occurred during receipt parsing:', err);
 
       const errMsg = err?.message || 'Failed to scan receipt';
-      if (errMsg.includes('MISSING_API_KEY') || errMsg.includes('Invalid Gemini API Key')) {
-        setShowApiKeyModal(true);
-      }
-
       const isNetworkError =
         errMsg.includes('Failed to fetch') ||
         errMsg.includes('NetworkError') ||
@@ -310,18 +333,13 @@ export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
               )}
             </h2>
             <div className="flex items-center gap-2">
-              <button
-                onClick={() => setShowApiKeyModal(true)}
-                className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-colors flex items-center gap-1 border ${
-                  hasConfiguredKey
-                    ? 'bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border-emerald-200'
-                    : 'bg-amber-50 hover:bg-amber-100 text-amber-700 border-amber-300 animate-pulse'
-                }`}
-                title="Configure Google Gemini API Key for client-side OCR"
+              <div
+                className="px-2.5 py-1 rounded-lg text-xs font-bold flex items-center gap-1.5 border bg-emerald-50 text-emerald-700 border-emerald-200"
+                title="Google Gemini Vision OCR Active"
               >
-                <Key className="w-3.5 h-3.5" />
-                <span>{hasConfiguredKey ? 'Gemini AI Active' : 'Set Gemini Key'}</span>
-              </button>
+                <Sparkles className="w-3.5 h-3.5 text-emerald-600" />
+                <span>AI OCR Ready</span>
+              </div>
               <button
                 onClick={() => setShowManualModal(true)}
                 className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-bold transition-colors flex items-center gap-1 border border-slate-200"
@@ -743,12 +761,6 @@ export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
           </div>
         </div>
       )}
-
-      {/* Gemini API Key Configuration Modal */}
-      <ApiKeyModal
-        isOpen={showApiKeyModal}
-        onClose={() => setShowApiKeyModal(false)}
-      />
     </div>
   );
 };

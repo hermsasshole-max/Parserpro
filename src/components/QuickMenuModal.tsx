@@ -12,7 +12,6 @@ import {
   Download,
   Upload,
   Database,
-  Key,
   RotateCcw,
   Sparkles,
   ChevronRight,
@@ -30,7 +29,6 @@ interface QuickMenuModalProps {
   onOpenPrintReport: () => void;
   onOpenInstallModal: () => void;
   onLoadSampleData: () => void;
-  onOpenApiKeyModal: () => void;
   receiptCount: number;
 }
 
@@ -44,7 +42,6 @@ export const QuickMenuModal: React.FC<QuickMenuModalProps> = ({
   onOpenPrintReport,
   onOpenInstallModal,
   onLoadSampleData,
-  onOpenApiKeyModal,
   receiptCount
 }) => {
   if (!isOpen) return null;
@@ -228,13 +225,13 @@ export const QuickMenuModal: React.FC<QuickMenuModalProps> = ({
               </button>
 
               <button
-                onClick={() => handleAction(onOpenApiKeyModal)}
+                onClick={() => handleAction(() => onNavigate('settings'))}
                 className="p-2.5 rounded-lg border border-slate-200 hover:bg-slate-50 flex items-center gap-2.5 text-left text-slate-700 cursor-pointer"
               >
-                <Key className="w-4 h-4 text-amber-600 shrink-0" />
+                <Settings className="w-4 h-4 text-emerald-600 shrink-0" />
                 <div>
-                  <span className="font-bold">Gemini API Key Settings</span>
-                  <span className="block text-[10px] text-slate-500">Custom Google GenAI Key</span>
+                  <span className="font-bold">Settings & Ledger Control</span>
+                  <span className="block text-[10px] text-slate-500">Backups, Reset Totals & Data</span>
                 </div>
               </button>
             </div>
