@@ -1,7 +1,29 @@
 import React, { useState } from 'react';
-import { Printer, Download, X, FileText, Check, TrendingDown, TrendingUp } from 'lucide-react';
+import { 
+  Printer, 
+  Download, 
+  X, 
+  FileText, 
+  Check, 
+  TrendingDown, 
+  TrendingUp, 
+  Share2, 
+  FileDown, 
+  Loader2,
+  Smartphone
+} from 'lucide-react';
 import type { SavedReceipt } from '../types';
-import { compareMonths, exportComparisonToCSV, generateMonthlyMarkdownReport, exportMarkdownReport } from '../utils/reportUtils';
+import { 
+  compareMonths, 
+  exportComparisonToCSV, 
+  generateMonthlyMarkdownReport, 
+  exportMarkdownReport 
+} from '../utils/reportUtils';
+import { 
+  downloadComparisonPDF, 
+  shareOrSavePDF, 
+  printReportSafely 
+} from '../utils/pdfGenerator';
 
 interface PrintableReportModalProps {
   receipts: SavedReceipt[];
@@ -17,11 +39,45 @@ export const PrintableReportModal: React.FC<PrintableReportModalProps> = ({
   onClose
 }) => {
   const [copiedMd, setCopiedMd] = useState(false);
+  const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
+  const [pdfSuccess, setPdfSuccess] = useState<string | null>(null);
   const comparison = compareMonths(monthA, monthB, receipts);
   const isNetSaving = comparison.totalDiff < 0;
 
+  const handleDownloadPDF = async () => {
+    setIsGeneratingPdf(true);
+    setPdfSuccess(null);
+    try {
+      const ok = await downloadComparisonPDF(monthA, monthB, receipts);
+      if (ok) {
+        setPdfSuccess('PDF downloaded to your device Downloads folder!');
+        setTimeout(() => setPdfSuccess(null), 4000);
+      }
+    } catch (e) {
+      console.error('PDF generation error:', e);
+    } finally {
+      setIsGeneratingPdf(false);
+    }
+  };
+
+  const handleShareOrSavePDF = async () => {
+    setIsGeneratingPdf(true);
+    setPdfSuccess(null);
+    try {
+      const ok = await shareOrSavePDF(monthA, monthB, receipts);
+      if (ok) {
+        setPdfSuccess('PDF ready! Opened Android Share or saved to Downloads.');
+        setTimeout(() => setPdfSuccess(null), 4000);
+      }
+    } catch (e) {
+      console.error('PDF share error:', e);
+    } finally {
+      setIsGeneratingPdf(false);
+    }
+  };
+
   const handlePrint = () => {
-    window.print();
+    printReportSafely(monthA, monthB, receipts);
   };
 
   const handleExportCSV = () => {
@@ -48,57 +104,109 @@ export const PrintableReportModal: React.FC<PrintableReportModalProps> = ({
   return (
     <div className="fixed inset-0 z-50 bg-slate-900/70 backdrop-blur-xs flex flex-col items-center justify-start overflow-y-auto p-2 sm:p-6">
       {/* Top Action Bar (hidden on print) */}
-      <div className="w-full max-w-4xl bg-slate-900 text-white p-3 sm:p-4 rounded-2xl mb-4 flex flex-wrap items-center justify-between gap-3 shadow-xl no-print">
-        <div className="flex items-center gap-2">
-          <div className="w-8 h-8 rounded-lg bg-emerald-600 flex items-center justify-center">
-            <Printer className="w-4 h-4 text-white" />
+      <div className="w-full max-w-4xl bg-slate-900 text-white p-3 sm:p-4 rounded-2xl mb-4 flex flex-col gap-3 shadow-xl no-print">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <div className="w-8 h-8 rounded-lg bg-emerald-600 flex items-center justify-center shrink-0">
+              <Printer className="w-4 h-4 text-white" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h3 className="text-sm font-bold">Month-to-Month Expenditure Report</h3>
+                <span className="hidden sm:inline-block px-1.5 py-0.2 bg-emerald-500/20 text-emerald-300 text-[10px] font-bold rounded border border-emerald-400/30">
+                  Direct PDF Export
+                </span>
+              </div>
+              <p className="text-[11px] text-slate-400">
+                Download a clean vector PDF to your Android device, share, or print directly.
+              </p>
+            </div>
           </div>
-          <div>
-            <h3 className="text-sm font-bold">Month-to-Month Report Preview</h3>
-            <p className="text-[11px] text-slate-400">
-              Print directly or choose &quot;Save as PDF&quot; in the browser print dialog
-            </p>
+
+          <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap">
+            {/* Primary Download PDF Button */}
+            <button
+              onClick={handleDownloadPDF}
+              disabled={isGeneratingPdf}
+              className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white text-xs font-bold rounded-xl flex items-center gap-1.5 transition-colors shadow-sm cursor-pointer"
+              title="Generate and download exact PDF file to your device"
+            >
+              {isGeneratingPdf ? (
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              ) : (
+                <FileDown className="w-3.5 h-3.5" />
+              )}
+              <span>{isGeneratingPdf ? 'Generating PDF...' : 'Download PDF (.pdf)'}</span>
+            </button>
+
+            {/* Android Share / Save to Drive */}
+            <button
+              onClick={handleShareOrSavePDF}
+              disabled={isGeneratingPdf}
+              className="hidden sm:flex px-3 py-1.5 bg-slate-800 hover:bg-slate-700 disabled:opacity-50 text-emerald-300 text-xs font-bold rounded-xl items-center gap-1.5 transition-colors border border-emerald-500/30 cursor-pointer"
+              title="Save to Android Files, Google Drive, or share via WhatsApp"
+            >
+              <Share2 className="w-3.5 h-3.5" />
+              <span>Share / Save</span>
+            </button>
+
+            {/* Safe Print Button */}
+            <button
+              onClick={handlePrint}
+              className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold rounded-xl flex items-center gap-1.5 transition-colors border border-slate-700 cursor-pointer"
+              title="Open browser print dialog"
+            >
+              <Printer className="w-3.5 h-3.5" />
+              <span>Print</span>
+            </button>
+
+            {/* CSV Export */}
+            <button
+              onClick={handleExportCSV}
+              className="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold rounded-xl flex items-center gap-1.5 transition-colors border border-slate-700 cursor-pointer"
+              title="Export as CSV spreadsheet"
+            >
+              <Download className="w-3.5 h-3.5" />
+              <span>CSV</span>
+            </button>
+
+            {/* Markdown Export */}
+            <button
+              onClick={handleExportMarkdown}
+              className="hidden md:flex px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold rounded-xl items-center gap-1.5 transition-colors border border-slate-700 cursor-pointer"
+              title="Download formatted Markdown (.md) file"
+            >
+              <Download className="w-3.5 h-3.5" />
+              <span>.MD</span>
+            </button>
+
+            {/* Copy Markdown */}
+            <button
+              onClick={handleCopyMarkdown}
+              className="hidden md:flex px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold rounded-xl items-center gap-1.5 transition-colors border border-slate-700 cursor-pointer"
+              title="Copy Markdown report to clipboard"
+            >
+              {copiedMd ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <FileText className="w-3.5 h-3.5" />}
+              <span>{copiedMd ? 'Copied' : 'Copy'}</span>
+            </button>
+
+            <button
+              onClick={onClose}
+              className="p-1.5 text-slate-400 hover:text-white hover:bg-slate-800 rounded-xl transition-colors ml-1 cursor-pointer"
+              title="Close report preview"
+            >
+              <X className="w-5 h-5" />
+            </button>
           </div>
         </div>
 
-        <div className="flex items-center gap-2 flex-wrap">
-          <button
-            onClick={handleCopyMarkdown}
-            className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold rounded-xl flex items-center gap-1.5 transition-colors border border-slate-700"
-            title="Copy Markdown report to clipboard"
-          >
-            {copiedMd ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <FileText className="w-3.5 h-3.5" />}
-            <span>{copiedMd ? 'Copied MD!' : 'Copy MD'}</span>
-          </button>
-          <button
-            onClick={handleExportMarkdown}
-            className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold rounded-xl flex items-center gap-1.5 transition-colors border border-slate-700"
-            title="Download formatted Markdown (.md) file"
-          >
-            <Download className="w-3.5 h-3.5" />
-            <span>.MD</span>
-          </button>
-          <button
-            onClick={handleExportCSV}
-            className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold rounded-xl flex items-center gap-1.5 transition-colors border border-slate-700"
-          >
-            <Download className="w-3.5 h-3.5" />
-            <span>CSV</span>
-          </button>
-          <button
-            onClick={handlePrint}
-            className="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-xl flex items-center gap-1.5 transition-colors shadow-sm"
-          >
-            <Printer className="w-3.5 h-3.5" />
-            <span>Print / Save to PDF</span>
-          </button>
-          <button
-            onClick={onClose}
-            className="p-1.5 text-slate-400 hover:text-white hover:bg-slate-800 rounded-xl transition-colors ml-1"
-          >
-            <X className="w-5 h-5" />
-          </button>
-        </div>
+        {/* Feedback message banner */}
+        {pdfSuccess && (
+          <div className="bg-emerald-950/80 border border-emerald-500/40 text-emerald-200 px-3 py-2 rounded-xl text-xs flex items-center gap-2 animate-in fade-in">
+            <Check className="w-4 h-4 text-emerald-400 shrink-0" />
+            <span>{pdfSuccess}</span>
+          </div>
+        )}
       </div>
 
       {/* Printable Paper Document Container */}

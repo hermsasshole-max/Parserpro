@@ -1,7 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   Trash2, 
-  Edit3, 
   RotateCcw, 
   Download, 
   Upload, 
@@ -18,9 +17,20 @@ import {
   Plus,
   Sparkles,
   Zap,
-  Cpu
+  Cpu,
+  Smartphone,
+  Share2,
+  FileSpreadsheet,
+  Edit3
 } from 'lucide-react';
 import type { SavedReceipt } from '../types';
+import { 
+  exportDeviceBackupJSON, 
+  parseBackupFile, 
+  exportAllInvoicesToCSV, 
+  checkStoragePersistence,
+  requestPersistentDeviceStorage
+} from '../utils/deviceStorage';
 
 interface SettingsViewProps {
   receipts: SavedReceipt[];
@@ -31,6 +41,7 @@ interface SettingsViewProps {
   onAddManualReceipt: () => void;
   onImportData: (importedReceipts: SavedReceipt[]) => void;
   onLoadSampleData?: () => void;
+  onOpenAndroidBackup?: () => void;
 }
 
 export const SettingsView: React.FC<SettingsViewProps> = ({
@@ -42,12 +53,19 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   onAddManualReceipt,
   onImportData,
   onLoadSampleData,
+  onOpenAndroidBackup,
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedMonthFilter, setSelectedMonthFilter] = useState<string>('all');
   const [showConfirmResetAll, setShowConfirmResetAll] = useState(false);
   const [monthToReset, setMonthToReset] = useState<string | null>(null);
   const [feedbackToast, setFeedbackToast] = useState<string | null>(null);
+  const [isPersistent, setIsPersistent] = useState(false);
+  const [isExporting, setIsExporting] = useState(false);
+
+  useEffect(() => {
+    checkStoragePersistence().then(res => setIsPersistent(res));
+  }, []);
 
   // Available distinct months
   const availableMonths = Array.from(new Set<string>(receipts.map(r => r.month_year)))
@@ -65,57 +83,63 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   });
 
   const totalSpendAll = receipts.reduce((acc, r) => acc + (Number(r.total_amount) || 0), 0);
-  const totalItemsAll = receipts.reduce((acc, r) => acc + r.line_items.length, 0);
 
-  // Export JSON
-  const handleExportData = () => {
+  // Export JSON to Android Device
+  const handleExportData = async () => {
+    setIsExporting(true);
     try {
-      const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(receipts, null, 2));
-      const downloadAnchor = document.createElement('a');
-      downloadAnchor.setAttribute("href", dataStr);
-      downloadAnchor.setAttribute("download", `parserpro-backup-${new Date().toISOString().substring(0, 10)}.json`);
-      document.body.appendChild(downloadAnchor);
-      downloadAnchor.click();
-      downloadAnchor.remove();
-      setFeedbackToast('Export completed! JSON backup downloaded.');
-      setTimeout(() => setFeedbackToast(null), 4000);
+      const res = await exportDeviceBackupJSON(receipts);
+      if (res.success) {
+        setFeedbackToast(`Backup saved to Android device (${res.filename})!`);
+        setTimeout(() => setFeedbackToast(null), 5000);
+      }
     } catch (e) {
       console.error('Export error:', e);
-      alert('Failed to export data.');
+      alert('Failed to export backup to device.');
+    } finally {
+      setIsExporting(false);
     }
   };
 
-  // Import JSON
-  const handleImportFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+  // Export Full CSV Ledger
+  const handleExportCSV = () => {
+    try {
+      exportAllInvoicesToCSV(receipts);
+      setFeedbackToast('Full CSV Ledger downloaded to your device Downloads folder!');
+      setTimeout(() => setFeedbackToast(null), 4000);
+    } catch (e) {
+      console.error('CSV export error:', e);
+    }
+  };
+
+  // Import JSON with validation
+  const handleImportFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      try {
-        const content = event.target?.result as string;
-        const parsed = JSON.parse(content);
-        if (Array.isArray(parsed)) {
-          onImportData(parsed);
-          setFeedbackToast(`Successfully imported ${parsed.length} invoices!`);
-          setTimeout(() => setFeedbackToast(null), 4000);
-        } else {
-          alert('Invalid backup file format.');
-        }
-      } catch (err) {
-        console.error('Import parse error:', err);
-        alert('Could not parse JSON file.');
-      }
-    };
-    reader.readAsText(file);
+    const result = await parseBackupFile(file);
+    if (result.success) {
+      onImportData(result.receipts);
+      setFeedbackToast(result.message);
+      setTimeout(() => setFeedbackToast(null), 4000);
+    } else {
+      alert(result.message);
+    }
     e.target.value = '';
+  };
+
+  const handleRequestPersistence = async () => {
+    const granted = await requestPersistentDeviceStorage();
+    setIsPersistent(granted);
+    setFeedbackToast(granted ? 'Permanent Android device persistence active!' : 'Storage persistence verified in IndexedDB.');
+    setTimeout(() => setFeedbackToast(null), 4000);
   };
 
   return (
     <div className="h-full flex flex-col p-4 sm:p-6 max-w-7xl mx-auto w-full gap-6 overflow-auto">
       {/* Toast Notification */}
       {feedbackToast && (
-        <div className="fixed top-20 right-6 z-50 bg-slate-900 text-white px-4 py-3 rounded-2xl shadow-xl border border-slate-700 flex items-center gap-2.5 text-xs">
+        <div className="fixed top-20 right-6 z-50 bg-slate-900 text-white px-4 py-3 rounded-2xl shadow-xl border border-slate-700 flex items-center gap-2.5 text-xs animate-in fade-in">
           <Check className="w-4 h-4 text-emerald-400" />
           <span>{feedbackToast}</span>
         </div>
@@ -130,7 +154,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           <div>
             <h1 className="text-lg font-bold text-slate-800">Application Settings & Data Control</h1>
             <p className="text-xs text-slate-400">
-              Reset totals & invoices to 0, edit existing invoice details, and manage local storage backups
+              Android device backup & restore, reset totals, edit invoice line items, and manage storage
             </p>
           </div>
         </div>
@@ -147,22 +171,33 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             </button>
           )}
 
+          {onOpenAndroidBackup && (
+            <button
+              onClick={onOpenAndroidBackup}
+              className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer shadow-xs"
+              title="Open Android Backup & Storage Hub"
+            >
+              <Smartphone className="w-3.5 h-3.5" />
+              <span>Android Backup Hub</span>
+            </button>
+          )}
+
           <button
             onClick={handleExportData}
-            disabled={receipts.length === 0}
+            disabled={receipts.length === 0 || isExporting}
             className="px-3.5 py-2 bg-slate-100 hover:bg-slate-200 disabled:opacity-50 text-slate-700 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer"
-            title="Download JSON Backup"
+            title="Download JSON Backup to Device"
           >
             <Download className="w-3.5 h-3.5" />
-            <span>Export Backup</span>
+            <span>{isExporting ? 'Exporting...' : 'Backup (.json)'}</span>
           </button>
 
           <label className="px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer">
             <Upload className="w-3.5 h-3.5" />
-            <span>Import Backup</span>
+            <span>Restore Backup</span>
             <input
               type="file"
-              accept=".json"
+              accept=".json,application/json"
               onChange={handleImportFile}
               className="hidden"
             />
@@ -172,26 +207,51 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
 
       {/* Storage & Reset Totals Section */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
-        {/* Gemini Vision Server & AI Engine Card */}
-        <div className="bg-white p-5 rounded-2xl border border-emerald-100 bg-gradient-to-b from-white to-emerald-50/20 shadow-sm space-y-4">
+        {/* Dedicated Android Device Storage & Backup Card */}
+        <div className="bg-white p-5 rounded-2xl border border-emerald-200 bg-gradient-to-b from-white to-emerald-50/30 shadow-sm space-y-4">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-bold uppercase tracking-wider text-emerald-700 flex items-center gap-1.5">
-              <Cpu className="w-3.5 h-3.5 text-emerald-600" /> AI Vision OCR Engine
+            <span className="text-xs font-bold uppercase tracking-wider text-emerald-800 flex items-center gap-1.5">
+              <Smartphone className="w-3.5 h-3.5 text-emerald-600" /> Android Device Storage & Backup
             </span>
             <span className="px-2 py-0.5 text-[10px] font-bold rounded-full border bg-emerald-50 text-emerald-700 border-emerald-200 flex items-center gap-1">
-              <Sparkles className="w-3 h-3 text-emerald-600" />
-              <span>Active & Ready</span>
+              <ShieldCheck className="w-3 h-3 text-emerald-600" />
+              <span>{isPersistent ? 'Permanent' : 'IndexedDB Active'}</span>
             </span>
           </div>
 
           <p className="text-xs text-slate-600 leading-relaxed">
-            High-precision multimodal receipt extraction powered by Google Gemini Vision. Automatic line-item itemization, subtotal & tax detection, and month-by-month chronological filing.
+            All your invoices, photographs, unit prices, and monthly reports are stored securely on your Android device with dual-layer persistence (LocalStorage + IndexedDB).
           </p>
 
-          <div className="pt-1 flex items-center justify-between text-[11px] text-slate-500">
-            <span className="font-medium text-emerald-800">Proxy: /api/parse-receipt</span>
-            <span className="px-2 py-0.5 bg-slate-100 rounded text-slate-600 font-mono text-[10px]">Zero Config</span>
+          <div className="grid grid-cols-2 gap-2 pt-1">
+            <button
+              onClick={handleExportData}
+              disabled={receipts.length === 0}
+              className="p-2.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-colors shadow-xs cursor-pointer"
+            >
+              <Download className="w-3.5 h-3.5" />
+              <span>Backup to Device</span>
+            </button>
+
+            <button
+              onClick={handleExportCSV}
+              disabled={receipts.length === 0}
+              className="p-2.5 bg-slate-100 hover:bg-slate-200 disabled:opacity-50 text-slate-800 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+            >
+              <FileSpreadsheet className="w-3.5 h-3.5 text-slate-600" />
+              <span>Export CSV</span>
+            </button>
           </div>
+
+          {onOpenAndroidBackup && (
+            <button
+              onClick={onOpenAndroidBackup}
+              className="w-full py-2 bg-white hover:bg-slate-50 text-emerald-800 border border-emerald-300 font-bold rounded-xl text-xs flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+            >
+              <HardDrive className="w-3.5 h-3.5" />
+              <span>Manage Rollback Snapshots & Health</span>
+            </button>
+          )}
         </div>
 
         {/* Total Metrics Card */}
@@ -229,8 +289,30 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           </div>
         </div>
 
+        {/* Gemini Vision Server & AI Engine Card */}
+        <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm space-y-4">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-bold uppercase tracking-wider text-slate-500 flex items-center gap-1.5">
+              <Cpu className="w-3.5 h-3.5 text-slate-600" /> AI Vision OCR Engine
+            </span>
+            <span className="px-2 py-0.5 text-[10px] font-bold rounded-full border bg-emerald-50 text-emerald-700 border-emerald-200 flex items-center gap-1">
+              <Sparkles className="w-3 h-3 text-emerald-600" />
+              <span>Active</span>
+            </span>
+          </div>
+
+          <p className="text-xs text-slate-600 leading-relaxed">
+            High-precision multimodal receipt extraction powered by Google Gemini Vision. Automatic line-item itemization, subtotal & tax detection, and month-by-month chronological filing.
+          </p>
+
+          <div className="pt-1 flex items-center justify-between text-[11px] text-slate-500">
+            <span className="font-medium text-emerald-800">Endpoint: /api/parse-receipt</span>
+            <span className="px-2 py-0.5 bg-slate-100 rounded text-slate-600 font-mono text-[10px]">Zero Config</span>
+          </div>
+        </div>
+
         {/* Reset Totals to 0 (Clear All Invoices) */}
-        <div className="bg-white p-5 rounded-2xl border border-rose-100 bg-linear-to-b from-white to-rose-50/20 shadow-sm space-y-4 lg:col-span-2">
+        <div className="bg-white p-5 rounded-2xl border border-rose-100 bg-gradient-to-b from-white to-rose-50/20 shadow-sm space-y-4 lg:col-span-3">
           <div className="flex items-center justify-between">
             <span className="text-xs font-bold uppercase tracking-wider text-rose-600 flex items-center gap-1.5">
               <RotateCcw className="w-3.5 h-3.5 text-rose-500" /> Reset Totals & Invoices to 0
@@ -241,13 +323,13 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           </div>
 
           <p className="text-xs text-slate-600 leading-relaxed">
-            Need to start fresh for a new financial period or remove all test/uploaded records? You can clear all invoices and reset all monthly expenditure figures to <strong>R 0.00</strong> with a single click.
+            Need to start fresh for a new financial period or remove all test/uploaded records? You can clear all invoices and reset all monthly expenditure figures to <strong>R 0.00</strong> with a single click. (An on-device rollback snapshot is automatically created beforehand).
           </p>
 
           <div className="flex flex-wrap items-center gap-3 pt-1">
             <button
               onClick={() => setShowConfirmResetAll(true)}
-              className="px-4 py-2.5 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold flex items-center gap-2 shadow-xs transition-colors"
+              className="px-4 py-2.5 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold flex items-center gap-2 shadow-xs transition-colors cursor-pointer"
             >
               <Trash2 className="w-3.5 h-3.5" />
               <span>Reset All Totals & Invoices to 0</span>

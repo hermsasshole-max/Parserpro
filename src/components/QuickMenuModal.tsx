@@ -29,6 +29,7 @@ interface QuickMenuModalProps {
   onOpenPrintReport: () => void;
   onOpenInstallModal: () => void;
   onLoadSampleData: () => void;
+  onOpenBackupModal: () => void;
   receiptCount: number;
 }
 
@@ -42,6 +43,7 @@ export const QuickMenuModal: React.FC<QuickMenuModalProps> = ({
   onOpenPrintReport,
   onOpenInstallModal,
   onLoadSampleData,
+  onOpenBackupModal,
   receiptCount
 }) => {
   if (!isOpen) return null;
@@ -184,6 +186,22 @@ export const QuickMenuModal: React.FC<QuickMenuModalProps> = ({
                   <div>
                     <div className="font-bold text-slate-800">Print / Export PDF</div>
                     <div className="text-slate-500 text-[11px]">Generate monthly expense sheets</div>
+                  </div>
+                </div>
+                <ChevronRight className="w-4 h-4 text-slate-400 group-hover:text-emerald-600 transition-colors" />
+              </button>
+
+              <button
+                onClick={() => handleAction(onOpenBackupModal)}
+                className="p-3 rounded-xl border border-emerald-200 bg-emerald-50/40 hover:bg-emerald-50 flex items-center justify-between text-left transition-all cursor-pointer group"
+              >
+                <div className="flex items-center gap-3">
+                  <div className="w-7 h-7 rounded-lg bg-emerald-600 text-white flex items-center justify-center shrink-0">
+                    <ShieldCheck className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <div className="font-bold text-slate-800">Android Backup & Storage</div>
+                    <div className="text-slate-500 text-[11px]">Save & restore on-device files</div>
                   </div>
                 </div>
                 <ChevronRight className="w-4 h-4 text-slate-400 group-hover:text-emerald-600 transition-colors" />

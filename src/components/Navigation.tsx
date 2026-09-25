@@ -10,7 +10,8 @@ import {
   Grid, 
   Plus, 
   Sparkles,
-  Command
+  Command,
+  HardDrive
 } from 'lucide-react';
 
 interface NavigationProps {
@@ -22,6 +23,7 @@ interface NavigationProps {
   onOpenSearch: () => void;
   onOpenQuickMenu: () => void;
   onOpenAddManual: () => void;
+  onOpenBackupModal: () => void;
 }
 
 export const Navigation: React.FC<NavigationProps> = ({
@@ -33,6 +35,7 @@ export const Navigation: React.FC<NavigationProps> = ({
   onOpenSearch,
   onOpenQuickMenu,
   onOpenAddManual,
+  onOpenBackupModal,
 }) => {
   return (
     <nav className="h-16 bg-white border-b border-slate-200 px-3 sm:px-6 flex items-center justify-between shadow-xs z-30 shrink-0 no-print">
@@ -159,6 +162,16 @@ export const Navigation: React.FC<NavigationProps> = ({
         >
           <Grid className="w-3.5 h-3.5 text-emerald-600" />
           <span className="hidden md:inline">Features</span>
+        </button>
+
+        {/* Device Backup Button */}
+        <button
+          onClick={onOpenBackupModal}
+          className="hidden md:flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 bg-slate-50 hover:bg-slate-100 text-slate-700 border border-slate-200 rounded-lg text-xs font-bold transition-colors cursor-pointer"
+          title="Backup & restore receipts on Android device"
+        >
+          <HardDrive className="w-3.5 h-3.5 text-emerald-600" />
+          <span className="hidden xl:inline">Device Backup</span>
         </button>
 
         {/* Print / PDF Button */}

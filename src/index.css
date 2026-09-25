@@ -1,15 +1,36 @@
 @import "tailwindcss";
 
 @media print {
-  body {
+  @page {
+    size: A4 portrait;
+    margin: 10mm;
+  }
+
+  html, body, #root {
     background-color: #ffffff !important;
     color: #0f172a !important;
     overflow: visible !important;
     height: auto !important;
+    width: 100% !important;
   }
 
-  .no-print {
+  /* Hide navigation, background dashboard, modals chrome, and toasts on print */
+  nav, 
+  .no-print,
+  #install-android-btn {
     display: none !important;
+  }
+
+  /* Normalize fixed modal backdrops into flat print document */
+  .fixed.inset-0 {
+    position: static !important;
+    background: #ffffff !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    overflow: visible !important;
+    height: auto !important;
+    width: 100% !important;
+    backdrop-filter: none !important;
   }
 
   .print-only {
@@ -21,7 +42,7 @@
     break-inside: avoid;
   }
 
-  /* Expand full container on print */
+  /* Expand full report container on print */
   #printable-report-area {
     width: 100% !important;
     max-width: 100% !important;
@@ -33,6 +54,7 @@
 
   table {
     page-break-inside: auto;
+    width: 100% !important;
   }
 
   tr {

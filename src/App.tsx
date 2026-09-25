@@ -11,7 +11,14 @@ import { EditReceiptModal } from './components/EditReceiptModal';
 import { InstallModal } from './components/InstallModal';
 import { GlobalSearchModal } from './components/GlobalSearchModal';
 import { QuickMenuModal } from './components/QuickMenuModal';
+import { AndroidBackupModal } from './components/AndroidBackupModal';
 import { INITIAL_SAMPLE_RECEIPTS } from './sampleData';
+import { 
+  saveReceiptsToDevice, 
+  loadReceiptsFromDevice, 
+  createDeviceSnapshot, 
+  requestPersistentDeviceStorage 
+} from './utils/deviceStorage';
 import type { SavedReceipt } from './types';
 
 const STORAGE_KEY = 'parserpro_saved_receipts_v1';
@@ -52,6 +59,7 @@ export default function App() {
   const [selectedMonth, setSelectedMonth] = useState<string>('2026-09');
   const [comparisonMonth, setComparisonMonth] = useState<string>('2026-08');
   const [isPrintModalOpen, setIsPrintModalOpen] = useState(false);
+  const [isBackupModalOpen, setIsBackupModalOpen] = useState(false);
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [editingReceipt, setEditingReceipt] = useState<SavedReceipt | null>(null);
   const [isInstallModalOpen, setIsInstallModalOpen] = useState(false);
@@ -59,6 +67,16 @@ export default function App() {
   const [isQuickMenuOpen, setIsQuickMenuOpen] = useState(false);
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
   const [saveToast, setSaveToast] = useState<{ message: string; month?: string } | null>(null);
+
+  // Initialize Android IndexedDB and persistent storage guarantee
+  useEffect(() => {
+    loadReceiptsFromDevice().then(loaded => {
+      if (loaded && loaded.length > 0) {
+        setReceipts(loaded);
+      }
+    });
+    requestPersistentDeviceStorage();
+  }, []);
 
   // Global keyboard shortcuts (Cmd+K / Ctrl+K / slash for search)
   useEffect(() => {
@@ -100,13 +118,9 @@ export default function App() {
     };
   }, [selectedMonth]);
 
-  // Sync to local storage on changes
+  // Sync to local storage and IndexedDB on Android device
   useEffect(() => {
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(receipts));
-    } catch (e) {
-      console.error('Error persisting receipts:', e);
-    }
+    saveReceiptsToDevice(receipts);
   }, [receipts]);
 
   const handleReceiptSaved = (newReceipt: SavedReceipt) => {
@@ -133,6 +147,10 @@ export default function App() {
   };
 
   const handleResetAllData = () => {
+    // Save auto-rollback snapshot first
+    if (receipts.length > 0) {
+      createDeviceSnapshot(receipts, 'Auto-backup before resetting all totals');
+    }
     setReceipts([]);
     try {
       localStorage.removeItem(STORAGE_KEY);
@@ -140,15 +158,18 @@ export default function App() {
       console.error('Error resetting storage:', e);
     }
     setSaveToast({
-      message: 'All invoices and totals have been reset to 0.',
+      message: 'All invoices reset to 0. (Rollback snapshot created in device backup)',
     });
     setTimeout(() => setSaveToast(null), 4000);
   };
 
   const handleResetMonthData = (monthYear: string) => {
+    if (receipts.length > 0) {
+      createDeviceSnapshot(receipts, `Auto-backup before clearing ${monthYear}`);
+    }
     setReceipts(prev => prev.filter(r => r.month_year !== monthYear));
     setSaveToast({
-      message: `All invoices for ${monthYear} have been cleared.`,
+      message: `All invoices for ${monthYear} cleared. (Rollback snapshot created)`,
       month: monthYear
     });
     setTimeout(() => setSaveToast(null), 4000);
@@ -204,6 +225,7 @@ export default function App() {
         onOpenSearch={() => setIsSearchOpen(true)}
         onOpenQuickMenu={() => setIsQuickMenuOpen(true)}
         onOpenAddManual={() => setIsAddModalOpen(true)}
+        onOpenBackupModal={() => setIsBackupModalOpen(true)}
       />
 
       {/* Save Notification Toast */}
@@ -271,6 +293,7 @@ export default function App() {
             onAddManualReceipt={() => setIsAddModalOpen(true)}
             onImportData={handleImportData}
             onLoadSampleData={handleLoadSampleData}
+            onOpenAndroidBackup={() => setIsBackupModalOpen(true)}
           />
         )}
       </main>
@@ -308,7 +331,16 @@ export default function App() {
         onOpenPrintReport={() => setIsPrintModalOpen(true)}
         onOpenInstallModal={() => setIsInstallModalOpen(true)}
         onLoadSampleData={handleLoadSampleData}
+        onOpenBackupModal={() => setIsBackupModalOpen(true)}
         receiptCount={receipts.length}
+      />
+
+      {/* Android Device Storage & Backup Hub Modal */}
+      <AndroidBackupModal
+        isOpen={isBackupModalOpen}
+        onClose={() => setIsBackupModalOpen(false)}
+        receipts={receipts}
+        onRestoreData={handleImportData}
       />
 
       {/* Printable Report / PDF Export Modal */}

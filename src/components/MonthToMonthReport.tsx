@@ -1,10 +1,12 @@
 import React, { useState, useMemo } from 'react';
 import { 
   TrendingUp, TrendingDown, ArrowUpDown, Search, Printer, 
-  Download, Calendar, CheckCircle2, ArrowRight, ShieldCheck, Sparkles 
+  Download, Calendar, CheckCircle2, ArrowRight, ShieldCheck, Sparkles,
+  FileDown, Loader2
 } from 'lucide-react';
 import type { SavedReceipt } from '../types';
 import { compareMonths, exportComparisonToCSV } from '../utils/reportUtils';
+import { downloadComparisonPDF } from '../utils/pdfGenerator';
 
 interface MonthToMonthReportProps {
   receipts: SavedReceipt[];
@@ -19,6 +21,7 @@ export const MonthToMonthReport: React.FC<MonthToMonthReportProps> = ({
   initialMonthB,
   onOpenPrintReport,
 }) => {
+  const [isDownloadingPdf, setIsDownloadingPdf] = useState(false);
   // Get all unique available months sorted descending
   const availableMonths = useMemo(() => {
     return Array.from(new Set<string>(receipts.map(r => r.month_year)))
@@ -168,10 +171,28 @@ export const MonthToMonthReport: React.FC<MonthToMonthReportProps> = ({
         </div>
 
         {/* Action Buttons: Print & Export */}
-        <div className="flex items-center gap-2 self-end lg:self-auto">
+        <div className="flex items-center gap-2 self-end lg:self-auto flex-wrap">
+          <button
+            onClick={async () => {
+              setIsDownloadingPdf(true);
+              await downloadComparisonPDF(monthA, monthB, receipts);
+              setIsDownloadingPdf(false);
+            }}
+            disabled={isDownloadingPdf}
+            className="px-3.5 py-2 bg-emerald-50 hover:bg-emerald-100 disabled:opacity-50 text-emerald-800 border border-emerald-200 font-bold text-xs rounded-xl flex items-center gap-1.5 transition-colors shadow-2xs cursor-pointer"
+            title="Download vector PDF directly to your device"
+          >
+            {isDownloadingPdf ? (
+              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+            ) : (
+              <FileDown className="w-3.5 h-3.5 text-emerald-600" />
+            )}
+            <span>{isDownloadingPdf ? 'Generating...' : 'Download PDF'}</span>
+          </button>
+
           <button
             onClick={handleExportCSV}
-            className="px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl flex items-center gap-1.5 transition-colors shadow-2xs"
+            className="px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl flex items-center gap-1.5 transition-colors shadow-2xs cursor-pointer"
           >
             <Download className="w-3.5 h-3.5" />
             <span>Export CSV</span>
@@ -179,10 +200,10 @@ export const MonthToMonthReport: React.FC<MonthToMonthReportProps> = ({
 
           <button
             onClick={onOpenPrintReport}
-            className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl flex items-center gap-1.5 transition-colors shadow-sm"
+            className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl flex items-center gap-1.5 transition-colors shadow-sm cursor-pointer"
           >
             <Printer className="w-3.5 h-3.5" />
-            <span>Print / PDF Report</span>
+            <span>Print / PDF Preview</span>
           </button>
         </div>
       </div>
