@@ -209,7 +209,7 @@ async function startServer() {
 
   // Explicit PWA Manifest endpoints with CORS, cache, and correct MIME type
   const fallbackManifest = {
-    id: "com.parserpro.app",
+    id: "/",
     name: "ParserPro - Household Receipt & Expenditure Tracker",
     short_name: "ParserPro",
     description: "Scan household receipts, extract items with AI OCR, file by month and date, and generate live month-to-month expenditure reports.",

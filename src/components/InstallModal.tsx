@@ -217,6 +217,18 @@ export const InstallModal: React.FC<InstallModalProps> = ({
                 </div>
               </div>
 
+              {/* Android 13 & Older Devices Compatibility Info */}
+              <div className="p-3.5 bg-blue-50 border border-blue-200 rounded-xl text-xs space-y-1.5 text-blue-950">
+                <div className="font-bold flex items-center gap-1.5 text-blue-900">
+                  <span>📱 Android 13 Compatibility Notes:</span>
+                </div>
+                <ul className="list-disc pl-4 space-y-1 text-[11px] text-blue-800">
+                  <li><strong>Target SDK 34 & Java 17:</strong> Tuned for 100% compatibility with Android 13 devices, eliminating package parse errors.</li>
+                  <li><strong>Install Unknown Apps:</strong> If Android 13 displays <em>"For your security, your phone is not allowed to install unknown apps"</em>, tap <strong>Settings</strong> and enable <strong>Allow from this source</strong> for your browser or Files app.</li>
+                  <li><strong>Play Protect Warning:</strong> If Google Play Protect shows a prompt on debug APKs, tap <strong>"More details" &gt; "Install anyway"</strong>.</li>
+                </ul>
+              </div>
+
               {/* CLI Command Summary for Local Dev */}
               <div className="border border-slate-200 rounded-xl p-3.5 bg-slate-900 text-slate-200 space-y-2">
                 <div className="text-[11px] font-bold text-emerald-400 uppercase tracking-wider">

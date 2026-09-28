@@ -11,12 +11,12 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <meta name="apple-mobile-web-app-title" content="ParserPro" />
     <meta name="application-name" content="ParserPro" />
-    <link rel="manifest" href="./manifest.json" />
-    <link rel="icon" type="image/png" sizes="192x192" href="./icon-192.png" />
-    <link rel="icon" type="image/png" sizes="512x512" href="./icon-512.png" />
-    <link rel="icon" type="image/svg+xml" href="./icon.svg" />
-    <link rel="apple-touch-icon" sizes="192x192" href="./icon-192.png" />
-    <link rel="apple-touch-icon" sizes="512x512" href="./icon-512.png" />
+    <link rel="manifest" href="/manifest.json" />
+    <link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png" />
+    <link rel="icon" type="image/png" sizes="512x512" href="/icon-512.png" />
+    <link rel="icon" type="image/svg+xml" href="/icon.svg" />
+    <link rel="apple-touch-icon" sizes="192x192" href="/icon-192.png" />
+    <link rel="apple-touch-icon" sizes="512x512" href="/icon-512.png" />
     <meta property="og:title" content="ParserPro - Household Receipt & Expenditure Tracker" />
     <meta property="og:description" content="AI Receipt scanner, automated monthly filing by date, and live month-to-month expenditure reports." />
     <meta property="og:type" content="website" />
@@ -24,7 +24,7 @@
     <script>
       if ('serviceWorker' in navigator) {
         window.addEventListener('DOMContentLoaded', function() {
-          var swUrl = './sw.js';
+          var swUrl = '/sw.js';
           navigator.serviceWorker.register(swUrl)
             .then(function(registration) {
               console.log('[PWA] Service Worker registered successfully at:', registration.scope);

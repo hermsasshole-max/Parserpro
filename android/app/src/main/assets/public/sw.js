@@ -1,5 +1,5 @@
 // Service Worker for ParserPro PWA (GitHub Pages & Standalone Mobile PWA)
-const CACHE_NAME = 'parserpro-v3';
+const CACHE_NAME = 'parserpro-v4';
 
 // Install: pre-cache critical shell assets using registration scope
 self.addEventListener('install', (event) => {
@@ -55,11 +55,11 @@ self.addEventListener('activate', (event) => {
 self.addEventListener('fetch', (event) => {
   const request = event.request;
 
-  // Ignore non-GET requests and external API calls (e.g. Google Generative AI API)
+  // Ignore non-GET requests and API calls
   if (
     request.method !== 'GET' ||
     request.url.includes('generativelanguage.googleapis.com') ||
-    request.url.includes('/api/')
+    request.url.includes('/api')
   ) {
     return;
   }
