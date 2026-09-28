@@ -31,17 +31,17 @@ const upload = multer({
   limits: { fileSize: 35 * 1024 * 1024 }, // 35MB limit
 });
 
-const receiptSchema = {
+const singleReceiptSchema = {
   type: Type.OBJECT,
   properties: {
-    vendor_name: { type: Type.STRING, description: "Store or utility provider name" },
-    invoice_date: { type: Type.STRING, description: "Date in YYYY-MM-DD format" },
-    month_year: { type: Type.STRING, description: "Month in YYYY-MM format" },
+    vendor_name: { type: Type.STRING, description: "Store or utility provider name (e.g. Rayton Express, Pick n Pay, Checkers, Eskom)" },
+    invoice_date: { type: Type.STRING, description: "Date in YYYY-MM-DD format (e.g. 2026-09-25)" },
+    month_year: { type: Type.STRING, description: "Month in YYYY-MM format (e.g. 2026-09)" },
     category: {
       type: Type.STRING,
       description: "One of: Food & Groceries, Electricity & Utilities, Home Maintenance, Transport, Other"
     },
-    currency: { type: Type.STRING, description: "Currency code, e.g., ZAR, USD, EUR" },
+    currency: { type: Type.STRING, description: "Currency code (default ZAR)" },
     line_items: {
       type: Type.ARRAY,
       items: {
@@ -56,11 +56,23 @@ const receiptSchema = {
       }
     },
     subtotal: { type: Type.NUMBER, description: "Subtotal amount" },
-    tax: { type: Type.NUMBER, description: "Tax amount" },
-    total_amount: { type: Type.NUMBER, description: "Total receipt amount" },
-    notes: { type: Type.STRING, description: "Optional notes, account number or meter reading" }
+    tax: { type: Type.NUMBER, description: "Tax or VAT amount" },
+    total_amount: { type: Type.NUMBER, description: "Total receipt spend amount" },
+    notes: { type: Type.STRING, description: "Slip notes, tax invoice number, or slip index (e.g. Slip 1 of 3: Tax Invoice COPY)" }
   },
   required: ["vendor_name", "total_amount", "category"]
+};
+
+const multiReceiptBatchSchema = {
+  type: Type.OBJECT,
+  properties: {
+    receipts: {
+      type: Type.ARRAY,
+      description: "List of all distinct receipts, tax invoices, or slips visible in the uploaded image",
+      items: singleReceiptSchema
+    }
+  },
+  required: ["receipts"]
 };
 
 /**
@@ -82,12 +94,12 @@ async function parseReceiptWithRetry(
 ): Promise<string> {
   const ai = getAiClient();
   const cleanedData = cleanBase64(base64Data);
-  // Prioritize active flash models with automatic graceful fallback
+
+  // Modern Gemini models - prioritizing gemini-3.8-flash and gemini-flash-latest
   const models = [
-    "gemini-3.7-flash",
-    "gemini-3.6-flash",
-    "gemini-3.1-flash-lite",
-    "gemini-flash-latest"
+    "gemini-3.8-flash",
+    "gemini-flash-latest",
+    "gemini-3.1-flash-lite"
   ];
   let lastError: any = null;
 
@@ -95,7 +107,7 @@ async function parseReceiptWithRetry(
     const maxRetriesForModel = 2;
     for (let attempt = 1; attempt <= maxRetriesForModel; attempt++) {
       try {
-        console.log(`[Gemini API] Requesting receipt OCR with model: ${model} (attempt ${attempt}/${maxRetriesForModel})...`);
+        console.log(`[Gemini API] Requesting multi-receipt OCR with model: ${model} (attempt ${attempt}/${maxRetriesForModel})...`);
         const response = await ai.models.generateContent({
           model,
           contents: [
@@ -109,14 +121,14 @@ async function parseReceiptWithRetry(
           ],
           config: {
             responseMimeType: "application/json",
-            responseSchema: receiptSchema,
+            responseSchema: multiReceiptBatchSchema,
             temperature: 0.1,
           }
         });
 
         const text = response.text;
         if (text && text.trim().length > 0) {
-          console.log(`[Gemini API] Model ${model} successfully extracted receipt details.`);
+          console.log(`[Gemini API] Model ${model} successfully extracted receipts.`);
           return text;
         }
       } catch (err: any) {
@@ -368,41 +380,35 @@ self.addEventListener('fetch', (e) => {
         return res.status(400).json({ error: "No receipt image or file uploaded" });
       }
 
-      const prompt = `You are a precise receipt and invoice parser designed for a household grocery and expenditure tracking app.
+      const prompt = `You are an expert receipt and tax invoice parser designed for a household grocery and expenditure tracking app.
 
-Analyze the uploaded image or document of the receipt/invoice and extract the data strictly into the following JSON format:
+IMPORTANT INSTRUCTION FOR MULTIPLE RECEIPTS:
+The uploaded photo may contain:
+- A SINGLE receipt/invoice, OR
+- MULTIPLE separate receipts/slips laid side-by-side or photographed on a table/counter (for example, two or three separate store slips in one picture).
 
-{
-  "vendor_name": "Store / Utility Provider Name",
-  "invoice_date": "YYYY-MM-DD",
-  "month_year": "YYYY-MM",
-  "category": "Food & Groceries | Electricity & Utilities | Home Maintenance | Transport | Other",
-  "currency": "ZAR",
-  "line_items": [
-    {
-      "description": "Item description",
-      "quantity": 1.0,
-      "unit_price": 0.00,
-      "total_price": 0.00
-    }
-  ],
-  "subtotal": 0.00,
-  "tax": 0.00,
-  "total_amount": 0.00,
-  "notes": "Any extra detail like account number or meter reading"
-}
+You MUST inspect the entire image and detect EVERY distinct receipt, tax invoice, or cash slip visible.
+For EACH separate receipt identified in the image, extract:
+- "vendor_name": Store or provider name (e.g., "Rayton Express", "Pick n Pay", "Checkers", "Woolworths", "Shoprite", "Eskom").
+- "invoice_date": Date found on that specific receipt formatted strictly as YYYY-MM-DD. If year is 2 digits like 26, format as 2026.
+- "month_year": The YYYY-MM month derived from the invoice date (e.g. "2026-09").
+- "category": Choose one of: "Food & Groceries", "Electricity & Utilities", "Home Maintenance", "Transport", "Other".
+- "currency": "ZAR" (South African Rand) by default unless stated otherwise.
+- "line_items": Array of item descriptions, quantity, unit_price, total_price on that receipt.
+- "subtotal": Subtotal before tax if available.
+- "tax": VAT/Tax amount if printed.
+- "total_amount": Grand total amount of that specific receipt as a clean float (e.g., 122.30, 47.50, 292.17).
+- "notes": Mention slip position or detail (e.g. "Slip 1 of 3: Tax Invoice (COPY)").
 
 Categorization Rules:
-1. "Food & Groceries": Supermarket purchases, food markets, pantry supplies.
-2. "Electricity & Utilities": Power tokens, municipal water/lights, gas, refuse, sewage.
-3. "Home Maintenance": Hardware, DIY supplies, repair services.
-4. "Transport": Fuel, vehicle repairs, toll fees.
+1. "Food & Groceries": Supermarkets, grocery stores, bakeries, butcheries.
+2. "Electricity & Utilities": Power tokens (Eskom/prepaid), water, rates, municipal services.
+3. "Home Maintenance": Hardware, DIY, construction, repair services.
+4. "Transport": Fuel stations, diesel/petrol, vehicle services, toll gates.
 5. "Other": Any household expense that does not fit the above categories.
 
-Output Rules:
-- Return ONLY valid, raw JSON. Do not include markdown code fences (\`\`\`json ... \`\`\`) or conversational commentary.
-- If a date format is ambiguous on the receipt, format it as YYYY-MM-DD.
-- Ensure all numeric values are standard floats/integers without currency symbols.`;
+Output:
+Strictly return JSON conforming to the schema with the "receipts" array containing all detected receipts.`;
 
       let responseText = await parseReceiptWithRetry(base64Data, mimeType, prompt);
       
@@ -424,25 +430,78 @@ Output Rules:
         throw new Error("AI returned invalid JSON format");
       }
 
-      // Validate & normalize output
-      if (!parsed.vendor_name) {
-        parsed.vendor_name = "Household Expense";
-      }
-      if (!parsed.currency) {
-        parsed.currency = "ZAR";
-      }
-      if (!parsed.category) {
-        parsed.category = "Food & Groceries";
-      }
-      if (typeof parsed.total_amount !== "number") {
-        parsed.total_amount = Number(parsed.total_amount) || 0;
-      }
-      if (!Array.isArray(parsed.line_items)) {
-        parsed.line_items = [];
+      // Extract receipts array
+      let rawReceipts: any[] = [];
+      if (Array.isArray(parsed?.receipts) && parsed.receipts.length > 0) {
+        rawReceipts = parsed.receipts;
+      } else if (Array.isArray(parsed)) {
+        rawReceipts = parsed;
+      } else if (parsed && typeof parsed === "object") {
+        rawReceipts = [parsed];
       }
 
-      console.log(`[Gemini API] Successfully parsed receipt for ${parsed.vendor_name}: ${parsed.currency} ${parsed.total_amount}`);
-      res.json(parsed);
+      const todayStr = new Date().toISOString().split("T")[0];
+      const todayMonth = todayStr.substring(0, 7);
+
+      const normalizedReceipts = rawReceipts.map((r: any, idx: number) => {
+        let vendorName = (r.vendor_name || "").trim() || `Household Expense ${idx + 1}`;
+        let category = (r.category || "").trim() || "Food & Groceries";
+        let currency = (r.currency || "").trim() || "ZAR";
+        let invoiceDate = (r.invoice_date || "").trim() || todayStr;
+        
+        // Normalize 2-digit years or non-standard dates if needed
+        if (invoiceDate.length < 10) {
+          invoiceDate = todayStr;
+        }
+        let monthYear = r.month_year || invoiceDate.substring(0, 7) || todayMonth;
+        let totalAmount = typeof r.total_amount === "number" ? r.total_amount : parseFloat(r.total_amount) || 0;
+        let subtotal = typeof r.subtotal === "number" ? r.subtotal : (parseFloat(r.subtotal) || totalAmount);
+        let tax = typeof r.tax === "number" ? r.tax : (parseFloat(r.tax) || 0);
+
+        let lineItems: any[] = [];
+        if (Array.isArray(r.line_items)) {
+          lineItems = r.line_items.map((item: any) => ({
+            description: String(item.description || "Item").trim(),
+            quantity: Number(item.quantity) || 1,
+            unit_price: Number(item.unit_price) || Number(item.total_price) || 0,
+            total_price: Number(item.total_price) || 0,
+          }));
+        }
+
+        return {
+          vendor_name: vendorName,
+          invoice_date: invoiceDate,
+          month_year: monthYear,
+          category,
+          currency,
+          line_items: lineItems,
+          subtotal,
+          tax,
+          total_amount: totalAmount,
+          notes: r.notes || (rawReceipts.length > 1 ? `Slip ${idx + 1} of ${rawReceipts.length}` : "")
+        };
+      });
+
+      console.log(`[Gemini API] Successfully parsed ${normalizedReceipts.length} receipt(s) from image`);
+      const primary = normalizedReceipts[0] || {
+        vendor_name: "Household Expense",
+        invoice_date: todayStr,
+        month_year: todayMonth,
+        category: "Food & Groceries",
+        currency: "ZAR",
+        line_items: [],
+        subtotal: 0,
+        tax: 0,
+        total_amount: 0,
+        notes: ""
+      };
+
+      // Return both receipts array and top-level fields for full backward-compatibility
+      res.json({
+        receipts: normalizedReceipts,
+        count: normalizedReceipts.length,
+        ...primary
+      });
 
     } catch (error: any) {
       console.error("[Gemini API] Error parsing receipt:", error);
@@ -458,6 +517,20 @@ Output Rules:
 
       res.status(isOverloaded ? 503 : 500).json({ error: userMessage });
     }
+  });
+
+  // Explicit API 404 and Error Handler to guarantee JSON responses (never HTML)
+  app.use("/api", (err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
+    console.error("[API Error Handler]", err);
+    res.setHeader("Content-Type", "application/json; charset=utf-8");
+    res.status(err.status || 500).json({
+      error: err.message || "An unexpected error occurred in API processing"
+    });
+  });
+
+  app.all("/api/*", (req, res) => {
+    res.setHeader("Content-Type", "application/json; charset=utf-8");
+    res.status(404).json({ error: "API endpoint not found" });
   });
 
   // Vite middleware for development

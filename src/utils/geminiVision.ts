@@ -48,12 +48,12 @@ export function setClientGeminiApiKey(key: string): void {
 /**
  * JSON Schema for receipt structured extraction
  */
-const receiptResponseSchema = {
+const singleReceiptSchema = {
   type: Type.OBJECT,
   properties: {
-    vendor_name: { type: Type.STRING, description: 'Store or utility provider name' },
+    vendor_name: { type: Type.STRING, description: 'Store or utility provider name (e.g. Rayton Express, Pick n Pay, Eskom)' },
     invoice_date: { type: Type.STRING, description: 'Date in YYYY-MM-DD format' },
-    month_year: { type: Type.STRING, description: 'Month in YYYY-MM format (e.g. 2026-08)' },
+    month_year: { type: Type.STRING, description: 'Month in YYYY-MM format (e.g. 2026-09)' },
     category: {
       type: Type.STRING,
       description: 'One of: Food & Groceries, Electricity & Utilities, Home Maintenance, Transport, Other'
@@ -80,9 +80,37 @@ const receiptResponseSchema = {
   required: ['vendor_name', 'total_amount', 'category']
 };
 
-const EXTRACTION_SYSTEM_PROMPT = `You are a high-precision receipt and invoice parser designed for a household grocery and expenditure tracking app.
+const multiReceiptBatchResponseSchema = {
+  type: Type.OBJECT,
+  properties: {
+    receipts: {
+      type: Type.ARRAY,
+      description: 'List of all distinct receipts, tax invoices, or slips visible in the uploaded image',
+      items: singleReceiptSchema
+    }
+  },
+  required: ['receipts']
+};
 
-Analyze the uploaded receipt image carefully and extract all information strictly into valid JSON matching the requested schema.
+const EXTRACTION_SYSTEM_PROMPT = `You are a high-precision receipt and tax invoice parser designed for a household expenditure tracking app.
+
+IMPORTANT INSTRUCTION FOR MULTIPLE RECEIPTS:
+The uploaded image may contain:
+- A SINGLE receipt/invoice, OR
+- MULTIPLE separate receipts/tax invoices laid side-by-side or photographed on a table/counter (for example, two or three separate store slips in one picture).
+
+You MUST inspect the entire image and detect EVERY distinct receipt, tax invoice, or cash slip visible.
+For EACH separate receipt identified in the image, extract:
+- "vendor_name": Store or provider name (e.g., "Rayton Express", "Pick n Pay", "Checkers", "Woolworths", "Shoprite", "Eskom").
+- "invoice_date": Date found on that specific receipt formatted strictly as YYYY-MM-DD. If year is 2 digits like 26, format as 2026.
+- "month_year": The YYYY-MM month derived from the invoice date (e.g. "2026-09").
+- "category": Choose one of: "Food & Groceries", "Electricity & Utilities", "Home Maintenance", "Transport", "Other".
+- "currency": "ZAR" (South African Rand) by default unless stated otherwise.
+- "line_items": Array of item descriptions, quantity, unit_price, total_price on that receipt.
+- "subtotal": Subtotal before tax if available.
+- "tax": VAT/Tax amount if printed.
+- "total_amount": Grand total amount of that specific receipt as a clean float (e.g., 122.30, 47.50, 292.17).
+- "notes": Mention slip position or detail (e.g. "Slip 1 of 3: Tax Invoice (COPY)").
 
 Categorization Rules:
 1. "Food & Groceries": Supermarket purchases, food markets, bakeries, butcheries, pantries.
@@ -91,13 +119,8 @@ Categorization Rules:
 4. "Transport": Fuel, petrol/diesel stations, vehicle repairs, toll gates, parking.
 5. "Other": Any household expense that does not fit the above categories.
 
-Extraction Requirements:
-- If date is found on the receipt (e.g. "23.08.26" or "23/08/2026"), format strictly as YYYY-MM-DD (e.g. "2026-08-23").
-- Compute "month_year" as the first 7 characters: "YYYY-MM" (e.g. "2026-08"). If no date is visible, use today's date.
-- Default currency is "ZAR" unless indicated otherwise on the receipt (e.g. $, €, £).
-- All numbers must be clean numeric floats without currency symbols (e.g. 241.71, not "R241.71").
-- Extract individual line items whenever legible. If line items are partially truncated, provide best-effort summaries.
-- Return ONLY valid raw JSON conforming to the schema.`;
+Output:
+Strictly return JSON conforming to the schema with the "receipts" array containing all detected receipts.`;
 
 export interface ParseOptions {
   onProgress?: (stage: string) => void;
@@ -105,14 +128,14 @@ export interface ParseOptions {
 }
 
 /**
- * Parses a receipt image directly via client-side Gemini Vision API with
- * an AbortController 45s timeout and automatic 3-attempt exponential backoff.
+ * Parses an image containing one or more receipts directly via client-side Gemini Vision API.
+ * Returns an array of all detected receipts.
  */
-export async function parseReceiptWithGemini(
+export async function parseMultipleReceiptsWithGemini(
   base64Data: string,
   mimeType: string,
   options: ParseOptions = {}
-): Promise<ReceiptData> {
+): Promise<ReceiptData[]> {
   const apiKey = (options.apiKey || getActiveGeminiApiKey()).trim();
 
   if (!apiKey) {
@@ -128,12 +151,11 @@ export async function parseReceiptWithGemini(
     },
   });
 
-  // Candidate models: prioritize the latest flash model
+  // Candidate models: prioritize the latest 3.8 flash models
   const candidateModels = [
     'gemini-3.8-flash',
-    'gemini-3.7-flash',
-    'gemini-3.1-flash-lite',
-    'gemini-flash-latest'
+    'gemini-flash-latest',
+    'gemini-3.1-flash-lite'
   ];
 
   const maxAttempts = 3;
@@ -142,7 +164,7 @@ export async function parseReceiptWithGemini(
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     const modelToUse = candidateModels[(attempt - 1) % candidateModels.length];
     const controller = new AbortController();
-    const timeoutDurationMs = 45000; // 45-second timeout as required
+    const timeoutDurationMs = 45000;
 
     const timeoutId = setTimeout(() => {
       controller.abort(new Error(`Timeout: Gemini API took longer than ${timeoutDurationMs / 1000}s to respond.`));
@@ -151,7 +173,7 @@ export async function parseReceiptWithGemini(
     try {
       if (options.onProgress) {
         if (attempt === 1) {
-          options.onProgress('Scanning receipt with Gemini Vision...');
+          options.onProgress('Scanning receipts with Gemini Vision...');
         } else {
           options.onProgress(`Retrying OCR with model ${modelToUse} (attempt ${attempt}/${maxAttempts})...`);
         }
@@ -177,7 +199,7 @@ export async function parseReceiptWithGemini(
         ],
         config: {
           responseMimeType: 'application/json',
-          responseSchema: receiptResponseSchema,
+          responseSchema: multiReceiptBatchResponseSchema,
           temperature: 0.1,
         },
       });
@@ -193,7 +215,7 @@ export async function parseReceiptWithGemini(
       clearTimeout(timeoutId);
 
       if (options.onProgress) {
-        options.onProgress('Extracting vendor, date, & line items...');
+        options.onProgress('Extracting multiple receipts, dates, & line items...');
       }
 
       const responseText = response.text;
@@ -205,7 +227,6 @@ export async function parseReceiptWithGemini(
       try {
         parsed = JSON.parse(responseText.trim());
       } catch (jsonErr) {
-        // Strip markdown codeblocks if accidentally included
         const cleanJson = responseText
           .replace(/^```json\s*/i, '')
           .replace(/^```\s*/i, '')
@@ -214,38 +235,50 @@ export async function parseReceiptWithGemini(
         parsed = JSON.parse(cleanJson);
       }
 
-      // Normalization of fields
-      const normalizedDate = parsed.invoice_date || new Date().toISOString().split('T')[0];
-      const normalizedMonth = parsed.month_year || normalizedDate.substring(0, 7);
-      const normalizedTotal = typeof parsed.total_amount === 'number' ? parsed.total_amount : parseFloat(parsed.total_amount) || 0;
+      let rawReceipts: any[] = [];
+      if (Array.isArray(parsed?.receipts) && parsed.receipts.length > 0) {
+        rawReceipts = parsed.receipts;
+      } else if (Array.isArray(parsed)) {
+        rawReceipts = parsed;
+      } else if (parsed && typeof parsed === 'object') {
+        rawReceipts = [parsed];
+      }
 
-      const result: ReceiptData = {
-        vendor_name: parsed.vendor_name || 'Store Expense',
-        invoice_date: normalizedDate,
-        month_year: normalizedMonth,
-        category: parsed.category || 'Food & Groceries',
-        currency: parsed.currency || 'ZAR',
-        line_items: Array.isArray(parsed.line_items) ? parsed.line_items.map((item: any) => ({
-          description: String(item.description || 'Item'),
-          quantity: Number(item.quantity) || 1,
-          unit_price: Number(item.unit_price) || Number(item.total_price) || 0,
-          total_price: Number(item.total_price) || 0
-        })) : [],
-        subtotal: typeof parsed.subtotal === 'number' ? parsed.subtotal : (parsed.total_amount || 0),
-        tax: typeof parsed.tax === 'number' ? parsed.tax : 0,
-        total_amount: normalizedTotal,
-        notes: parsed.notes || ''
-      };
+      const todayStr = new Date().toISOString().split('T')[0];
+      const todayMonth = todayStr.substring(0, 7);
 
-      console.log('[GeminiVision] Receipt OCR successfully completed:', result.vendor_name, result.total_amount);
-      return result;
+      const results: ReceiptData[] = rawReceipts.map((r: any, idx: number) => {
+        const normalizedDate = r.invoice_date || todayStr;
+        const normalizedMonth = r.month_year || normalizedDate.substring(0, 7) || todayMonth;
+        const normalizedTotal = typeof r.total_amount === 'number' ? r.total_amount : parseFloat(r.total_amount) || 0;
+
+        return {
+          vendor_name: r.vendor_name || `Store Expense ${idx + 1}`,
+          invoice_date: normalizedDate,
+          month_year: normalizedMonth,
+          category: r.category || 'Food & Groceries',
+          currency: r.currency || 'ZAR',
+          line_items: Array.isArray(r.line_items) ? r.line_items.map((item: any) => ({
+            description: String(item.description || 'Item'),
+            quantity: Number(item.quantity) || 1,
+            unit_price: Number(item.unit_price) || Number(item.total_price) || 0,
+            total_price: Number(item.total_price) || 0
+          })) : [],
+          subtotal: typeof r.subtotal === 'number' ? r.subtotal : normalizedTotal,
+          tax: typeof r.tax === 'number' ? r.tax : 0,
+          total_amount: normalizedTotal,
+          notes: r.notes || (rawReceipts.length > 1 ? `Slip ${idx + 1} of ${rawReceipts.length}` : '')
+        };
+      });
+
+      console.log(`[GeminiVision] OCR completed: Extracted ${results.length} receipt(s)`);
+      return results;
     } catch (err: any) {
       clearTimeout(timeoutId);
       lastError = err;
       const errMsg = err?.message || String(err);
       console.warn(`[GeminiVision] Attempt ${attempt} failed:`, errMsg);
 
-      // If user provided invalid API key or permission denied, stop retrying immediately
       if (
         errMsg.includes('API_KEY_INVALID') ||
         errMsg.includes('API key not valid') ||
@@ -256,7 +289,6 @@ export async function parseReceiptWithGemini(
       }
 
       if (attempt < maxAttempts) {
-        // Exponential backoff: 1.5s, 3s
         const backoffMs = attempt * 1500;
         if (options.onProgress) {
           options.onProgress(`Network delay encountered. Retrying in ${(backoffMs / 1000).toFixed(1)}s...`);
@@ -267,4 +299,30 @@ export async function parseReceiptWithGemini(
   }
 
   throw lastError || new Error('Failed to parse receipt after 3 attempts. Please check network connection or retry.');
+}
+
+/**
+ * Backward-compatible single receipt parser (returns primary detected receipt)
+ */
+export async function parseReceiptWithGemini(
+  base64Data: string,
+  mimeType: string,
+  options: ParseOptions = {}
+): Promise<ReceiptData> {
+  const receipts = await parseMultipleReceiptsWithGemini(base64Data, mimeType, options);
+  if (receipts.length > 0) {
+    return receipts[0];
+  }
+  return {
+    vendor_name: 'Store Expense',
+    invoice_date: new Date().toISOString().split('T')[0],
+    month_year: new Date().toISOString().substring(0, 7),
+    category: 'Food & Groceries',
+    currency: 'ZAR',
+    line_items: [],
+    subtotal: 0,
+    tax: 0,
+    total_amount: 0,
+    notes: ''
+  };
 }

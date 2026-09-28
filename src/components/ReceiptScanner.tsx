@@ -1,35 +1,68 @@
 import React, { useState, useRef } from 'react';
-import { UploadCloud, FileType, CheckCircle2, AlertCircle, Loader2, Calendar, Store, ArrowRight, RefreshCw, Camera, Edit3, X, Plus, Trash2, Sparkles, Smartphone } from 'lucide-react';
-import type { ReceiptData, SavedReceipt, LineItem } from '../types';
+import { 
+  UploadCloud, 
+  FileType, 
+  CheckCircle2, 
+  AlertCircle, 
+  Loader2, 
+  Calendar, 
+  Store, 
+  ArrowRight, 
+  RefreshCw, 
+  Camera, 
+  Edit3, 
+  X, 
+  Plus, 
+  Trash2, 
+  Sparkles, 
+  Layers, 
+  Check, 
+  ChevronDown, 
+  ChevronUp, 
+  FileSpreadsheet,
+  Coins
+} from 'lucide-react';
+import type { ReceiptData, SavedReceipt, LineItem, ReceiptCategory } from '../types';
 import { compressAndPrepareImage } from '../utils/imageUtils';
-import { parseReceiptWithGemini, getActiveGeminiApiKey } from '../utils/geminiVision';
+import { parseMultipleReceiptsWithGemini, getActiveGeminiApiKey } from '../utils/geminiVision';
 import { captureReceiptWithNativeCamera, isCapacitorPlatform } from '../utils/nativeCamera';
 
 interface ReceiptScannerProps {
   onReceiptSaved: (receipt: SavedReceipt) => void;
+  onMultipleReceiptsSaved?: (receipts: SavedReceipt[]) => void;
   onViewMonth: (month: string) => void;
   recentReceipts: SavedReceipt[];
 }
 
+interface QueuedFile {
+  id: string;
+  file: File;
+  previewUrl: string | null;
+}
+
 export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
   onReceiptSaved,
+  onMultipleReceiptsSaved,
   onViewMonth,
   recentReceipts
 }) => {
-  const [file, setFile] = useState<File | null>(null);
-  const [preview, setPreview] = useState<string | null>(null);
+  const [queuedFiles, setQueuedFiles] = useState<QueuedFile[]>([]);
+  const [activePreviewIndex, setActivePreviewIndex] = useState(0);
   const [isLoading, setIsLoading] = useState(false);
-  const [loadingStage, setLoadingStage] = useState<string>('Analyzing Receipt & Items...');
+  const [loadingStage, setLoadingStage] = useState<string>('Analyzing Receipts & Line Items...');
   const [error, setError] = useState<string | null>(null);
-  const [parsedData, setParsedData] = useState<ReceiptData | null>(null);
-  const [savedReceipt, setSavedReceipt] = useState<SavedReceipt | null>(null);
+  
+  // Multi-receipt review and filing state
+  const [detectedReceipts, setDetectedReceipts] = useState<SavedReceipt[]>([]);
+  const [expandedReceiptIds, setExpandedReceiptIds] = useState<Set<string>>(new Set());
+  const [filedReceipts, setFiledReceipts] = useState<SavedReceipt[]>([]);
   const [isCopied, setIsCopied] = useState(false);
 
   // Manual Entry Form State
   const [showManualModal, setShowManualModal] = useState(false);
   const [manualVendor, setManualVendor] = useState('Pick n Pay');
   const [manualDate, setManualDate] = useState(() => new Date().toISOString().split('T')[0]);
-  const [manualCategory, setManualCategory] = useState<'Food & Groceries' | 'Electricity & Utilities' | 'Home Maintenance' | 'Transport' | 'Other'>('Food & Groceries');
+  const [manualCategory, setManualCategory] = useState<ReceiptCategory>('Food & Groceries');
   const [manualCurrency, setManualCurrency] = useState('ZAR');
   const [manualTotal, setManualTotal] = useState('241.71');
   const [manualItems, setManualItems] = useState<LineItem[]>([
@@ -40,24 +73,26 @@ export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files[0]) {
-      const selectedFile = e.target.files[0];
-      processSelectedFile(selectedFile);
-    }
+  const handleFilesSelected = (fileList: FileList | File[]) => {
+    const filesArray = Array.from(fileList);
+    if (filesArray.length === 0) return;
+
+    const newQueued: QueuedFile[] = filesArray.map((f) => ({
+      id: `file_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+      file: f,
+      previewUrl: f.type.startsWith('image/') ? URL.createObjectURL(f) : null
+    }));
+
+    setQueuedFiles(prev => [...prev, ...newQueued]);
+    setError(null);
+    setDetectedReceipts([]);
+    setFiledReceipts([]);
   };
 
-  const processSelectedFile = (selectedFile: File) => {
-    setFile(selectedFile);
-    setError(null);
-    setParsedData(null);
-    setSavedReceipt(null);
-
-    if (selectedFile.type.startsWith('image/')) {
-      const url = URL.createObjectURL(selectedFile);
-      setPreview(url);
-    } else {
-      setPreview(null);
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files) {
+      handleFilesSelected(e.target.files);
+      e.target.value = '';
     }
   };
 
@@ -67,117 +102,34 @@ export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
 
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
-    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
-      processSelectedFile(e.dataTransfer.files[0]);
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      handleFilesSelected(e.dataTransfer.files);
     }
   };
 
-  const parseReceipt = async () => {
-    if (!file) return;
+  const removeQueuedFile = (id: string) => {
+    setQueuedFiles(prev => {
+      const removed = prev.find(f => f.id === id);
+      if (removed?.previewUrl) {
+        URL.revokeObjectURL(removed.previewUrl);
+      }
+      const updated = prev.filter(f => f.id !== id);
+      if (activePreviewIndex >= updated.length) {
+        setActivePreviewIndex(Math.max(0, updated.length - 1));
+      }
+      return updated;
+    });
+  };
 
-    setIsLoading(true);
+  const clearAllQueued = () => {
+    queuedFiles.forEach(f => {
+      if (f.previewUrl) URL.revokeObjectURL(f.previewUrl);
+    });
+    setQueuedFiles([]);
+    setActivePreviewIndex(0);
+    setDetectedReceipts([]);
+    setFiledReceipts([]);
     setError(null);
-    setParsedData(null);
-    setSavedReceipt(null);
-
-    try {
-      setLoadingStage('Optimizing image (Canvas compression)...');
-      console.log('[ReceiptScanner] Starting client-side image compression for:', file.name, `(${Math.round(file.size / 1024)} KB)`);
-
-      // 1. Client-Side Compression: max 1600px, JPEG at 0.80 (80%) quality for low memory lag on Android
-      const prepared = await compressAndPrepareImage(file, 1600, 0.80);
-      console.log(`[ReceiptScanner] Optimization complete. Prepared ${prepared.processedSizeKb} KB inline payload.`);
-
-      let data: ReceiptData | null = null;
-      let lastErr: any = null;
-
-      // 2. Try server-side proxy route (/api/parse-receipt)
-      try {
-        setLoadingStage('Scanning receipt with AI Vision engine...');
-        const res = await fetch('/api/parse-receipt', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            imageBase64: prepared.base64Data,
-            mimeType: prepared.mimeType,
-          }),
-        });
-
-        if (res.ok) {
-          data = await res.json();
-          console.log('[ReceiptScanner] Successfully parsed receipt via server proxy');
-        } else {
-          const errData = await res.json().catch(() => ({}));
-          console.warn('[ReceiptScanner] Server OCR failed:', errData);
-          lastErr = new Error(errData.error || `Server OCR returned ${res.status}`);
-        }
-      } catch (networkErr: any) {
-        console.warn('[ReceiptScanner] Server proxy unreachable, checking client fallback:', networkErr);
-        lastErr = networkErr;
-      }
-
-      // 3. Fallback to client-side GoogleGenAI if client has a configured key
-      if (!data) {
-        const clientKey = getActiveGeminiApiKey();
-        if (clientKey) {
-          data = await parseReceiptWithGemini(
-            prepared.base64Data,
-            prepared.mimeType,
-            {
-              onProgress: (stage) => setLoadingStage(stage),
-              apiKey: clientKey,
-            }
-          );
-        } else if (lastErr) {
-          throw lastErr;
-        } else {
-          throw new Error('Could not parse receipt. Please verify image clarity or enter manually.');
-        }
-      }
-
-      setParsedData(data);
-
-      // Ensure valid month_year and invoice_date
-      let invoiceDate = data.invoice_date || new Date().toISOString().split('T')[0];
-      let monthYear = data.month_year;
-      if (!monthYear && invoiceDate) {
-        monthYear = invoiceDate.substring(0, 7);
-      }
-
-      // Automatically place into the correct month and by date
-      const newSaved: SavedReceipt = {
-        ...data,
-        id: `rec-${Date.now()}`,
-        invoice_date: invoiceDate,
-        month_year: monthYear || new Date().toISOString().substring(0, 7),
-        created_at: new Date().toISOString(),
-        file_name: file.name,
-        image_preview: preview || undefined
-      };
-
-      setSavedReceipt(newSaved);
-      onReceiptSaved(newSaved);
-      console.log('[ReceiptScanner] Receipt successfully processed and filed:', newSaved);
-    } catch (err: any) {
-      console.error('[ReceiptScanner] Error occurred during receipt parsing:', err);
-
-      const errMsg = err?.message || 'Failed to scan receipt';
-      const isNetworkError =
-        errMsg.includes('Failed to fetch') ||
-        errMsg.includes('NetworkError') ||
-        errMsg.includes('Timeout') ||
-        err?.name === 'TypeError';
-
-      const userMsg = isNetworkError
-        ? 'Network timeout or connection drop while scanning. Please retry or enter manually.'
-        : errMsg;
-
-      setError(userMsg);
-    } finally {
-      setIsLoading(false);
-    }
   };
 
   const triggerFileInput = () => {
@@ -185,29 +137,213 @@ export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
   };
 
   const triggerCameraInput = async () => {
-    // If running inside Capacitor native Android app, use native camera directly
     if (isCapacitorPlatform()) {
       try {
         const photo = await captureReceiptWithNativeCamera();
         if (photo) {
-          processSelectedFile(photo.file);
+          handleFilesSelected([photo.file]);
           return;
         }
       } catch (err) {
-        console.warn('[ReceiptScanner] Native camera failed, falling back to input:', err);
+        console.warn('[ReceiptScanner] Native camera notice:', err);
       }
     }
-    // Fallback for standard mobile browsers and WebView
     cameraInputRef.current?.click();
   };
 
+  /**
+   * Main Batch & Multi-Slip Scanning Engine
+   */
+  const parseReceipts = async () => {
+    if (queuedFiles.length === 0) return;
+
+    setIsLoading(true);
+    setError(null);
+    setDetectedReceipts([]);
+    setFiledReceipts([]);
+
+    const allDiscoveredReceipts: SavedReceipt[] = [];
+    const todayStr = new Date().toISOString().split('T')[0];
+    const todayMonth = todayStr.substring(0, 7);
+
+    try {
+      for (let i = 0; i < queuedFiles.length; i++) {
+        const qFile = queuedFiles[i];
+        setLoadingStage(`Optimizing image ${i + 1} of ${queuedFiles.length}...`);
+        
+        // High quality 2048px compression for crisp reading of multi-slip photos
+        const prepared = await compressAndPrepareImage(qFile.file, 2048, 0.82);
+        console.log(`[ReceiptScanner] Image ${i + 1} optimized (${prepared.processedSizeKb} KB). Requesting AI OCR...`);
+
+        setLoadingStage(
+          queuedFiles.length > 1
+            ? `Scanning photo ${i + 1} of ${queuedFiles.length} for multiple receipts...`
+            : 'Scanning image for all receipts & slips...'
+        );
+
+        let fileExtracted: ReceiptData[] = [];
+        let serverError: any = null;
+
+        // 1. Try server-side proxy route (/api/parse-receipt)
+        try {
+          const res = await fetch('/api/parse-receipt', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              imageBase64: prepared.base64Data,
+              mimeType: prepared.mimeType,
+            }),
+          });
+
+          const contentType = res.headers.get('content-type') || '';
+          if (contentType.includes('application/json')) {
+            const json = await res.json();
+            if (res.ok) {
+              if (Array.isArray(json.receipts) && json.receipts.length > 0) {
+                fileExtracted = json.receipts;
+              } else if (json.vendor_name) {
+                fileExtracted = [json];
+              }
+            } else {
+              serverError = new Error(json.error || `Server OCR returned status ${res.status}`);
+            }
+          } else {
+            const rawText = await res.text();
+            console.warn('[ReceiptScanner] Server returned non-JSON response:', rawText.slice(0, 100));
+            serverError = new Error(
+              res.status === 504 || rawText.includes('504')
+                ? 'Server timed out processing image. Falling back to local OCR...'
+                : `Server returned unexpected format (${res.status})`
+            );
+          }
+        } catch (netErr: any) {
+          console.warn('[ReceiptScanner] Network proxy error, checking client fallback:', netErr);
+          serverError = netErr;
+        }
+
+        // 2. Client-side fallback if server failed and client has a key configured
+        if (fileExtracted.length === 0) {
+          const clientKey = getActiveGeminiApiKey();
+          if (clientKey) {
+            setLoadingStage(`Using Gemini Vision client engine (Photo ${i + 1}/${queuedFiles.length})...`);
+            fileExtracted = await parseMultipleReceiptsWithGemini(
+              prepared.base64Data,
+              prepared.mimeType,
+              {
+                onProgress: (stage) => setLoadingStage(stage),
+                apiKey: clientKey
+              }
+            );
+          } else if (serverError) {
+            throw serverError;
+          } else {
+            throw new Error('Could not parse receipt. Please verify image clarity or enter manually.');
+          }
+        }
+
+        // 3. Map into SavedReceipt objects
+        fileExtracted.forEach((rec, slipIdx) => {
+          let invDate = rec.invoice_date || todayStr;
+          let mYear = rec.month_year || invDate.substring(0, 7) || todayMonth;
+          const newId = `rec_${Date.now()}_${i}_${slipIdx}_${Math.random().toString(36).substring(2, 6)}`;
+
+          allDiscoveredReceipts.push({
+            ...rec,
+            id: newId,
+            vendor_name: rec.vendor_name || `Store Purchase ${allDiscoveredReceipts.length + 1}`,
+            invoice_date: invDate,
+            month_year: mYear,
+            category: rec.category || 'Food & Groceries',
+            currency: rec.currency || 'ZAR',
+            line_items: Array.isArray(rec.line_items) ? rec.line_items : [],
+            total_amount: typeof rec.total_amount === 'number' ? rec.total_amount : parseFloat(rec.total_amount as any) || 0,
+            subtotal: typeof rec.subtotal === 'number' ? rec.subtotal : (rec.total_amount || 0),
+            tax: typeof rec.tax === 'number' ? rec.tax : 0,
+            notes: rec.notes || (fileExtracted.length > 1 ? `Slip ${slipIdx + 1} of ${fileExtracted.length} in photo` : ''),
+            created_at: new Date().toISOString(),
+            file_name: qFile.file.name,
+            image_preview: qFile.previewUrl || undefined
+          });
+        });
+      }
+
+      if (allDiscoveredReceipts.length === 0) {
+        throw new Error('No receipt records could be clearly detected. Please verify lighting and clarity.');
+      }
+
+      console.log(`[ReceiptScanner] Successfully extracted ${allDiscoveredReceipts.length} receipt(s) in batch!`, allDiscoveredReceipts);
+      setDetectedReceipts(allDiscoveredReceipts);
+    } catch (err: any) {
+      console.error('[ReceiptScanner] Error during batch receipt scanning:', err);
+      const rawMsg = err?.message || 'Failed to scan receipt';
+      
+      // Clean and sanitize any raw HTML / doctype messages
+      let cleanMsg = rawMsg;
+      if (rawMsg.includes('<!doctype') || rawMsg.includes('Unexpected token')) {
+        cleanMsg = 'Server connection timeout or busy AI service while analyzing slips. Please retry or enter manually.';
+      } else if (rawMsg.includes('Failed to fetch') || rawMsg.includes('NetworkError')) {
+        cleanMsg = 'Network connection interrupted. Please check your internet connection and retry.';
+      }
+
+      setError(cleanMsg);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  /**
+   * File all detected receipts in one click
+   */
+  const handleFileAllDetected = () => {
+    if (detectedReceipts.length === 0) return;
+
+    if (onMultipleReceiptsSaved) {
+      onMultipleReceiptsSaved(detectedReceipts);
+    } else {
+      detectedReceipts.forEach(r => onReceiptSaved(r));
+    }
+
+    setFiledReceipts(detectedReceipts);
+    setDetectedReceipts([]);
+  };
+
+  const updateDetectedReceipt = (id: string, updates: Partial<SavedReceipt>) => {
+    setDetectedReceipts(prev => prev.map(r => {
+      if (r.id === id) {
+        const updated = { ...r, ...updates };
+        if (updates.invoice_date && !updates.month_year) {
+          updated.month_year = updates.invoice_date.substring(0, 7);
+        }
+        return updated;
+      }
+      return r;
+    }));
+  };
+
+  const removeDetectedReceipt = (id: string) => {
+    setDetectedReceipts(prev => prev.filter(r => r.id !== id));
+  };
+
+  const toggleExpand = (id: string) => {
+    setExpandedReceiptIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  // Manual Entry Submission
   const handleSaveManual = (e: React.FormEvent) => {
     e.preventDefault();
     const total = parseFloat(manualTotal) || 0;
     const invDate = manualDate || new Date().toISOString().split('T')[0];
     const mYear = invDate.substring(0, 7);
 
-    const manualData: ReceiptData = {
+    const manualReceipt: SavedReceipt = {
+      id: `rec_${Date.now()}`,
       vendor_name: manualVendor || 'Household Expense',
       invoice_date: invDate,
       month_year: mYear,
@@ -219,23 +355,15 @@ export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
       total_amount: total,
       subtotal: total,
       tax: 0,
-      notes: 'Manually logged / corrected receipt'
-    };
-
-    const newSaved: SavedReceipt = {
-      ...manualData,
-      id: `rec-${Date.now()}`,
+      notes: 'Manually logged receipt',
       created_at: new Date().toISOString(),
-      file_name: file?.name || 'manual-entry.jpg',
-      image_preview: preview || undefined
+      file_name: 'manual-entry.jpg'
     };
 
-    setParsedData(manualData);
-    setSavedReceipt(newSaved);
-    onReceiptSaved(newSaved);
-    setError(null);
+    onReceiptSaved(manualReceipt);
+    setFiledReceipts([manualReceipt]);
     setShowManualModal(false);
-    console.log('[ReceiptScanner] Manual receipt filed successfully:', newSaved);
+    setError(null);
   };
 
   const addManualItem = () => {
@@ -257,17 +385,12 @@ export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
     setManualItems(manualItems.filter((_, i) => i !== index));
   };
 
-  const copyJsonToClipboard = () => {
-    if (parsedData) {
-      navigator.clipboard.writeText(JSON.stringify(parsedData, null, 2));
-      setIsCopied(true);
-      setTimeout(() => setIsCopied(false), 2000);
-    }
-  };
+  const totalDetectedAmount = detectedReceipts.reduce((sum, r) => sum + (Number(r.total_amount) || 0), 0);
+  const activeQueued = queuedFiles[activePreviewIndex] || queuedFiles[0];
 
   return (
     <div className="h-full flex flex-col lg:flex-row gap-6 p-4 sm:p-6 max-w-7xl mx-auto w-full overflow-auto">
-      {/* Left Sidebar / Quick Recent */}
+      {/* Left Sidebar / Recent Scans */}
       <aside className="w-full lg:w-72 bg-white rounded-2xl border border-slate-200 p-5 flex flex-col gap-4 shadow-sm shrink-0">
         <div className="flex items-center justify-between">
           <div className="text-xs font-bold text-slate-400 uppercase tracking-widest">
@@ -278,10 +401,10 @@ export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
           </span>
         </div>
 
-        <div className="flex flex-col gap-2 overflow-y-auto max-h-[420px] pr-1">
+        <div className="flex flex-col gap-2 overflow-y-auto max-h-[380px] pr-1">
           {recentReceipts.length === 0 ? (
             <div className="p-4 text-center text-xs text-slate-400 border border-dashed border-slate-200 rounded-xl">
-              No receipts scanned yet. Upload your first receipt!
+              No receipts scanned yet. Upload single or multiple receipts!
             </div>
           ) : (
             recentReceipts.slice(0, 6).map((rec) => (
@@ -300,7 +423,7 @@ export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
                 </div>
                 <div className="flex items-center justify-between text-[11px] text-slate-500">
                   <span>{rec.invoice_date}</span>
-                  <span className="font-bold text-slate-700">
+                  <span className="font-bold text-slate-700 font-mono">
                     R {Number(rec.total_amount).toFixed(2)}
                   </span>
                 </div>
@@ -309,304 +432,475 @@ export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
           )}
         </div>
 
-        <div className="mt-auto p-4 bg-slate-900 rounded-2xl text-white shadow-sm">
-          <div className="text-[10px] uppercase tracking-wider font-semibold text-slate-400 mb-1">
-            Household Allocation
+        <div className="mt-auto p-4 bg-slate-900 rounded-2xl text-white shadow-sm space-y-2">
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] uppercase tracking-wider font-bold text-emerald-400">
+              Multi-Receipt Support
+            </span>
+            <span className="px-1.5 py-0.5 bg-emerald-500/20 text-emerald-300 text-[9px] font-bold rounded">
+              Batch OCR
+            </span>
           </div>
-          <div className="text-xs text-slate-300 leading-relaxed">
-            Every scanned receipt is automatically parsed, filed into its correct month, and ordered chronologically by date.
-          </div>
+          <p className="text-xs text-slate-300 leading-relaxed">
+            Photograph multiple slips side-by-side or select multiple files at once. Every receipt is automatically identified, separated, and filed.
+          </p>
         </div>
       </aside>
 
       {/* Main Scanner Section */}
-      <section className="flex-1 grid grid-cols-1 xl:grid-cols-2 gap-6">
-        {/* Document Source */}
-        <div className="flex flex-col gap-4">
-          <div className="flex items-center justify-between">
-            <h2 className="text-base font-bold text-slate-800 flex items-center gap-2">
-              <span>Document Source</span>
-              {file && (
-                <span className="text-xs font-normal text-slate-500">
-                  ({file.name})
-                </span>
-              )}
-            </h2>
-            <div className="flex items-center gap-2">
-              <div
-                className="px-2.5 py-1 rounded-lg text-xs font-bold flex items-center gap-1.5 border bg-emerald-50 text-emerald-700 border-emerald-200"
-                title="Google Gemini Vision OCR Active"
-              >
-                <Sparkles className="w-3.5 h-3.5 text-emerald-600" />
-                <span>AI OCR Ready</span>
-              </div>
-              <button
-                onClick={() => setShowManualModal(true)}
-                className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-bold transition-colors flex items-center gap-1 border border-slate-200"
-                title="Enter details manually if receipt is blurred or server is offline"
-              >
-                <Edit3 className="w-3.5 h-3.5 text-emerald-600" />
-                <span>Manual Entry</span>
-              </button>
+      <section className="flex-1 flex flex-col gap-6">
+        {/* Upload & Document Queue Panel */}
+        <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-5 flex flex-col gap-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h2 className="text-base font-bold text-slate-800 flex items-center gap-2">
+                <span>Receipt Capture & Batch Queue</span>
+                {queuedFiles.length > 0 && (
+                  <span className="px-2 py-0.5 bg-emerald-50 text-emerald-700 rounded-full text-xs font-bold border border-emerald-200">
+                    {queuedFiles.length} photo{queuedFiles.length > 1 ? 's' : ''} queued
+                  </span>
+                )}
+              </h2>
+              <p className="text-xs text-slate-400 mt-0.5">
+                Upload single or multiple receipt photos, or capture slips side-by-side
+              </p>
+            </div>
+
+            <div className="flex items-center gap-2 flex-wrap">
               <button
                 onClick={triggerCameraInput}
-                className="px-2.5 py-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 rounded-lg text-xs font-bold transition-colors flex items-center gap-1 border border-emerald-200"
-                title="Take photo with phone camera"
+                className="px-3 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer"
+                title="Capture receipt with device camera"
               >
-                <Camera className="w-3.5 h-3.5" />
+                <Camera className="w-3.5 h-3.5 text-emerald-600" />
                 <span>Camera</span>
               </button>
-              {file && (
+
+              <button
+                onClick={triggerFileInput}
+                className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer border border-slate-200"
+                title="Select multiple receipt images from device gallery"
+              >
+                <UploadCloud className="w-3.5 h-3.5 text-slate-600" />
+                <span>Choose Files</span>
+              </button>
+
+              <button
+                onClick={() => setShowManualModal(true)}
+                className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer"
+                title="Manually record a store purchase"
+              >
+                <Edit3 className="w-3.5 h-3.5 text-slate-600" />
+                <span>Manual</span>
+              </button>
+
+              {queuedFiles.length > 0 && (
                 <button
-                  onClick={triggerFileInput}
-                  className="text-xs font-semibold text-emerald-600 hover:text-emerald-700 flex items-center gap-1"
+                  onClick={clearAllQueued}
+                  className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition-colors cursor-pointer"
+                  title="Clear all selected photos"
                 >
-                  <RefreshCw className="w-3 h-3" />
-                  <span>Replace</span>
+                  <Trash2 className="w-4 h-4" />
                 </button>
               )}
             </div>
           </div>
 
-          <div className="flex-1 bg-white rounded-2xl shadow-sm border border-slate-200 p-5 flex flex-col gap-4 relative overflow-hidden min-h-[380px]">
-            <div
-              className={`flex-1 border-2 border-dashed rounded-xl p-6 transition-all flex flex-col items-center justify-center text-center cursor-pointer min-h-[260px]
-                ${file ? 'border-emerald-200 bg-slate-50/50' : 'border-slate-300 bg-slate-50 hover:bg-slate-100 hover:border-slate-400'}`}
-              onDragOver={handleDragOver}
-              onDrop={handleDrop}
-              onClick={!file ? triggerFileInput : undefined}
-            >
-              {/* Regular file input */}
-              <input
-                type="file"
-                className="hidden"
-                accept="image/*,application/pdf"
-                ref={fileInputRef}
-                onChange={handleFileChange}
-              />
-              {/* Direct Camera capture input for Android */}
-              <input
-                type="file"
-                className="hidden"
-                accept="image/*"
-                capture="environment"
-                ref={cameraInputRef}
-                onChange={handleFileChange}
-              />
+          {/* Hidden inputs supporting multiple files and direct camera */}
+          <input
+            type="file"
+            multiple
+            className="hidden"
+            accept="image/*,application/pdf"
+            ref={fileInputRef}
+            onChange={handleFileChange}
+          />
+          <input
+            type="file"
+            className="hidden"
+            accept="image/*"
+            capture="environment"
+            ref={cameraInputRef}
+            onChange={handleFileChange}
+          />
 
-              {preview ? (
-                <div className="space-y-3 w-full h-full flex flex-col items-center justify-center relative overflow-hidden rounded-xl">
-                  <div className="relative max-h-[280px] rounded-lg overflow-hidden border border-slate-200 shadow-sm bg-white">
+          {/* Drop & Preview Area */}
+          <div
+            className={`border-2 border-dashed rounded-2xl p-5 transition-all flex flex-col items-center justify-center text-center relative overflow-hidden min-h-[260px]
+              ${queuedFiles.length > 0 ? 'border-emerald-200 bg-slate-50/40' : 'border-slate-300 bg-slate-50 hover:bg-slate-100 hover:border-slate-400 cursor-pointer'}`}
+            onDragOver={handleDragOver}
+            onDrop={handleDrop}
+            onClick={queuedFiles.length === 0 ? triggerFileInput : undefined}
+          >
+            {queuedFiles.length > 0 ? (
+              <div className="w-full space-y-4">
+                {/* Active Photo Preview */}
+                <div className="relative max-h-[300px] flex items-center justify-center rounded-xl overflow-hidden bg-white border border-slate-200 shadow-xs">
+                  {activeQueued?.previewUrl ? (
                     <img
-                      src={preview}
+                      src={activeQueued.previewUrl}
                       alt="Receipt Preview"
-                      className="max-h-[280px] object-contain rounded-lg"
+                      className="max-h-[300px] object-contain rounded-xl"
                     />
+                  ) : (
+                    <div className="p-8 text-center text-slate-500">
+                      <FileType className="w-12 h-12 text-emerald-600 mx-auto mb-2" />
+                      <span className="font-bold text-xs">{activeQueued?.file.name}</span>
+                    </div>
+                  )}
 
-                    {/* Animated Scanning Laser Overlay */}
-                    {isLoading && (
-                      <div className="absolute inset-0 pointer-events-none overflow-hidden rounded-lg bg-emerald-500/10 backdrop-contrast-125">
-                        <div className="absolute left-0 right-0 h-1.5 bg-gradient-to-r from-emerald-400 via-teal-300 to-emerald-400 shadow-[0_0_16px_3px_rgba(16,185,129,0.9)] animate-scan-laser" />
-                        <div className="absolute inset-0 bg-gradient-to-b from-transparent via-emerald-500/15 to-transparent animate-pulse" />
+                  {/* Scanning Laser Animation */}
+                  {isLoading && (
+                    <div className="absolute inset-0 pointer-events-none overflow-hidden rounded-xl bg-emerald-500/10 backdrop-contrast-125">
+                      <div className="absolute left-0 right-0 h-1.5 bg-gradient-to-r from-emerald-400 via-teal-300 to-emerald-400 shadow-[0_0_16px_3px_rgba(16,185,129,0.9)] animate-scan-laser" />
+                      <div className="absolute inset-0 bg-gradient-to-b from-transparent via-emerald-500/15 to-transparent animate-pulse" />
+                    </div>
+                  )}
+                </div>
+
+                {/* Queue Thumbnails Bar (When multiple files are selected) */}
+                {queuedFiles.length > 1 && (
+                  <div className="flex items-center gap-2 overflow-x-auto pb-1 pt-1 justify-center">
+                    {queuedFiles.map((qf, idx) => (
+                      <div
+                        key={qf.id}
+                        onClick={() => setActivePreviewIndex(idx)}
+                        className={`relative w-14 h-14 rounded-xl border-2 overflow-hidden shrink-0 cursor-pointer transition-all ${
+                          idx === activePreviewIndex
+                            ? 'border-emerald-600 scale-105 shadow-sm'
+                            : 'border-slate-200 opacity-70 hover:opacity-100'
+                        }`}
+                      >
+                        {qf.previewUrl ? (
+                          <img src={qf.previewUrl} alt="Thumbnail" className="w-full h-full object-cover" />
+                        ) : (
+                          <div className="w-full h-full bg-slate-100 flex items-center justify-center text-[10px] font-bold">
+                            PDF
+                          </div>
+                        )}
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            removeQueuedFile(qf.id);
+                          }}
+                          className="absolute -top-1 -right-1 bg-slate-900 text-white rounded-full p-0.5 hover:bg-rose-600"
+                        >
+                          <X className="w-3 h-3" />
+                        </button>
+                      </div>
+                    ))}
+                    <button
+                      onClick={triggerFileInput}
+                      className="w-14 h-14 rounded-xl border-2 border-dashed border-slate-300 hover:border-emerald-500 bg-white flex flex-col items-center justify-center text-slate-400 hover:text-emerald-600 shrink-0 transition-colors"
+                      title="Add more receipts to batch"
+                    >
+                      <Plus className="w-4 h-4" />
+                      <span className="text-[9px] font-bold mt-0.5">Add</span>
+                    </button>
+                  </div>
+                )}
+
+                {/* Status Indicator */}
+                {isLoading && (
+                  <div className="px-4 py-2 bg-slate-900 text-white rounded-full shadow-lg border border-slate-700 inline-flex items-center gap-2 text-xs font-semibold animate-pulse mx-auto">
+                    <Sparkles className="w-4 h-4 text-emerald-400 animate-spin" />
+                    <span className="text-emerald-300">{loadingStage}</span>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="space-y-3 flex flex-col items-center justify-center text-slate-500 py-6">
+                <div className="w-16 h-16 rounded-3xl bg-emerald-50 text-emerald-600 flex items-center justify-center mb-1 shadow-inner">
+                  <UploadCloud className="w-8 h-8" />
+                </div>
+                <div>
+                  <p className="font-bold text-slate-800 text-sm">
+                    Tap to upload or take a photo of one or multiple receipts
+                  </p>
+                  <p className="text-xs text-slate-400 mt-1">
+                    Supports multiple files or multiple slips laid side-by-side in a single photo
+                  </p>
+                </div>
+                <div className="flex flex-wrap justify-center gap-2 pt-1">
+                  <span className="text-[10px] font-bold bg-slate-200/80 text-slate-700 px-2 py-0.5 rounded-lg">
+                    Multiple Slips in 1 Photo
+                  </span>
+                  <span className="text-[10px] font-bold bg-slate-200/80 text-slate-700 px-2 py-0.5 rounded-lg">
+                    Batch File Upload
+                  </span>
+                  <span className="text-[10px] font-bold bg-slate-200/80 text-slate-700 px-2 py-0.5 rounded-lg">
+                    PNG, JPG, PDF
+                  </span>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Action Button */}
+          <button
+            onClick={parseReceipts}
+            disabled={queuedFiles.length === 0 || isLoading}
+            className="w-full py-3.5 px-6 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white font-bold rounded-xl transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center space-x-2 shadow-sm cursor-pointer"
+          >
+            {isLoading ? (
+              <>
+                <Loader2 className="w-4 h-4 animate-spin" />
+                <span>{loadingStage}</span>
+              </>
+            ) : (
+              <div className="flex items-center gap-2">
+                <Sparkles className="w-4 h-4" />
+                <span>
+                  {queuedFiles.length > 1
+                    ? `Extract All Receipts from ${queuedFiles.length} Photos`
+                    : 'Extract & File Receipts'}
+                </span>
+              </div>
+            )}
+          </button>
+
+          {/* Sanitized Error Alert */}
+          {error && (
+            <div className="p-4 bg-rose-50 text-rose-900 border border-rose-200 rounded-xl flex flex-col sm:flex-row items-start justify-between gap-3 text-xs animate-in fade-in">
+              <div className="flex items-start gap-2.5">
+                <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 text-rose-600" />
+                <div>
+                  <p className="font-bold text-rose-900">{error}</p>
+                  <p className="text-[11px] text-rose-700 mt-0.5">
+                    You can retry scanning, adjust photo lighting, or log receipt details manually.
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2 self-end sm:self-auto shrink-0">
+                <button
+                  onClick={() => setShowManualModal(true)}
+                  className="px-3 py-1.5 bg-white hover:bg-slate-50 text-slate-800 border border-slate-200 font-bold text-xs rounded-lg transition-colors cursor-pointer"
+                >
+                  <Edit3 className="w-3.5 h-3.5 text-emerald-600 inline mr-1" />
+                  <span>Manual Entry</span>
+                </button>
+                <button
+                  onClick={parseReceipts}
+                  disabled={isLoading}
+                  className="px-3 py-1.5 bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs rounded-lg transition-colors cursor-pointer"
+                >
+                  <RefreshCw className="w-3.5 h-3.5 inline mr-1" />
+                  <span>Retry</span>
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Successfully Filed Confirmation */}
+        {filedReceipts.length > 0 && (
+          <div className="p-5 bg-emerald-50 border-2 border-emerald-500 rounded-2xl shadow-sm space-y-4 animate-in fade-in">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-emerald-600 text-white flex items-center justify-center shadow-xs">
+                  <CheckCircle2 className="w-6 h-6" />
+                </div>
+                <div>
+                  <h3 className="font-black text-slate-900 text-base">
+                    🎉 Successfully Filed {filedReceipts.length} Receipt{filedReceipts.length > 1 ? 's' : ''}!
+                  </h3>
+                  <p className="text-xs text-emerald-800 font-medium">
+                    All slips, prices, and line items have been saved to your Android device storage.
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => onViewMonth(filedReceipts[0]?.month_year || '2026-09')}
+                  className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-xs flex items-center gap-1.5 transition-colors shadow-xs cursor-pointer"
+                >
+                  <span>View in {filedReceipts[0]?.month_year}</span>
+                  <ArrowRight className="w-3.5 h-3.5" />
+                </button>
+                <button
+                  onClick={clearAllQueued}
+                  className="px-3.5 py-2 bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 font-bold rounded-xl text-xs transition-colors cursor-pointer"
+                >
+                  Scan More
+                </button>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5 pt-1">
+              {filedReceipts.map((r, i) => (
+                <div key={r.id} className="p-3 bg-white rounded-xl border border-emerald-200 shadow-2xs text-xs space-y-1">
+                  <div className="flex items-center justify-between">
+                    <span className="font-bold text-slate-800 truncate">{r.vendor_name}</span>
+                    <span className="font-mono font-bold text-emerald-700">R {Number(r.total_amount).toFixed(2)}</span>
+                  </div>
+                  <div className="flex items-center justify-between text-[11px] text-slate-500">
+                    <span>{r.invoice_date}</span>
+                    <span>{r.category}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Detected Receipts Review List (Before Final Filing) */}
+        {detectedReceipts.length > 0 && (
+          <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-5 space-y-4 animate-in fade-in">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 pb-4">
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="px-2.5 py-1 bg-emerald-100 text-emerald-800 text-xs font-black rounded-lg">
+                    {detectedReceipts.length} Receipt{detectedReceipts.length > 1 ? 's' : ''} Detected
+                  </span>
+                  <span className="text-xs font-bold text-slate-500">
+                    Combined Spend: <strong className="text-slate-800 font-mono">R {totalDetectedAmount.toFixed(2)}</strong>
+                  </span>
+                </div>
+                <p className="text-xs text-slate-400 mt-1">
+                  Review and adjust stores, amounts, or categories before filing to your monthly ledger
+                </p>
+              </div>
+
+              <button
+                onClick={handleFileAllDetected}
+                className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white font-black rounded-xl text-xs flex items-center justify-center gap-2 shadow-md transition-all cursor-pointer"
+              >
+                <Check className="w-4 h-4" />
+                <span>File All {detectedReceipts.length} Receipts to Ledger</span>
+              </button>
+            </div>
+
+            {/* List of Detected Slips */}
+            <div className="space-y-3">
+              {detectedReceipts.map((rec, idx) => {
+                const isExpanded = expandedReceiptIds.has(rec.id);
+                return (
+                  <div
+                    key={rec.id}
+                    className="p-4 rounded-xl border border-slate-200 bg-slate-50/60 hover:bg-slate-50 transition-all space-y-3"
+                  >
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                      <div className="flex items-center gap-2.5 flex-1">
+                        <span className="w-6 h-6 rounded-full bg-slate-900 text-white text-[11px] font-bold flex items-center justify-center shrink-0">
+                          {idx + 1}
+                        </span>
+                        <div className="flex-1">
+                          <input
+                            type="text"
+                            value={rec.vendor_name}
+                            onChange={(e) => updateDetectedReceipt(rec.id, { vendor_name: e.target.value })}
+                            className="font-bold text-slate-900 text-sm bg-transparent border-b border-transparent hover:border-slate-300 focus:border-emerald-500 focus:bg-white px-1 py-0.5 rounded transition-all w-full max-w-xs focus:outline-none"
+                            placeholder="Store Name"
+                          />
+                          {rec.notes && (
+                            <div className="text-[10px] text-slate-400 px-1">{rec.notes}</div>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-2 flex-wrap self-end sm:self-auto">
+                        <input
+                          type="date"
+                          value={rec.invoice_date}
+                          onChange={(e) => updateDetectedReceipt(rec.id, { invoice_date: e.target.value })}
+                          className="px-2.5 py-1 bg-white border border-slate-200 rounded-lg text-xs font-semibold text-slate-700 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                        />
+
+                        <select
+                          value={rec.category}
+                          onChange={(e) => updateDetectedReceipt(rec.id, { category: e.target.value as any })}
+                          className="px-2.5 py-1 bg-white border border-slate-200 rounded-lg text-xs font-bold text-slate-700 focus:outline-none focus:ring-1 focus:ring-emerald-500 cursor-pointer"
+                        >
+                          <option value="Food & Groceries">Food & Groceries</option>
+                          <option value="Electricity & Utilities">Electricity & Utilities</option>
+                          <option value="Home Maintenance">Home Maintenance</option>
+                          <option value="Transport">Transport</option>
+                          <option value="Other">Other</option>
+                        </select>
+
+                        <div className="flex items-center gap-1 bg-white px-2.5 py-1 rounded-lg border border-slate-200">
+                          <span className="text-xs font-bold text-slate-400">R</span>
+                          <input
+                            type="number"
+                            step="0.01"
+                            value={rec.total_amount}
+                            onChange={(e) => updateDetectedReceipt(rec.id, { total_amount: parseFloat(e.target.value) || 0 })}
+                            className="font-black text-slate-900 text-sm w-20 focus:outline-none font-mono"
+                          />
+                        </div>
+
+                        <button
+                          onClick={() => toggleExpand(rec.id)}
+                          className="p-1.5 text-slate-500 hover:text-slate-800 bg-white border border-slate-200 rounded-lg transition-colors cursor-pointer"
+                          title="View line items"
+                        >
+                          {isExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                        </button>
+
+                        <button
+                          onClick={() => removeDetectedReceipt(rec.id)}
+                          className="p-1.5 text-slate-400 hover:text-rose-600 rounded-lg transition-colors cursor-pointer"
+                          title="Delete slip"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Expandable Line Items */}
+                    {isExpanded && (
+                      <div className="pt-2 border-t border-slate-200/80 text-xs space-y-2">
+                        <div className="flex items-center justify-between text-slate-400 text-[11px] font-bold uppercase tracking-wider">
+                          <span>Extracted Line Items ({rec.line_items.length})</span>
+                          <span>Unit & Total</span>
+                        </div>
+                        {rec.line_items.length === 0 ? (
+                          <div className="text-slate-400 italic text-[11px]">No individual items itemized for this slip.</div>
+                        ) : (
+                          <div className="space-y-1 max-h-36 overflow-y-auto pr-1">
+                            {rec.line_items.map((item, itemIdx) => (
+                              <div key={itemIdx} className="flex items-center justify-between py-1 px-2 bg-white rounded-lg border border-slate-100 text-slate-700">
+                                <div>
+                                  <span className="font-semibold">{item.description}</span>
+                                  {item.quantity > 1 && (
+                                    <span className="text-[10px] text-slate-400 ml-1.5">(x{item.quantity})</span>
+                                  )}
+                                </div>
+                                <span className="font-mono font-bold text-slate-800">
+                                  R {Number(item.total_price).toFixed(2)}
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
                       </div>
                     )}
                   </div>
-
-                  {/* Active Scan Stage Badge */}
-                  {isLoading ? (
-                    <div className="px-3.5 py-1.5 bg-slate-900/90 text-white rounded-full shadow-lg border border-slate-700 flex items-center gap-2 text-xs font-semibold animate-pulse">
-                      <Sparkles className="w-3.5 h-3.5 text-emerald-400 animate-spin" />
-                      <span className="text-emerald-300">{loadingStage}</span>
-                    </div>
-                  ) : (
-                    <p className="text-xs text-slate-500 font-medium bg-white/90 px-3 py-1 rounded-full shadow-sm border border-slate-200">
-                      {file?.name}
-                    </p>
-                  )}
-                </div>
-              ) : file ? (
-                <div className="space-y-3 flex flex-col items-center justify-center text-slate-600">
-                  <FileType className="w-12 h-12 text-emerald-600" />
-                  <p className="font-semibold text-slate-800 text-sm">{file.name}</p>
-                  <p className="text-xs text-slate-500">Document ready for processing</p>
-                </div>
-              ) : (
-                <div className="space-y-3 flex flex-col items-center justify-center text-slate-500 py-6">
-                  <div className="w-14 h-14 rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center mb-1 shadow-inner">
-                    <UploadCloud className="w-7 h-7" />
-                  </div>
-                  <div>
-                    <p className="font-bold text-slate-800 text-sm">
-                      Click to upload receipt, take photo, or drag & drop
-                    </p>
-                    <p className="text-xs text-slate-400 mt-1">
-                      Supports PNG, JPG, JPEG, PDF up to 10MB
-                    </p>
-                  </div>
-                  <div className="flex flex-wrap justify-center gap-2 pt-2">
-                    <span className="text-[10px] font-semibold bg-slate-200/70 text-slate-600 px-2 py-0.5 rounded">
-                      Supermarket Invoices
-                    </span>
-                    <span className="text-[10px] font-semibold bg-slate-200/70 text-slate-600 px-2 py-0.5 rounded">
-                      Utility Slips
-                    </span>
-                    <span className="text-[10px] font-semibold bg-slate-200/70 text-slate-600 px-2 py-0.5 rounded">
-                      Fuel & Maintenance
-                    </span>
-                  </div>
-                </div>
-              )}
+                );
+              })}
             </div>
 
-            <button
-              onClick={parseReceipt}
-              disabled={!file || isLoading}
-              className="w-full py-3.5 px-6 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white font-bold rounded-xl transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center space-x-2 shadow-sm shrink-0"
-            >
-              {isLoading ? (
-                <>
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                  <span>{loadingStage}</span>
-                </>
-              ) : (
-                <span>Extract & File to Month</span>
-              )}
-            </button>
-
-            {error && (
-              <div className="p-3.5 bg-red-50 text-red-700 border border-red-200 rounded-xl flex flex-col sm:flex-row items-start justify-between gap-3 text-xs">
-                <div className="flex items-start gap-2">
-                  <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 text-red-600" />
-                  <div>
-                    <p className="font-semibold">{error}</p>
-                    <p className="text-[11px] text-red-500 mt-0.5">
-                      You can retry the scan or enter receipt details directly.
-                    </p>
-                  </div>
-                </div>
-                <div className="flex items-center gap-2 self-end sm:self-auto shrink-0">
-                  <button
-                    onClick={() => setShowManualModal(true)}
-                    className="px-2.5 py-1 bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 font-bold text-xs rounded-lg transition-colors shadow-xs flex items-center gap-1 cursor-pointer"
-                  >
-                    <Edit3 className="w-3 h-3 text-emerald-600" />
-                    <span>Enter Manually</span>
-                  </button>
-                  <button
-                    onClick={parseReceipt}
-                    disabled={isLoading}
-                    className="px-2.5 py-1 bg-red-600 hover:bg-red-700 active:bg-red-800 text-white font-bold text-xs rounded-lg transition-colors shadow-xs flex items-center gap-1 cursor-pointer disabled:opacity-50"
-                  >
-                    <RefreshCw className="w-3 h-3" />
-                    <span>Retry</span>
-                  </button>
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Extracted Data & Placement */}
-        <div className="flex flex-col gap-4">
-          <div className="flex items-center justify-between">
-            <h2 className="text-base font-bold text-slate-800">
-              Extracted & Categorized Data
-            </h2>
-            <div className="flex gap-2">
-              <button
-                onClick={copyJsonToClipboard}
-                disabled={!parsedData}
-                className="px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-bold shadow-sm hover:bg-slate-50 transition-colors disabled:opacity-40"
-              >
-                {isCopied ? 'Copied!' : 'Copy JSON'}
-              </button>
-              {savedReceipt && (
-                <button
-                  onClick={() => onViewMonth(savedReceipt.month_year)}
-                  className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold shadow-sm flex items-center gap-1 transition-colors"
-                >
-                  <span>View in {savedReceipt.month_year}</span>
-                  <ArrowRight className="w-3 h-3" />
-                </button>
-              )}
-            </div>
-          </div>
-
-          {/* Success Banner when saved */}
-          {savedReceipt && (
-            <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl flex items-center justify-between text-xs text-emerald-900 shadow-sm animate-fade-in">
-              <div className="flex items-center gap-2">
-                <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-                <div>
-                  <span className="font-bold">Placed in Month: {savedReceipt.month_year}</span>
-                  <span className="text-emerald-700 ml-2">(Date: {savedReceipt.invoice_date})</span>
-                </div>
-              </div>
-              <span className="bg-emerald-600 text-white font-bold px-2 py-0.5 rounded text-[10px]">
-                {savedReceipt.line_items.length} Items Listed
+            {/* Bottom Filing Bar */}
+            <div className="pt-3 border-t border-slate-100 flex items-center justify-between">
+              <span className="text-xs text-slate-500">
+                All {detectedReceipts.length} slips will be filed chronologically into their respective months.
               </span>
+              <button
+                onClick={handleFileAllDetected}
+                className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-xs flex items-center gap-2 shadow-xs transition-colors cursor-pointer"
+              >
+                <span>Confirm & File {detectedReceipts.length} Receipts</span>
+                <ArrowRight className="w-4 h-4" />
+              </button>
             </div>
-          )}
-
-          {/* JSON Terminal Area */}
-          <div className="flex-1 bg-slate-900 rounded-2xl shadow-inner p-5 font-mono text-xs text-emerald-400 overflow-auto leading-relaxed min-h-[280px]">
-            {parsedData ? (
-              <pre
-                className="whitespace-pre-wrap break-words"
-                dangerouslySetInnerHTML={{
-                  __html: JSON.stringify(parsedData, null, 2)
-                    .replace(/("[^"]+":)/g, '<span class="text-slate-300">$1</span>')
-                    .replace(/:\s*("[^"]*")/g, ': <span class="text-orange-300">$1</span>')
-                    .replace(/:\s*([0-9.-]+)/g, ': <span class="text-blue-300">$1</span>')
-                }}
-              />
-            ) : (
-              <div className="h-full flex flex-col items-center justify-center text-slate-500 space-y-2 py-8">
-                <div className="font-mono text-xs opacity-60">
-                  {`{\n  "vendor_name": "...",\n  "invoice_date": "YYYY-MM-DD",\n  "month_year": "YYYY-MM",\n  "category": "...",\n  "line_items": [...]\n}`}
-                </div>
-                <p className="text-[11px] text-slate-400">
-                  Scan receipt to preview raw JSON and auto-allocate
-                </p>
-              </div>
-            )}
           </div>
-
-          {/* Summary metrics of the parsed receipt */}
-          {parsedData && (
-            <div className="grid grid-cols-3 gap-2.5 shrink-0">
-              <div className="bg-white p-3 rounded-xl border border-slate-200 shadow-sm">
-                <div className="text-[10px] uppercase font-bold text-slate-400 flex items-center gap-1">
-                  <Store className="w-3 h-3" /> Vendor
-                </div>
-                <div className="text-sm font-bold text-slate-800 truncate mt-0.5">
-                  {parsedData.vendor_name}
-                </div>
-              </div>
-
-              <div className="bg-white p-3 rounded-xl border border-slate-200 shadow-sm">
-                <div className="text-[10px] uppercase font-bold text-slate-400 flex items-center gap-1">
-                  <Calendar className="w-3 h-3" /> Date & Month
-                </div>
-                <div className="text-sm font-bold text-slate-800 mt-0.5">
-                  {parsedData.invoice_date}
-                </div>
-              </div>
-
-              <div className="bg-white p-3 rounded-xl border border-slate-200 shadow-sm">
-                <div className="text-[10px] uppercase font-bold text-slate-400">Total Spend</div>
-                <div className="text-sm font-bold text-emerald-600 mt-0.5">
-                  {parsedData.currency} {Number(parsedData.total_amount).toFixed(2)}
-                </div>
-              </div>
-            </div>
-          )}
-        </div>
+        )}
       </section>
 
-      {/* Manual Entry & Correction Modal */}
+      {/* Manual Entry Modal */}
       {showManualModal && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-fade-in">
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-in fade-in">
           <div className="bg-white rounded-3xl max-w-lg w-full max-h-[90vh] flex flex-col shadow-2xl border border-slate-200 overflow-hidden">
             <div className="p-5 border-b border-slate-100 flex items-center justify-between bg-slate-50/70">
               <div className="flex items-center gap-2">
@@ -635,7 +929,7 @@ export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
                     required
                     value={manualVendor}
                     onChange={(e) => setManualVendor(e.target.value)}
-                    placeholder="e.g. Pick n Pay, Checkers, Eskom"
+                    placeholder="e.g. Pick n Pay, Rayton Express, Eskom"
                     className="w-full px-3 py-2 border border-slate-200 rounded-xl text-xs font-medium focus:ring-2 focus:ring-emerald-500 focus:outline-none"
                   />
                 </div>
@@ -687,7 +981,7 @@ export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
                     value={manualTotal}
                     onChange={(e) => setManualTotal(e.target.value)}
                     placeholder="241.71"
-                    className="w-full px-3 py-2 border border-slate-200 rounded-xl text-xs font-bold text-emerald-700 focus:ring-2 focus:ring-emerald-500 focus:outline-none"
+                    className="w-full px-3 py-2 border border-slate-200 rounded-xl text-xs font-bold text-emerald-700 focus:ring-2 focus:ring-emerald-500 focus:outline-none font-mono"
                   />
                 </div>
               </div>
@@ -728,12 +1022,12 @@ export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
                         placeholder="Total"
                         value={item.total_price}
                         onChange={(e) => updateManualItem(idx, 'total_price', e.target.value)}
-                        className="w-20 px-2 py-1 bg-white border border-slate-200 rounded-lg text-xs font-bold text-emerald-700"
+                        className="w-20 px-2 py-1 bg-white border border-slate-200 rounded-lg text-xs font-bold text-emerald-700 font-mono"
                       />
                       <button
                         type="button"
                         onClick={() => removeManualItem(idx)}
-                        className="text-red-500 hover:text-red-700 p-1 cursor-pointer"
+                        className="text-rose-500 hover:text-rose-700 p-1 cursor-pointer"
                       >
                         <Trash2 className="w-3.5 h-3.5" />
                       </button>

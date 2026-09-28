@@ -133,6 +133,19 @@ export default function App() {
     setTimeout(() => setSaveToast(null), 5000);
   };
 
+  const handleMultipleReceiptsSaved = (newReceipts: SavedReceipt[]) => {
+    if (!newReceipts || newReceipts.length === 0) return;
+    setReceipts(prev => [...newReceipts, ...prev]);
+    const latestMonth = newReceipts[0].month_year;
+    setSelectedMonth(latestMonth);
+    const totalAmount = newReceipts.reduce((sum, r) => sum + (Number(r.total_amount) || 0), 0);
+    setSaveToast({
+      message: `Scanned & filed ${newReceipts.length} receipts (Total: R ${totalAmount.toFixed(2)}) into ${latestMonth}!`,
+      month: latestMonth
+    });
+    setTimeout(() => setSaveToast(null), 5000);
+  };
+
   const handleUpdateReceipt = (updatedReceipt: SavedReceipt) => {
     setReceipts(prev => prev.map(r => r.id === updatedReceipt.id ? updatedReceipt : r));
     setSaveToast({
@@ -257,6 +270,7 @@ export default function App() {
         {activeTab === 'scanner' && (
           <ReceiptScanner
             onReceiptSaved={handleReceiptSaved}
+            onMultipleReceiptsSaved={handleMultipleReceiptsSaved}
             onViewMonth={handleViewMonth}
             recentReceipts={receipts}
           />

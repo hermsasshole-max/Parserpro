@@ -36,7 +36,7 @@ jobs:
       - name: Install Dependencies
         run: |
           if [ -f package-lock.json ]; then
-            npm ci
+            npm ci || (echo "Lockfile desync detected, falling back to npm install..." && npm install)
           else
             npm install
           fi
