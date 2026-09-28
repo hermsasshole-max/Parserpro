@@ -87,6 +87,34 @@ function cleanBase64(data: string): string {
   return data;
 }
 
+function extractJsonFromAiResponse(text: string): any {
+  if (!text) return null;
+  let clean = text.trim();
+  // Strip code blocks if present
+  clean = clean.replace(/```(?:json)?/gi, "").replace(/```/g, "").trim();
+  try {
+    return JSON.parse(clean);
+  } catch {
+    // Try to extract object
+    const startObj = clean.indexOf("{");
+    const endObj = clean.lastIndexOf("}");
+    if (startObj !== -1 && endObj > startObj) {
+      try {
+        return JSON.parse(clean.substring(startObj, endObj + 1));
+      } catch {}
+    }
+    // Try to extract array
+    const startArr = clean.indexOf("[");
+    const endArr = clean.lastIndexOf("]");
+    if (startArr !== -1 && endArr > startArr) {
+      try {
+        return JSON.parse(clean.substring(startArr, endArr + 1));
+      } catch {}
+    }
+    throw new Error("Could not parse structured JSON from AI response");
+  }
+}
+
 async function parseReceiptWithRetry(
   base64Data: string,
   mimeType: string,
@@ -95,69 +123,46 @@ async function parseReceiptWithRetry(
   const ai = getAiClient();
   const cleanedData = cleanBase64(base64Data);
 
-  // Modern Gemini models - prioritizing gemini-3.8-flash and gemini-flash-latest
+  // Modern Gemini models - prioritizing fast flash models
   const models = [
-    "gemini-3.8-flash",
     "gemini-flash-latest",
+    "gemini-3.8-flash",
     "gemini-3.1-flash-lite"
   ];
   let lastError: any = null;
 
   for (const model of models) {
-    const maxRetriesForModel = 2;
-    for (let attempt = 1; attempt <= maxRetriesForModel; attempt++) {
-      try {
-        console.log(`[Gemini API] Requesting multi-receipt OCR with model: ${model} (attempt ${attempt}/${maxRetriesForModel})...`);
-        const response = await ai.models.generateContent({
-          model,
-          contents: [
-            {
-              role: "user",
-              parts: [
-                { text: prompt },
-                { inlineData: { data: cleanedData, mimeType } }
-              ]
-            }
-          ],
-          config: {
-            responseMimeType: "application/json",
-            responseSchema: multiReceiptBatchSchema,
-            temperature: 0.1,
+    try {
+      console.log(`[Gemini API] Requesting multi-receipt OCR with model: ${model}...`);
+      const response = await ai.models.generateContent({
+        model,
+        contents: [
+          {
+            role: "user",
+            parts: [
+              { text: prompt },
+              { inlineData: { data: cleanedData, mimeType } }
+            ]
           }
-        });
-
-        const text = response.text;
-        if (text && text.trim().length > 0) {
-          console.log(`[Gemini API] Model ${model} successfully extracted receipts.`);
-          return text;
+        ],
+        config: {
+          responseMimeType: "application/json",
+          responseSchema: multiReceiptBatchSchema,
+          temperature: 0.1,
         }
-      } catch (err: any) {
-        lastError = err;
-        const errMsg = err?.message || String(err);
-        const isTransient =
-          errMsg.includes("503") ||
-          errMsg.includes("UNAVAILABLE") ||
-          errMsg.includes("high demand") ||
-          errMsg.includes("429") ||
-          errMsg.includes("RESOURCE_EXHAUSTED") ||
-          errMsg.includes("rate limit") ||
-          errMsg.includes("fetch failed");
+      });
 
-        console.warn(`[Gemini API] Error on model ${model} (attempt ${attempt}): ${errMsg}`);
-
-        // If it's a 404 or model deprecated, immediately jump to the next model
-        if (errMsg.includes("404") || errMsg.includes("NOT_FOUND") || errMsg.includes("no longer available")) {
-          break;
-        }
-
-        // On transient errors, do 1 quick retry, then try next model
-        if (isTransient && attempt < maxRetriesForModel) {
-          const delay = 400 + Math.random() * 200;
-          await new Promise((resolve) => setTimeout(resolve, delay));
-          continue;
-        }
-        break;
+      const text = response.text;
+      if (text && text.trim().length > 0) {
+        console.log(`[Gemini API] Model ${model} successfully extracted receipts.`);
+        return text;
       }
+    } catch (err: any) {
+      lastError = err;
+      const errMsg = err?.message || String(err);
+      console.warn(`[Gemini API] Error on model ${model}: ${errMsg}`);
+      // Continue immediately to next candidate model
+      continue;
     }
   }
 
@@ -177,6 +182,7 @@ async function startServer() {
     res.setHeader("Access-Control-Allow-Origin", "*");
     res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
     res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    res.setHeader("Access-Control-Expose-Headers", "Content-Type, Content-Length, Date");
     if (req.method === "OPTIONS") {
       return res.sendStatus(200);
     }
@@ -310,11 +316,11 @@ async function startServer() {
 
     // Default inline service worker script
     const defaultSw = `
-const CACHE_NAME = 'parserpro-v2';
+const CACHE_NAME = 'parserpro-v4';
 self.addEventListener('install', (e) => { self.skipWaiting(); });
 self.addEventListener('activate', (e) => { self.clients.claim(); });
 self.addEventListener('fetch', (e) => {
-  if (e.request.method !== 'GET' || e.request.url.includes('/api/')) return;
+  if (e.request.method !== 'GET' || e.request.url.includes('/api')) return;
   e.respondWith(
     fetch(e.request)
       .then((res) => {
@@ -360,8 +366,27 @@ self.addEventListener('fetch', (e) => {
   });
 
   // Receipt OCR extraction endpoint supporting both Multipart Form and JSON payloads
+  app.options(["/api/parse-receipt", "/api/parse-receipt/"], (req, res) => {
+    res.setHeader("Access-Control-Allow-Origin", "*");
+    res.setHeader("Access-Control-Allow-Methods", "POST, GET, OPTIONS");
+    res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    res.sendStatus(200);
+  });
+
+  app.get(["/api/parse-receipt", "/api/parse-receipt/"], (req, res) => {
+    res.setHeader("Access-Control-Allow-Origin", "*");
+    res.setHeader("Content-Type", "application/json; charset=utf-8");
+    res.json({
+      status: "ok",
+      endpoint: "/api/parse-receipt",
+      method: "POST",
+      description: "Send POST request with JSON body { imageBase64, mimeType } or multipart form data."
+    });
+  });
+
   app.post(["/api/parse-receipt", "/api/parse-receipt/"], upload.single("receipt"), async (req, res) => {
     res.setHeader("Access-Control-Allow-Origin", "*");
+    res.setHeader("Access-Control-Expose-Headers", "Content-Type, Content-Length, Date");
     res.setHeader("Content-Type", "application/json; charset=utf-8");
 
     try {
@@ -416,15 +441,9 @@ Strictly return JSON conforming to the schema with the "receipts" array containi
         throw new Error("Empty response from AI model");
       }
 
-      // Clean markdown code blocks if present
-      responseText = responseText.trim();
-      if (responseText.startsWith("```")) {
-        responseText = responseText.replace(/^```(?:json)?\n?/, "").replace(/\n?```$/, "").trim();
-      }
-
       let parsed: any;
       try {
-        parsed = JSON.parse(responseText);
+        parsed = extractJsonFromAiResponse(responseText);
       } catch (parseErr) {
         console.error("[Gemini API] Failed to parse JSON from AI response:", responseText);
         throw new Error("AI returned invalid JSON format");

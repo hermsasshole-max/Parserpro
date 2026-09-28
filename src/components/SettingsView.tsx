@@ -21,7 +21,8 @@ import {
   Smartphone,
   Share2,
   FileSpreadsheet,
-  Edit3
+  Edit3,
+  Key
 } from 'lucide-react';
 import type { SavedReceipt } from '../types';
 import { 
@@ -31,6 +32,10 @@ import {
   checkStoragePersistence,
   requestPersistentDeviceStorage
 } from '../utils/deviceStorage';
+import { 
+  getActiveGeminiApiKey, 
+  setClientGeminiApiKey 
+} from '../utils/geminiVision';
 
 interface SettingsViewProps {
   receipts: SavedReceipt[];

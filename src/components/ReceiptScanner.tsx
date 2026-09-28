@@ -20,11 +20,16 @@ import {
   ChevronDown, 
   ChevronUp, 
   FileSpreadsheet,
-  Coins
+  Coins,
+  Key
 } from 'lucide-react';
 import type { ReceiptData, SavedReceipt, LineItem, ReceiptCategory } from '../types';
 import { compressAndPrepareImage } from '../utils/imageUtils';
-import { parseMultipleReceiptsWithGemini, getActiveGeminiApiKey } from '../utils/geminiVision';
+import { 
+  parseMultipleReceiptsWithGemini, 
+  getActiveGeminiApiKey, 
+  setClientGeminiApiKey 
+} from '../utils/geminiVision';
 import { captureReceiptWithNativeCamera, isCapacitorPlatform } from '../utils/nativeCamera';
 
 interface ReceiptScannerProps {
@@ -52,6 +57,11 @@ export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
   const [loadingStage, setLoadingStage] = useState<string>('Analyzing Receipts & Line Items...');
   const [error, setError] = useState<string | null>(null);
   
+  // API Key management modal state for offline/APK/standalone environments
+  const [showApiKeyModal, setShowApiKeyModal] = useState(false);
+  const [apiKeyInput, setApiKeyInput] = useState(() => getActiveGeminiApiKey());
+  const [apiKeySavedSuccess, setApiKeySavedSuccess] = useState(false);
+
   // Multi-receipt review and filing state
   const [detectedReceipts, setDetectedReceipts] = useState<SavedReceipt[]>([]);
   const [expandedReceiptIds, setExpandedReceiptIds] = useState<Set<string>>(new Set());
@@ -72,6 +82,18 @@ export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
+
+  const handleSaveApiKey = () => {
+    setClientGeminiApiKey(apiKeyInput.trim());
+    setApiKeySavedSuccess(true);
+    setTimeout(() => {
+      setApiKeySavedSuccess(false);
+      setShowApiKeyModal(false);
+      if (queuedFiles.length > 0) {
+        parseReceipts();
+      }
+    }, 900);
+  };
 
   const handleFilesSelected = (fileList: FileList | File[]) => {
     const filesArray = Array.from(fileList);
@@ -171,8 +193,8 @@ export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
         const qFile = queuedFiles[i];
         setLoadingStage(`Optimizing image ${i + 1} of ${queuedFiles.length}...`);
         
-        // High quality 2048px compression for crisp reading of multi-slip photos
-        const prepared = await compressAndPrepareImage(qFile.file, 2048, 0.82);
+        // High quality 1800px compression for crisp reading and fast network transport
+        const prepared = await compressAndPrepareImage(qFile.file, 1800, 0.80);
         console.log(`[ReceiptScanner] Image ${i + 1} optimized (${prepared.processedSizeKb} KB). Requesting AI OCR...`);
 
         setLoadingStage(
@@ -183,6 +205,7 @@ export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
 
         let fileExtracted: ReceiptData[] = [];
         let serverError: any = null;
+        let isStaticOrNoBackend = false;
 
         // 1. Try server-side proxy route (/api/parse-receipt)
         try {
@@ -197,37 +220,65 @@ export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
             }),
           });
 
-          const contentType = res.headers.get('content-type') || '';
-          if (contentType.includes('application/json')) {
-            const json = await res.json();
+          // Always read response text to be resilient to missing or altered Content-Type headers
+          const rawText = await res.text();
+          let json: any = null;
+          try {
+            json = JSON.parse(rawText.trim());
+          } catch {
+            // Resilient JSON substring extraction if proxy prepends or appends data
+            const startObj = rawText.indexOf('{');
+            const endObj = rawText.lastIndexOf('}');
+            if (startObj !== -1 && endObj > startObj) {
+              try {
+                json = JSON.parse(rawText.substring(startObj, endObj + 1));
+              } catch {}
+            }
+          }
+
+          if (json && typeof json === 'object') {
             if (res.ok) {
               if (Array.isArray(json.receipts) && json.receipts.length > 0) {
                 fileExtracted = json.receipts;
               } else if (json.vendor_name) {
                 fileExtracted = [json];
+              } else {
+                serverError = new Error('No receipt items returned from AI service');
               }
             } else {
               serverError = new Error(json.error || `Server OCR returned status ${res.status}`);
             }
           } else {
-            const rawText = await res.text();
-            console.warn('[ReceiptScanner] Server returned non-JSON response:', rawText.slice(0, 100));
-            serverError = new Error(
-              res.status === 504 || rawText.includes('504')
-                ? 'Server timed out processing image. Falling back to local OCR...'
-                : `Server returned unexpected format (${res.status})`
-            );
+            console.warn('[ReceiptScanner] Non-JSON response received from server:', rawText.slice(0, 150));
+            const lowerText = rawText.toLowerCase();
+            const isHtml =
+              lowerText.includes('<!doctype') ||
+              lowerText.includes('<html') ||
+              lowerText.includes('<head') ||
+              lowerText.includes('<body') ||
+              lowerText.includes('<script') ||
+              (res.headers.get('content-type') || '').toLowerCase().includes('text/html');
+
+            if (isHtml) {
+              isStaticOrNoBackend = true;
+              serverError = new Error('STATIC_HOST_NO_BACKEND');
+            } else if (res.status === 504 || lowerText.includes('504') || res.status === 502) {
+              serverError = new Error('Server timed out processing image. Falling back to on-device OCR...');
+            } else {
+              serverError = new Error(`OCR service responded with status ${res.status}`);
+            }
           }
         } catch (netErr: any) {
           console.warn('[ReceiptScanner] Network proxy error, checking client fallback:', netErr);
+          isStaticOrNoBackend = true;
           serverError = netErr;
         }
 
-        // 2. Client-side fallback if server failed and client has a key configured
+        // 2. Client-side fallback if server failed or is a static host (APK / GitHub Pages)
         if (fileExtracted.length === 0) {
           const clientKey = getActiveGeminiApiKey();
           if (clientKey) {
-            setLoadingStage(`Using Gemini Vision client engine (Photo ${i + 1}/${queuedFiles.length})...`);
+            setLoadingStage(`Using on-device Gemini Vision OCR (Photo ${i + 1}/${queuedFiles.length})...`);
             fileExtracted = await parseMultipleReceiptsWithGemini(
               prepared.base64Data,
               prepared.mimeType,
@@ -236,6 +287,9 @@ export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
                 apiKey: clientKey
               }
             );
+          } else if (isStaticOrNoBackend) {
+            setShowApiKeyModal(true);
+            throw new Error('STANDALONE_APK_NEEDS_KEY');
           } else if (serverError) {
             throw serverError;
           } else {
@@ -279,12 +333,24 @@ export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
       console.error('[ReceiptScanner] Error during batch receipt scanning:', err);
       const rawMsg = err?.message || 'Failed to scan receipt';
       
-      // Clean and sanitize any raw HTML / doctype messages
+      // Clean and sanitize any raw HTML / doctype / HTTP format messages
       let cleanMsg = rawMsg;
-      if (rawMsg.includes('<!doctype') || rawMsg.includes('Unexpected token')) {
-        cleanMsg = 'Server connection timeout or busy AI service while analyzing slips. Please retry or enter manually.';
+      if (
+        rawMsg === 'STANDALONE_APK_NEEDS_KEY' || 
+        rawMsg.includes('STATIC_HOST') || 
+        rawMsg.includes('unexpected format') ||
+        rawMsg.includes('unexpected response') ||
+        rawMsg.includes('<!doctype') ||
+        rawMsg.includes('HTTP 200') ||
+        rawMsg.includes('status 200')
+      ) {
+        cleanMsg = 'No OCR backend server detected. If you are using ParserPro as a standalone mobile app or offline PWA, please connect your free Google Gemini API Key below to scan receipts directly on your device.';
+      } else if (rawMsg.includes('Unexpected token') || rawMsg.includes('invalid JSON')) {
+        cleanMsg = 'OCR response processing was interrupted. Please tap Retry or enter slip details manually.';
       } else if (rawMsg.includes('Failed to fetch') || rawMsg.includes('NetworkError')) {
         cleanMsg = 'Network connection interrupted. Please check your internet connection and retry.';
+      } else if (rawMsg.includes('503') || rawMsg.includes('UNAVAILABLE') || rawMsg.includes('high traffic') || rawMsg.includes('high demand')) {
+        cleanMsg = 'AI OCR service is temporarily experiencing high traffic. Please tap Retry in a moment.';
       }
 
       setError(cleanMsg);
@@ -671,7 +737,16 @@ export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
                   </p>
                 </div>
               </div>
-              <div className="flex items-center gap-2 self-end sm:self-auto shrink-0">
+              <div className="flex items-center gap-2 self-end sm:self-auto shrink-0 flex-wrap">
+                {(error.includes('Gemini API Key') || error.includes('Standalone') || error.includes('server')) && (
+                  <button
+                    onClick={() => setShowApiKeyModal(true)}
+                    className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-lg transition-colors cursor-pointer flex items-center gap-1.5 shadow-xs"
+                  >
+                    <Key className="w-3.5 h-3.5" />
+                    <span>Connect Free Key</span>
+                  </button>
+                )}
                 <button
                   onClick={() => setShowManualModal(true)}
                   className="px-3 py-1.5 bg-white hover:bg-slate-50 text-slate-800 border border-slate-200 font-bold text-xs rounded-lg transition-colors cursor-pointer"
@@ -1052,6 +1127,87 @@ export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Gemini API Key Configuration Modal for Standalone / APK Mode */}
+      {showApiKeyModal && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-in fade-in">
+          <div className="bg-white rounded-3xl max-w-md w-full p-5 sm:p-6 shadow-2xl border border-slate-200 space-y-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-emerald-100 text-emerald-700 flex items-center justify-center shadow-xs">
+                  <Key className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-slate-900 text-base leading-tight">Gemini Vision OCR Key</h3>
+                  <p className="text-xs text-slate-500">Enable on-device receipt scanning</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowApiKeyModal(false)}
+                className="p-1 text-slate-400 hover:text-slate-600 rounded-lg cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <p className="text-xs text-slate-600 leading-relaxed">
+              When using ParserPro as an Android APK or offline PWA without a dedicated backend server, receipts are scanned directly on your device using Google&apos;s free Gemini Vision OCR.
+            </p>
+
+            <div className="space-y-1.5">
+              <label className="block text-xs font-bold text-slate-700">Google Gemini API Key</label>
+              <input
+                type="password"
+                value={apiKeyInput}
+                onChange={(e) => setApiKeyInput(e.target.value)}
+                placeholder="AIzaSy..."
+                className="w-full px-3 py-2 border border-slate-200 rounded-xl text-xs font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none"
+              />
+              <div className="flex justify-between items-center text-[11px] pt-1">
+                <a
+                  href="https://aistudio.google.com/app/apikey"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-emerald-600 font-bold hover:underline flex items-center gap-1"
+                >
+                  Get a free key from Google AI Studio &rarr;
+                </a>
+                {apiKeyInput && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setApiKeyInput('');
+                      setClientGeminiApiKey('');
+                    }}
+                    className="text-rose-500 hover:underline text-[10px] cursor-pointer"
+                  >
+                    Clear Key
+                  </button>
+                )}
+              </div>
+            </div>
+
+            <div className="pt-2 flex gap-2">
+              <button
+                type="button"
+                onClick={() => setShowApiKeyModal(false)}
+                className="flex-1 py-2.5 px-4 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl text-xs transition-colors cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleSaveApiKey}
+                disabled={!apiKeyInput.trim()}
+                className="flex-1 py-2.5 px-4 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-bold rounded-xl text-xs transition-colors shadow-md cursor-pointer flex items-center justify-center gap-1.5"
+              >
+                {apiKeySavedSuccess ? <Check className="w-4 h-4" /> : <Sparkles className="w-4 h-4" />}
+                <span>{apiKeySavedSuccess ? 'Saved & Scanning!' : 'Save & Continue'}</span>
+              </button>
+            </div>
           </div>
         </div>
       )}

@@ -151,10 +151,10 @@ export async function parseMultipleReceiptsWithGemini(
     },
   });
 
-  // Candidate models: prioritize the latest 3.8 flash models
+  // Candidate models: prioritize fast flash models
   const candidateModels = [
-    'gemini-3.8-flash',
     'gemini-flash-latest',
+    'gemini-3.8-flash',
     'gemini-3.1-flash-lite'
   ];
 
@@ -164,7 +164,7 @@ export async function parseMultipleReceiptsWithGemini(
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     const modelToUse = candidateModels[(attempt - 1) % candidateModels.length];
     const controller = new AbortController();
-    const timeoutDurationMs = 45000;
+    const timeoutDurationMs = 35000;
 
     const timeoutId = setTimeout(() => {
       controller.abort(new Error(`Timeout: Gemini API took longer than ${timeoutDurationMs / 1000}s to respond.`));
@@ -226,13 +226,28 @@ export async function parseMultipleReceiptsWithGemini(
       let parsed: any;
       try {
         parsed = JSON.parse(responseText.trim());
-      } catch (jsonErr) {
+      } catch {
         const cleanJson = responseText
-          .replace(/^```json\s*/i, '')
-          .replace(/^```\s*/i, '')
-          .replace(/\s*```$/i, '')
+          .replace(/```(?:json)?/gi, '')
+          .replace(/```/g, '')
           .trim();
-        parsed = JSON.parse(cleanJson);
+        try {
+          parsed = JSON.parse(cleanJson);
+        } catch {
+          const start = cleanJson.indexOf('{');
+          const end = cleanJson.lastIndexOf('}');
+          if (start !== -1 && end > start) {
+            parsed = JSON.parse(cleanJson.substring(start, end + 1));
+          } else {
+            const arrStart = cleanJson.indexOf('[');
+            const arrEnd = cleanJson.lastIndexOf(']');
+            if (arrStart !== -1 && arrEnd > arrStart) {
+              parsed = JSON.parse(cleanJson.substring(arrStart, arrEnd + 1));
+            } else {
+              throw new Error('Could not parse JSON response from Gemini');
+            }
+          }
+        }
       }
 
       let rawReceipts: any[] = [];
