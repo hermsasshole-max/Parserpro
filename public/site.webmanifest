@@ -1,6 +1,6 @@
 {
   "id": "/",
-  "name": "ParserPro - Household Recept & Expenditure Tracker",
+  "name": "ParserPro - Household Receipt & Expenditure Tracker",
   "short_name": "ParserPro",
   "description": "Scan household receipts, extract items with AI OCR, file by month and date, and generate live month-to-month expenditure reports.",
   "start_url": "/",
