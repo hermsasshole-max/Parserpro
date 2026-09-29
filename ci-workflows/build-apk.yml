@@ -61,19 +61,20 @@ jobs:
       - name: Sync Capacitor Android Project
         run: npx cap sync android
 
-      - name: Make Gradle Wrapper Executable and Ensure Wrapper JAR
-        run: |
-          chmod +x android/gradlew
-          if [ ! -f "android/gradle/wrapper/gradle-wrapper.jar" ]; then
-            echo "Gradle wrapper JAR not tracked in git. Downloading gradle-wrapper.jar..."
-            mkdir -p android/gradle/wrapper
-            curl -sSL -o android/gradle/wrapper/gradle-wrapper.jar https://raw.githubusercontent.com/gradle/gradle/v8.14/gradle/wrapper/gradle-wrapper.jar || true
-          fi
-
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
-          gradle-version: '8.14'
+          gradle-version: '8.14.3'
+          validate-wrappers: false
+
+      - name: Make Gradle Wrapper Executable and Ensure Wrapper
+        run: |
+          chmod +x android/gradlew
+          cd android
+          if [ ! -f "gradle/wrapper/gradle-wrapper.jar" ]; then
+            echo "Generating Gradle wrapper..."
+            gradle wrapper --gradle-version 8.14.3 || true
+          fi
 
       - name: Build Debug APK with Gradle
         run: |
@@ -81,7 +82,7 @@ jobs:
           if [ -f "gradle/wrapper/gradle-wrapper.jar" ]; then
             ./gradlew assembleDebug --no-daemon --stacktrace
           else
-            gradle assembleDebug --stacktrace
+            gradle assembleDebug --no-daemon --stacktrace
           fi
 
       - name: Upload Native Android APK Artifact
