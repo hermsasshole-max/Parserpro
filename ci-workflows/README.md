@@ -3,7 +3,7 @@
 These workflow files are stored here to avoid GitHub OAuth scope restrictions during direct sync from Google AI Studio.
 
 ## Included Workflows:
-1. `build-apk.yml`: Automatically builds a signed or unsigned debug Android APK using Capacitor and Android SDK 34.
+1. `build-apk.yml`: Automatically builds a signed or unsigned debug Android APK using Capacitor and Android SDK 36.
 2. `deploy.yml`: Deploys the web application to GitHub Pages.
 
 ## How to enable them on GitHub:
