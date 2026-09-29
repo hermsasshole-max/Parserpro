@@ -266,7 +266,7 @@ export default function App() {
       )}
 
       {/* Tab Views */}
-      <main className="flex-1 overflow-hidden pb-16 sm:pb-0">
+      <main className="flex-1 overflow-hidden pb-16 sm:pb-0 print:hidden">
         {activeTab === 'scanner' && (
           <ReceiptScanner
             onReceiptSaved={handleReceiptSaved}

@@ -59,7 +59,7 @@ export const GlobalSearchModal: React.FC<GlobalSearchModalProps> = ({
   const quickFilterPills = ['Pick n Pay', 'Woolworths', 'Food & Groceries', 'Electricity', 'Transport'];
 
   return (
-    <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-start justify-center p-3 sm:p-6 overflow-y-auto animate-in fade-in duration-150">
+    <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-start justify-center p-3 sm:p-6 overflow-y-auto animate-in fade-in duration-150 no-print">
       <div 
         className="w-full max-w-2xl bg-white rounded-2xl shadow-2xl border border-slate-200 overflow-hidden mt-6 sm:mt-12 flex flex-col max-h-[85vh]"
         onClick={(e) => e.stopPropagation()}

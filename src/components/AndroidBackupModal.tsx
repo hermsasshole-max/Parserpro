@@ -223,7 +223,7 @@ export const AndroidBackupModal: React.FC<AndroidBackupModalProps> = ({
 
   return (
     <div 
-      className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-6 overflow-y-auto"
+      className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-6 overflow-y-auto no-print"
       onClick={onClose}
     >
       <div 

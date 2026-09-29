@@ -184,8 +184,8 @@ export const QuickMenuModal: React.FC<QuickMenuModalProps> = ({
                     <Printer className="w-4 h-4" />
                   </div>
                   <div>
-                    <div className="font-bold text-slate-800">Print / Export PDF</div>
-                    <div className="text-slate-500 text-[11px]">Generate monthly expense sheets</div>
+                    <div className="font-bold text-slate-800">Export PDF, Print & Share</div>
+                    <div className="text-slate-500 text-[11px]">Vector PDF, WhatsApp/Drive share & print</div>
                   </div>
                 </div>
                 <ChevronRight className="w-4 h-4 text-slate-400 group-hover:text-emerald-600 transition-colors" />

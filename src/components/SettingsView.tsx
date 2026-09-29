@@ -100,7 +100,8 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       }
     } catch (e) {
       console.error('Export error:', e);
-      alert('Failed to export backup to device.');
+      setFeedbackToast('Failed to export backup to device.');
+      setTimeout(() => setFeedbackToast(null), 4000);
     } finally {
       setIsExporting(false);
     }
@@ -128,7 +129,8 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       setFeedbackToast(result.message);
       setTimeout(() => setFeedbackToast(null), 4000);
     } else {
-      alert(result.message);
+      setFeedbackToast(result.message);
+      setTimeout(() => setFeedbackToast(null), 4000);
     }
     e.target.value = '';
   };

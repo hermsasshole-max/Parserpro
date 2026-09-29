@@ -6,22 +6,31 @@
     margin: 10mm;
   }
 
-  html, body, #root {
+  /* Force background colors and accurate graphics during print */
+  * {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  html, body {
     background-color: #ffffff !important;
     color: #0f172a !important;
     overflow: visible !important;
     height: auto !important;
     width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
   }
 
-  /* Hide navigation, background dashboard, modals chrome, and toasts on print */
+  /* Hide navigation bars, bottom mobile nav, tooltips, action bars and floating dialogs */
   nav, 
   .no-print,
-  #install-android-btn {
+  #install-android-btn,
+  .no-print-area {
     display: none !important;
   }
 
-  /* Normalize fixed modal backdrops into flat print document */
+  /* Flatten modal wrapper when printing */
   .fixed.inset-0 {
     position: static !important;
     background: #ffffff !important;
@@ -31,6 +40,7 @@
     height: auto !important;
     width: 100% !important;
     backdrop-filter: none !important;
+    box-shadow: none !important;
   }
 
   .print-only {
@@ -50,11 +60,13 @@
     padding: 0 !important;
     box-shadow: none !important;
     border: none !important;
+    background: #ffffff !important;
   }
 
   table {
     page-break-inside: auto;
     width: 100% !important;
+    border-collapse: collapse !important;
   }
 
   tr {
@@ -64,6 +76,10 @@
 
   thead {
     display: table-header-group;
+  }
+
+  tfoot {
+    display: table-footer-group;
   }
 }
 
@@ -90,4 +106,3 @@
 .animate-scan-laser {
   animation: scanLaser 2s ease-in-out infinite alternate;
 }
-

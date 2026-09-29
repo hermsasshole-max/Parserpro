@@ -4,5 +4,16 @@ dist/
 coverage/
 .DS_Store
 *.log
+*.jar
+*.map
+*.apk
+*.aab
 .env*
 !.env.example
+
+# Android & Capacitor compiled build outputs
+android/app/src/main/assets/public/
+android/app/src/main/assets/capacitor.config.json
+android/app/src/main/assets/capacitor.plugins.json
+android/app/build/
+android/.gradle/

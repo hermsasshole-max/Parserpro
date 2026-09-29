@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
-import { Calendar, Store, Tag, Plus, Search, ChevronDown, ChevronUp, Trash2, TrendingUp, Receipt, ShoppingCart, RotateCcw, Edit3 } from 'lucide-react';
+import { Calendar, Store, Tag, Plus, Search, ChevronDown, ChevronUp, Trash2, TrendingUp, Receipt, ShoppingCart, RotateCcw, Edit3, FileDown, Share2, Printer, Loader2, Check } from 'lucide-react';
 import type { SavedReceipt, ReceiptCategory } from '../types';
+import { downloadSingleMonthPDF, shareOrSaveSingleMonthPDF, printReportSafely } from '../utils/pdfGenerator';
 
 interface MonthlyReceiptsListProps {
   receipts: SavedReceipt[];
@@ -24,6 +25,9 @@ export const MonthlyReceiptsList: React.FC<MonthlyReceiptsListProps> = ({
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [expandedReceiptId, setExpandedReceiptId] = useState<string | null>(null);
+  const [isDownloadingPdf, setIsDownloadingPdf] = useState(false);
+  const [isSharingPdf, setIsSharingPdf] = useState(false);
+  const [feedbackToast, setFeedbackToast] = useState<string | null>(null);
 
   const currentMonthDefault = new Date().toISOString().substring(0, 7);
 
@@ -107,23 +111,81 @@ export const MonthlyReceiptsList: React.FC<MonthlyReceiptsListProps> = ({
           )}
         </div>
 
-        <div className="flex items-center gap-2 self-end sm:self-auto">
+        <div className="flex items-center gap-1.5 sm:gap-2 self-end sm:self-auto flex-wrap">
+          {/* Direct Download Statement PDF */}
+          <button
+            onClick={async () => {
+              setIsDownloadingPdf(true);
+              setFeedbackToast(null);
+              const res = await downloadSingleMonthPDF(activeMonth, receipts);
+              setIsDownloadingPdf(false);
+              if (res.success) {
+                setFeedbackToast(`Statement PDF (${res.filename}) downloaded to device!`);
+                setTimeout(() => setFeedbackToast(null), 4000);
+              }
+            }}
+            disabled={isDownloadingPdf}
+            className="px-3 py-1.5 bg-emerald-50 hover:bg-emerald-100 disabled:opacity-50 text-emerald-800 border border-emerald-200 rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-2xs transition-colors cursor-pointer"
+            title={`Download ${activeMonth} statement as vector PDF`}
+          >
+            {isDownloadingPdf ? (
+              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+            ) : (
+              <FileDown className="w-3.5 h-3.5 text-emerald-600" />
+            )}
+            <span className="hidden sm:inline">Export PDF</span>
+            <span className="sm:hidden">PDF</span>
+          </button>
+
+          {/* Share Statement */}
+          <button
+            onClick={async () => {
+              setIsSharingPdf(true);
+              setFeedbackToast(null);
+              const res = await shareOrSaveSingleMonthPDF(activeMonth, receipts);
+              setIsSharingPdf(false);
+              setFeedbackToast(res.message);
+              setTimeout(() => setFeedbackToast(null), 4500);
+            }}
+            disabled={isSharingPdf}
+            className="px-2.5 sm:px-3 py-1.5 bg-slate-100 hover:bg-slate-200 disabled:opacity-50 text-slate-800 border border-slate-200 rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-2xs transition-colors cursor-pointer"
+            title={`Share ${activeMonth} PDF via WhatsApp, Drive or Gmail`}
+          >
+            {isSharingPdf ? (
+              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+            ) : (
+              <Share2 className="w-3.5 h-3.5 text-emerald-600" />
+            )}
+            <span>Share</span>
+          </button>
+
           <button
             onClick={() => onGoToReport(activeMonth)}
-            className="px-3.5 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-sm transition-colors"
+            className="px-3.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-200 rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-sm transition-colors cursor-pointer"
           >
-            <TrendingUp className="w-3.5 h-3.5" />
-            <span>Analyze {activeMonth} Report</span>
+            <TrendingUp className="w-3.5 h-3.5 text-slate-600" />
+            <span className="hidden md:inline">Analyze {activeMonth}</span>
+            <span className="md:hidden">Report</span>
           </button>
+
           <button
             onClick={onAddManualReceipt}
-            className="px-3.5 py-1.5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-sm transition-colors"
+            className="px-3.5 py-1.5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-sm transition-colors cursor-pointer"
           >
             <Plus className="w-3.5 h-3.5" />
-            <span>Add Receipt</span>
+            <span className="hidden sm:inline">Add Receipt</span>
+            <span className="sm:hidden">Add</span>
           </button>
         </div>
       </div>
+
+      {/* Feedback Toast */}
+      {feedbackToast && (
+        <div className="bg-emerald-950/80 border border-emerald-500/40 text-emerald-200 px-4 py-2.5 rounded-2xl text-xs flex items-center gap-2 animate-in fade-in shadow-lg">
+          <Check className="w-4 h-4 text-emerald-400 shrink-0" />
+          <span>{feedbackToast}</span>
+        </div>
+      )}
 
       {/* Monthly Overview Card */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">

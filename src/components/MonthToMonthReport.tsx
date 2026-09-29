@@ -2,11 +2,11 @@ import React, { useState, useMemo } from 'react';
 import { 
   TrendingUp, TrendingDown, ArrowUpDown, Search, Printer, 
   Download, Calendar, CheckCircle2, ArrowRight, ShieldCheck, Sparkles,
-  FileDown, Loader2
+  FileDown, Loader2, Share2, Check
 } from 'lucide-react';
 import type { SavedReceipt } from '../types';
 import { compareMonths, exportComparisonToCSV } from '../utils/reportUtils';
-import { downloadComparisonPDF } from '../utils/pdfGenerator';
+import { downloadComparisonPDF, shareOrSavePDF } from '../utils/pdfGenerator';
 
 interface MonthToMonthReportProps {
   receipts: SavedReceipt[];
@@ -22,6 +22,8 @@ export const MonthToMonthReport: React.FC<MonthToMonthReportProps> = ({
   onOpenPrintReport,
 }) => {
   const [isDownloadingPdf, setIsDownloadingPdf] = useState(false);
+  const [isSharingPdf, setIsSharingPdf] = useState(false);
+  const [actionFeedback, setActionFeedback] = useState<string | null>(null);
   // Get all unique available months sorted descending
   const availableMonths = useMemo(() => {
     return Array.from(new Set<string>(receipts.map(r => r.month_year)))
@@ -170,13 +172,18 @@ export const MonthToMonthReport: React.FC<MonthToMonthReportProps> = ({
           </button>
         </div>
 
-        {/* Action Buttons: Print & Export */}
+        {/* Action Buttons: Print, Share & Export */}
         <div className="flex items-center gap-2 self-end lg:self-auto flex-wrap">
           <button
             onClick={async () => {
               setIsDownloadingPdf(true);
-              await downloadComparisonPDF(monthA, monthB, receipts);
+              setActionFeedback(null);
+              const res = await downloadComparisonPDF(monthA, monthB, receipts);
               setIsDownloadingPdf(false);
+              if (res.success) {
+                setActionFeedback(`PDF (${res.filename}) saved to your Downloads!`);
+                setTimeout(() => setActionFeedback(null), 4000);
+              }
             }}
             disabled={isDownloadingPdf}
             className="px-3.5 py-2 bg-emerald-50 hover:bg-emerald-100 disabled:opacity-50 text-emerald-800 border border-emerald-200 font-bold text-xs rounded-xl flex items-center gap-1.5 transition-colors shadow-2xs cursor-pointer"
@@ -191,11 +198,32 @@ export const MonthToMonthReport: React.FC<MonthToMonthReportProps> = ({
           </button>
 
           <button
+            onClick={async () => {
+              setIsSharingPdf(true);
+              setActionFeedback(null);
+              const res = await shareOrSavePDF(monthA, monthB, receipts);
+              setIsSharingPdf(false);
+              setActionFeedback(res.message);
+              setTimeout(() => setActionFeedback(null), 4500);
+            }}
+            disabled={isSharingPdf}
+            className="px-3 py-2 bg-slate-100 hover:bg-slate-200 disabled:opacity-50 text-slate-800 font-bold text-xs rounded-xl flex items-center gap-1.5 transition-colors border border-slate-200 cursor-pointer shadow-2xs"
+            title="Share report via WhatsApp, Drive or system share sheet"
+          >
+            {isSharingPdf ? (
+              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+            ) : (
+              <Share2 className="w-3.5 h-3.5 text-emerald-600" />
+            )}
+            <span>Share</span>
+          </button>
+
+          <button
             onClick={handleExportCSV}
-            className="px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl flex items-center gap-1.5 transition-colors shadow-2xs cursor-pointer"
+            className="px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl flex items-center gap-1.5 transition-colors shadow-2xs cursor-pointer"
           >
             <Download className="w-3.5 h-3.5" />
-            <span>Export CSV</span>
+            <span>CSV</span>
           </button>
 
           <button
@@ -207,6 +235,14 @@ export const MonthToMonthReport: React.FC<MonthToMonthReportProps> = ({
           </button>
         </div>
       </div>
+
+      {/* Action feedback toast */}
+      {actionFeedback && (
+        <div className="bg-emerald-950/80 border border-emerald-500/40 text-emerald-200 px-4 py-2.5 rounded-2xl text-xs flex items-center gap-2 animate-in fade-in shadow-lg">
+          <Check className="w-4 h-4 text-emerald-400 shrink-0" />
+          <span>{actionFeedback}</span>
+        </div>
+      )}
 
       {/* Comparison Scorecards */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">

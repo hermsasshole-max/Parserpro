@@ -343,3 +343,150 @@ export function exportMarkdownReport(content: string, filename: string) {
   link.click();
   document.body.removeChild(link);
 }
+
+export interface MonthSpendingTrendPoint {
+  monthKey: string; // e.g. "2026-09"
+  shortLabel: string; // e.g. "Sep '26"
+  fullLabel: string; // e.g. "September 2026"
+  totalSpend: number;
+  receiptCount: number;
+  itemCount: number;
+  groceries: number;
+  utilities: number;
+  transport: number;
+  home: number;
+  other: number;
+  topCategory: string;
+}
+
+export interface SixMonthSpendingTrendSummary {
+  points: MonthSpendingTrendPoint[];
+  totalSixMonthSpend: number;
+  averageMonthlySpend: number;
+  highestMonth: MonthSpendingTrendPoint;
+  lowestMonth: MonthSpendingTrendPoint;
+  percentChangeLatestVsPrev: number;
+  percentChangeLatestVsAvg: number;
+  activeMonthsCount: number;
+}
+
+/**
+ * Calculates a rolling 6-month spending timeline with category breakouts and statistical variance
+ */
+export function calculateSixMonthSpendingTrend(
+  receipts: SavedReceipt[],
+  preferredEndMonth?: string
+): SixMonthSpendingTrendSummary {
+  const now = new Date();
+  const currentMonthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  
+  let endMonth = preferredEndMonth || currentMonthKey;
+  if (receipts.length > 0) {
+    const allMonths = receipts.map(r => r.month_year).filter(Boolean);
+    const maxReceiptMonth = allMonths.reduce((max, m) => (m > max ? m : max), '');
+    if (maxReceiptMonth && maxReceiptMonth > endMonth) {
+      endMonth = maxReceiptMonth;
+    }
+  }
+
+  const [endYear, endMonthNum] = endMonth.split('-').map(Number);
+  const monthKeys: string[] = [];
+  for (let i = 5; i >= 0; i--) {
+    const d = new Date(endYear, (endMonthNum - 1) - i, 1);
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    monthKeys.push(`${y}-${m}`);
+  }
+
+  const monthNamesShort = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  const monthNamesFull = [
+    'January', 'February', 'March', 'April', 'May', 'June',
+    'July', 'August', 'September', 'October', 'November', 'December'
+  ];
+
+  const points: MonthSpendingTrendPoint[] = monthKeys.map(key => {
+    const [yStr, mStr] = key.split('-');
+    const mIndex = parseInt(mStr, 10) - 1;
+    const yearShort = yStr.slice(-2);
+    const shortLabel = `${monthNamesShort[mIndex]} '${yearShort}`;
+    const fullLabel = `${monthNamesFull[mIndex]} ${yStr}`;
+
+    const monthReceipts = receipts.filter(r => r.month_year === key);
+    let totalSpend = 0;
+    let groceries = 0;
+    let utilities = 0;
+    let transport = 0;
+    let home = 0;
+    let other = 0;
+    let totalItems = 0;
+
+    monthReceipts.forEach(r => {
+      const amt = Number(r.total_amount) || 0;
+      totalSpend += amt;
+      totalItems += r.line_items?.length || 1;
+      if (r.category === 'Food & Groceries') groceries += amt;
+      else if (r.category === 'Electricity & Utilities') utilities += amt;
+      else if (r.category === 'Transport') transport += amt;
+      else if (r.category === 'Home Maintenance') home += amt;
+      else other += amt;
+    });
+
+    const categories = [
+      { name: 'Food & Groceries', amt: groceries },
+      { name: 'Electricity & Utilities', amt: utilities },
+      { name: 'Transport', amt: transport },
+      { name: 'Home Maintenance', amt: home },
+      { name: 'Other', amt: other },
+    ];
+    categories.sort((a, b) => b.amt - a.amt);
+    const topCategory = categories[0].amt > 0 ? categories[0].name : 'None';
+
+    return {
+      monthKey: key,
+      shortLabel,
+      fullLabel,
+      totalSpend: Number(totalSpend.toFixed(2)),
+      receiptCount: monthReceipts.length,
+      itemCount: totalItems,
+      groceries: Number(groceries.toFixed(2)),
+      utilities: Number(utilities.toFixed(2)),
+      transport: Number(transport.toFixed(2)),
+      home: Number(home.toFixed(2)),
+      other: Number(other.toFixed(2)),
+      topCategory
+    };
+  });
+
+  const totalSixMonthSpend = points.reduce((acc, p) => acc + p.totalSpend, 0);
+  const activeMonths = points.filter(p => p.receiptCount > 0);
+  const activeMonthsCount = activeMonths.length;
+  const averageMonthlySpend = points.length > 0 ? totalSixMonthSpend / points.length : 0;
+
+  let highestMonth = points[0];
+  let lowestMonth = points[0];
+  points.forEach(p => {
+    if (p.totalSpend > highestMonth.totalSpend) highestMonth = p;
+    if (p.totalSpend < lowestMonth.totalSpend) lowestMonth = p;
+  });
+
+  const latestMonth = points[points.length - 1];
+  const prevMonth = points[points.length - 2];
+  const percentChangeLatestVsPrev = prevMonth && prevMonth.totalSpend > 0
+    ? Number((((latestMonth.totalSpend - prevMonth.totalSpend) / prevMonth.totalSpend) * 100).toFixed(1))
+    : 0;
+
+  const percentChangeLatestVsAvg = averageMonthlySpend > 0
+    ? Number((((latestMonth.totalSpend - averageMonthlySpend) / averageMonthlySpend) * 100).toFixed(1))
+    : 0;
+
+  return {
+    points,
+    totalSixMonthSpend: Number(totalSixMonthSpend.toFixed(2)),
+    averageMonthlySpend: Number(averageMonthlySpend.toFixed(2)),
+    highestMonth,
+    lowestMonth,
+    percentChangeLatestVsPrev,
+    percentChangeLatestVsAvg,
+    activeMonthsCount
+  };
+}
