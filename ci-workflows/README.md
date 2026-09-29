@@ -13,3 +13,10 @@ Once pushed to your GitHub repository:
 3. Name it `.github/workflows/build-apk.yml` and paste the contents of `ci-workflows/build-apk.yml`.
 4. Name it `.github/workflows/deploy.yml` and paste the contents of `ci-workflows/deploy.yml`.
 5. Commit directly on GitHub.
+
+### Critical: Configure GitHub Pages Source
+Before running `deploy.yml`:
+1. Go to repository **Settings** -> **Pages** (in the left sidebar).
+2. Under **Build and deployment**, set **Source** to **GitHub Actions** (instead of "Deploy from a branch").
+3. Click Save.
+Now re-run the workflow or push, and it will deploy smoothly without `HttpError: Not Found`.
