@@ -4,15 +4,17 @@ These workflow files are stored here to avoid GitHub OAuth scope restrictions du
 
 ## Included Workflows:
 1. `build-apk.yml`: Automatically builds a signed or unsigned debug Android APK using Capacitor and Android SDK 36.
-2. `deploy.yml`: Deploys the web application to GitHub Pages.
+2. `bundle-release.yml`: Builds a production-ready Android App Bundle (`.aab`) via `./gradlew bundleRelease` for Google Play Store publishing.
+3. `deploy.yml`: Deploys the web application to GitHub Pages.
 
 ## How to enable them on GitHub:
 Once pushed to your GitHub repository:
 1. Go to your repository on GitHub.
 2. Click **Add file** -> **Create new file**.
-3. Name it `.github/workflows/build-apk.yml` and paste the contents of `ci-workflows/build-apk.yml`.
-4. Name it `.github/workflows/deploy.yml` and paste the contents of `ci-workflows/deploy.yml`.
-5. Commit directly on GitHub.
+3. Name it `.github/workflows/bundle-release.yml` and paste the contents of `ci-workflows/bundle-release.yml`.
+4. Name it `.github/workflows/build-apk.yml` and paste the contents of `ci-workflows/build-apk.yml`.
+5. Name it `.github/workflows/deploy.yml` and paste the contents of `ci-workflows/deploy.yml`.
+6. Commit directly on GitHub.
 
 ### Critical: Configure GitHub Pages Source
 Before running `deploy.yml`:
