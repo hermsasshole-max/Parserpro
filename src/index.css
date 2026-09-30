@@ -3,35 +3,61 @@
 @media print {
   @page {
     size: A4 portrait;
-    margin: 10mm;
+    margin: 12mm 10mm;
   }
 
   /* Force background colors and accurate graphics during print */
-  * {
+  *, *::before, *::after {
     -webkit-print-color-adjust: exact !important;
     print-color-adjust: exact !important;
   }
 
-  html, body {
+  /* Unclip document root and all ancestor containers */
+  html, 
+  body, 
+  #root, 
+  #root > div, 
+  main, 
+  .h-screen, 
+  .overflow-hidden, 
+  .overflow-y-auto,
+  .overflow-x-auto {
     background-color: #ffffff !important;
     color: #0f172a !important;
     overflow: visible !important;
     height: auto !important;
+    min-height: 0 !important;
+    max-height: none !important;
+    position: static !important;
     width: 100% !important;
     margin: 0 !important;
     padding: 0 !important;
+    display: block !important;
   }
 
-  /* Hide navigation bars, bottom mobile nav, tooltips, action bars and floating dialogs */
+  /* Ensure body and document root are never set to display: none */
+  html, body, #root {
+    display: block !important;
+    visibility: visible !important;
+  }
+
+  /* Hide screen-only interactive UI: navigation, FABs, status badges, buttons, backdrops */
   nav, 
+  aside,
+  header:not(.print-header),
+  footer:not(.print-footer),
+  button,
   .no-print,
+  .no-print-area,
   #install-android-btn,
-  .no-print-area {
+  .sm\\:hidden.fixed.bottom-0,
+  [role="dialog"] > div.no-print {
     display: none !important;
   }
 
-  /* Flatten modal wrapper when printing */
-  .fixed.inset-0 {
+  /* Flatten modal wrapper and overlay when printing */
+  .fixed.inset-0,
+  .printable-modal-overlay {
     position: static !important;
     background: #ffffff !important;
     padding: 0 !important;
@@ -40,20 +66,26 @@
     height: auto !important;
     width: 100% !important;
     backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
     box-shadow: none !important;
+    display: block !important;
   }
 
   .print-only {
     display: block !important;
+    visibility: visible !important;
   }
 
   .print-page-break {
-    page-break-inside: avoid;
-    break-inside: avoid;
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
   }
 
   /* Expand full report container on print */
-  #printable-report-area {
+  #printable-report-area,
+  .printable-document {
+    display: block !important;
+    visibility: visible !important;
     width: 100% !important;
     max-width: 100% !important;
     margin: 0 !important;
@@ -61,6 +93,7 @@
     box-shadow: none !important;
     border: none !important;
     background: #ffffff !important;
+    overflow: visible !important;
   }
 
   table {
@@ -70,16 +103,16 @@
   }
 
   tr {
-    page-break-inside: avoid;
-    page-break-after: auto;
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
   }
 
   thead {
-    display: table-header-group;
+    display: table-header-group !important;
   }
 
   tfoot {
-    display: table-footer-group;
+    display: table-footer-group !important;
   }
 }
 

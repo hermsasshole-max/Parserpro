@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Calendar, Store, Tag, Plus, Search, ChevronDown, ChevronUp, Trash2, TrendingUp, Receipt, ShoppingCart, RotateCcw, Edit3, FileDown, Share2, Printer, Loader2, Check } from 'lucide-react';
 import type { SavedReceipt, ReceiptCategory } from '../types';
-import { downloadSingleMonthPDF, shareOrSaveSingleMonthPDF, printReportSafely } from '../utils/pdfGenerator';
+import { downloadSingleMonthPDF, shareOrSaveSingleMonthPDF, downloadSingleReceiptPDF, triggerSystemPrint } from '../utils/pdfGenerator';
 
 interface MonthlyReceiptsListProps {
   receipts: SavedReceipt[];
@@ -26,6 +26,7 @@ export const MonthlyReceiptsList: React.FC<MonthlyReceiptsListProps> = ({
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [expandedReceiptId, setExpandedReceiptId] = useState<string | null>(null);
   const [isDownloadingPdf, setIsDownloadingPdf] = useState(false);
+  const [downloadingInvoiceId, setDownloadingInvoiceId] = useState<string | null>(null);
   const [isSharingPdf, setIsSharingPdf] = useState(false);
   const [feedbackToast, setFeedbackToast] = useState<string | null>(null);
 
@@ -429,6 +430,55 @@ export const MonthlyReceiptsList: React.FC<MonthlyReceiptsListProps> = ({
                         <strong>Notes:</strong> {receipt.notes}
                       </div>
                     )}
+
+                    {/* Individual Invoice Print / Save PDF Actions */}
+                    <div className="mt-3.5 pt-3 border-t border-slate-200/80 flex items-center justify-between flex-wrap gap-2">
+                      <div className="text-[11px] text-slate-400">
+                        Official Invoice PDF generated using client-side vector pipeline.
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={async (e) => {
+                            e.stopPropagation();
+                            setDownloadingInvoiceId(receipt.id);
+                            setFeedbackToast(null);
+                            const res = await downloadSingleReceiptPDF(receipt);
+                            setDownloadingInvoiceId(null);
+                            if (res.success) {
+                              setFeedbackToast(`Invoice PDF (${res.filename}) saved to your device Downloads!`);
+                              setTimeout(() => setFeedbackToast(null), 4000);
+                            }
+                          }}
+                          disabled={downloadingInvoiceId === receipt.id}
+                          className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-2xs transition-colors cursor-pointer"
+                          title="Save single invoice PDF directly to device"
+                        >
+                          {downloadingInvoiceId === receipt.id ? (
+                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                          ) : (
+                            <FileDown className="w-3.5 h-3.5" />
+                          )}
+                          <span>Save PDF / Print to PDF</span>
+                        </button>
+
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            // Direct synchronous print invocation
+                            const ok = triggerSystemPrint();
+                            if (!ok) {
+                              // If print dialogue blocked, download invoice PDF
+                              downloadSingleReceiptPDF(receipt);
+                            }
+                          }}
+                          className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-2xs transition-colors cursor-pointer"
+                          title="Print this invoice"
+                        >
+                          <Printer className="w-3.5 h-3.5 text-slate-500" />
+                          <span>Print</span>
+                        </button>
+                      </div>
+                    </div>
                   </div>
                 )}
               </div>

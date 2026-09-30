@@ -194,7 +194,7 @@ export const MonthToMonthReport: React.FC<MonthToMonthReportProps> = ({
             ) : (
               <FileDown className="w-3.5 h-3.5 text-emerald-600" />
             )}
-            <span>{isDownloadingPdf ? 'Generating...' : 'Download PDF'}</span>
+            <span>{isDownloadingPdf ? 'Generating...' : 'Save PDF / Print to PDF'}</span>
           </button>
 
           <button

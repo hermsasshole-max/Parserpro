@@ -21,7 +21,9 @@ import {
   ChevronUp, 
   FileSpreadsheet,
   Coins,
-  Key
+  Key,
+  FileDown,
+  Printer
 } from 'lucide-react';
 import type { ReceiptData, SavedReceipt, LineItem, ReceiptCategory } from '../types';
 import { compressAndPrepareImage } from '../utils/imageUtils';
@@ -31,6 +33,7 @@ import {
   setClientGeminiApiKey 
 } from '../utils/geminiVision';
 import { captureReceiptWithNativeCamera, isCapacitorPlatform } from '../utils/nativeCamera';
+import { downloadSingleReceiptPDF, triggerSystemPrint } from '../utils/pdfGenerator';
 
 interface ReceiptScannerProps {
   onReceiptSaved: (receipt: SavedReceipt) => void;
@@ -949,6 +952,30 @@ export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
                             ))}
                           </div>
                         )}
+
+                        <div className="pt-2 flex items-center justify-end gap-2">
+                          <button
+                            type="button"
+                            onClick={() => downloadSingleReceiptPDF(rec)}
+                            className="px-2.5 py-1 bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 rounded-lg text-[11px] font-bold flex items-center gap-1.5 shadow-2xs transition-colors cursor-pointer"
+                            title="Save slip as vector PDF"
+                          >
+                            <FileDown className="w-3.5 h-3.5 text-emerald-600" />
+                            <span>Save PDF / Print to PDF</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const ok = triggerSystemPrint();
+                              if (!ok) downloadSingleReceiptPDF(rec);
+                            }}
+                            className="px-2.5 py-1 bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 rounded-lg text-[11px] font-bold flex items-center gap-1.5 shadow-2xs transition-colors cursor-pointer"
+                            title="Print slip"
+                          >
+                            <Printer className="w-3.5 h-3.5 text-slate-500" />
+                            <span>Print</span>
+                          </button>
+                        </div>
                       </div>
                     )}
                   </div>

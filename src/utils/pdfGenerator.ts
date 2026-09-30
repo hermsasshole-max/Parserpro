@@ -10,7 +10,8 @@ export interface PDFExportOptions {
 }
 
 /**
- * Helper to download a Blob safely across desktop and mobile devices/WebViews
+ * Helper to download a Blob safely across desktop and mobile devices/WebViews.
+ * Executes active anchor-tag download without prematurely revoking the object URL.
  */
 export function saveBlobToFile(blob: Blob, filename: string): void {
   try {
@@ -18,6 +19,7 @@ export function saveBlobToFile(blob: Blob, filename: string): void {
     const link = document.createElement('a');
     link.href = url;
     link.download = filename;
+    link.rel = 'noopener';
     link.style.display = 'none';
     document.body.appendChild(link);
     link.click();
@@ -26,10 +28,30 @@ export function saveBlobToFile(blob: Blob, filename: string): void {
         document.body.removeChild(link);
       }
       URL.revokeObjectURL(url);
-    }, 1500);
+    }, 2500);
   } catch (err) {
-    console.error('Blob download failed, falling back to data URL:', err);
-    throw err;
+    console.warn('Blob URL download failed, falling back to data URI:', err);
+    try {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const dataUrl = reader.result as string;
+        const link = document.createElement('a');
+        link.href = dataUrl;
+        link.download = filename;
+        link.style.display = 'none';
+        document.body.appendChild(link);
+        link.click();
+        setTimeout(() => {
+          if (document.body.contains(link)) {
+            document.body.removeChild(link);
+          }
+        }, 2000);
+      };
+      reader.readAsDataURL(blob);
+    } catch (fallbackErr) {
+      console.error('All file download channels failed:', fallbackErr);
+      throw fallbackErr;
+    }
   }
 }
 
@@ -542,13 +564,175 @@ export function buildSingleMonthPDFDoc(month: string, receipts: SavedReceipt[]):
 }
 
 /**
+ * Builds a vector PDF for an individual invoice/receipt
+ */
+export function buildSingleReceiptPDFDoc(receipt: SavedReceipt): jsPDF {
+  const doc = new jsPDF({
+    orientation: 'portrait',
+    unit: 'mm',
+    format: 'a4',
+  });
+
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const pageHeight = doc.internal.pageSize.getHeight();
+
+  const primaryNavy = [15, 23, 42];
+  const emeraldGreen = [5, 150, 105];
+  const slateMuted = [100, 116, 139];
+  const slateLight = [248, 250, 252];
+
+  let y = 14;
+
+  // Header Banner
+  doc.setFillColor(primaryNavy[0], primaryNavy[1], primaryNavy[2]);
+  doc.rect(14, y, pageWidth - 28, 24, 'F');
+
+  doc.setTextColor(255, 255, 255);
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(14);
+  doc.text('OFFICIAL INVOICE & RECEIPT RECORD', 20, y + 10);
+
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(9);
+  doc.setTextColor(203, 213, 225);
+  doc.text(`Vendor: ${receipt.vendor_name}  •  Category: ${receipt.category}`, 20, y + 18);
+
+  doc.setFontSize(8);
+  doc.text(`Invoice ID: ${receipt.id.slice(0, 12)}`, pageWidth - 20, y + 10, { align: 'right' });
+  doc.text(`Date: ${receipt.invoice_date}`, pageWidth - 20, y + 18, { align: 'right' });
+
+  y += 30;
+
+  // Info Cards
+  const boxWidth = (pageWidth - 28 - 6) / 2;
+  const boxHeight = 22;
+
+  // Card 1: Vendor & Category
+  doc.setFillColor(slateLight[0], slateLight[1], slateLight[2]);
+  doc.setDrawColor(226, 232, 240);
+  doc.roundedRect(14, y, boxWidth, boxHeight, 2, 2, 'FD');
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(7.5);
+  doc.setTextColor(slateMuted[0], slateMuted[1], slateMuted[2]);
+  doc.text('MERCHANT / VENDOR', 18, y + 6);
+  doc.setFontSize(11);
+  doc.setTextColor(primaryNavy[0], primaryNavy[1], primaryNavy[2]);
+  doc.text(receipt.vendor_name, 18, y + 14);
+
+  // Card 2: Total Paid
+  const card2X = 14 + boxWidth + 6;
+  doc.setFillColor(236, 253, 245);
+  doc.setDrawColor(167, 243, 208);
+  doc.roundedRect(card2X, y, boxWidth, boxHeight, 2, 2, 'FD');
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(7.5);
+  doc.setTextColor(emeraldGreen[0], emeraldGreen[1], emeraldGreen[2]);
+  doc.text('TOTAL AMOUNT PAID', card2X + 4, y + 6);
+  doc.setFontSize(13);
+  doc.text(`${receipt.currency} ${Number(receipt.total_amount).toFixed(2)}`, card2X + 4, y + 15);
+
+  y += boxHeight + 10;
+
+  // Table of Line Items
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(10);
+  doc.setTextColor(primaryNavy[0], primaryNavy[1], primaryNavy[2]);
+  doc.text('ITEMIZED LINE ITEMS', 14, y);
+  y += 3;
+
+  const tableRows = receipt.line_items.map((item, idx) => [
+    idx + 1,
+    item.description,
+    item.quantity,
+    `${receipt.currency} ${Number(item.unit_price).toFixed(2)}`,
+    `${receipt.currency} ${Number(item.total_price).toFixed(2)}`,
+  ]);
+
+  autoTable(doc, {
+    startY: y,
+    head: [['#', 'Description', 'Qty', 'Unit Price', 'Line Total']],
+    body: tableRows,
+    theme: 'grid',
+    headStyles: {
+      fillColor: [15, 23, 42],
+      textColor: [255, 255, 255],
+      fontStyle: 'bold',
+      fontSize: 8.5,
+      halign: 'left',
+    },
+    styles: {
+      fontSize: 8,
+      cellPadding: 2.5,
+      textColor: [30, 41, 59],
+      valign: 'middle',
+    },
+    columnStyles: {
+      0: { cellWidth: 12, halign: 'center' },
+      1: { cellWidth: 90 },
+      2: { cellWidth: 20, halign: 'center' },
+      3: { cellWidth: 30, halign: 'right' },
+      4: { cellWidth: 30, halign: 'right', fontStyle: 'bold' },
+    },
+  });
+
+  // Totals Breakdown
+  const finalY = (doc as any).lastAutoTable.finalY + 6;
+  doc.setFontSize(8.5);
+  doc.setFont('helvetica', 'normal');
+  doc.setTextColor(slateMuted[0], slateMuted[1], slateMuted[2]);
+  doc.text(`Subtotal: ${receipt.currency} ${Number(receipt.subtotal).toFixed(2)}`, pageWidth - 14, finalY, { align: 'right' });
+  doc.text(`Tax / VAT: ${receipt.currency} ${Number(receipt.tax).toFixed(2)}`, pageWidth - 14, finalY + 5, { align: 'right' });
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(10.5);
+  doc.setTextColor(emeraldGreen[0], emeraldGreen[1], emeraldGreen[2]);
+  doc.text(`Total: ${receipt.currency} ${Number(receipt.total_amount).toFixed(2)}`, pageWidth - 14, finalY + 12, { align: 'right' });
+
+  if (receipt.notes) {
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(8);
+    doc.setTextColor(slateMuted[0], slateMuted[1], slateMuted[2]);
+    doc.text(`Notes: ${receipt.notes}`, 14, finalY + 12);
+  }
+
+  // Footer
+  doc.setFontSize(7.5);
+  doc.setFont('helvetica', 'normal');
+  doc.setTextColor(148, 163, 184);
+  doc.text('ParserPro Smart Scanner Ledger  •  Official Digital Copy', 14, pageHeight - 8);
+  doc.text(`Generated: ${new Date().toLocaleDateString('en-ZA')}`, pageWidth - 14, pageHeight - 8, { align: 'right' });
+
+  return doc;
+}
+
+/**
+ * Downloads a single invoice PDF directly onto the device using the reliable Blob pipeline
+ */
+export async function downloadSingleReceiptPDF(receipt: SavedReceipt): Promise<{ success: boolean; filename: string }> {
+  try {
+    const doc = buildSingleReceiptPDFDoc(receipt);
+    const sanitizedVendor = receipt.vendor_name.replace(/[^a-zA-Z0-9]/g, '_') || 'Receipt';
+    const fileName = `Invoice_${sanitizedVendor}_${Date.now()}.pdf`;
+
+    // Actively convert document to Blob and trigger anchor download
+    const pdfOutput = doc.output('arraybuffer');
+    const blob = new Blob([pdfOutput], { type: 'application/pdf' });
+    saveBlobToFile(blob, fileName);
+    return { success: true, filename: fileName };
+  } catch (error) {
+    console.error('Error generating single receipt PDF:', error);
+    return { success: false, filename: '' };
+  }
+}
+
+/**
  * Downloads the comparison PDF directly onto the device storage.
  */
 export async function downloadComparisonPDF(monthA: string, monthB: string, receipts: SavedReceipt[]): Promise<{ success: boolean; filename: string }> {
   try {
     const doc = buildComparisonPDFDoc(monthA, monthB, receipts);
-    const fileName = `Expenditure_Report_${monthA}_vs_${monthB}.pdf`;
-    const blob = doc.output('blob');
+    const fileName = `Expenditure_Report_${monthA}_vs_${monthB}_${Date.now()}.pdf`;
+    const pdfOutput = doc.output('arraybuffer');
+    const blob = new Blob([pdfOutput], { type: 'application/pdf' });
     saveBlobToFile(blob, fileName);
     return { success: true, filename: fileName };
   } catch (error) {
@@ -563,8 +747,9 @@ export async function downloadComparisonPDF(monthA: string, monthB: string, rece
 export async function downloadSingleMonthPDF(month: string, receipts: SavedReceipt[]): Promise<{ success: boolean; filename: string }> {
   try {
     const doc = buildSingleMonthPDFDoc(month, receipts);
-    const fileName = `Monthly_Statement_${month}.pdf`;
-    const blob = doc.output('blob');
+    const fileName = `Monthly_Statement_${month}_${Date.now()}.pdf`;
+    const pdfOutput = doc.output('arraybuffer');
+    const blob = new Blob([pdfOutput], { type: 'application/pdf' });
     saveBlobToFile(blob, fileName);
     return { success: true, filename: fileName };
   } catch (error) {
@@ -584,8 +769,9 @@ export async function shareOrSavePDF(
 ): Promise<{ success: boolean; message: string; sharedVia: 'native_share' | 'download' }> {
   try {
     const doc = buildComparisonPDFDoc(monthA, monthB, receipts);
-    const fileName = `Expenditure_Report_${monthA}_vs_${monthB}.pdf`;
-    const pdfBlob = doc.output('blob');
+    const fileName = `Expenditure_Report_${monthA}_vs_${monthB}_${Date.now()}.pdf`;
+    const pdfOutput = doc.output('arraybuffer');
+    const pdfBlob = new Blob([pdfOutput], { type: 'application/pdf' });
 
     // Attempt Native Share Sheet (WhatsApp, Google Drive, Gmail, Files)
     if (typeof navigator !== 'undefined' && typeof navigator.share === 'function') {
@@ -629,8 +815,9 @@ export async function shareOrSaveSingleMonthPDF(
 ): Promise<{ success: boolean; message: string; sharedVia: 'native_share' | 'download' }> {
   try {
     const doc = buildSingleMonthPDFDoc(month, receipts);
-    const fileName = `Monthly_Statement_${month}.pdf`;
-    const pdfBlob = doc.output('blob');
+    const fileName = `Monthly_Statement_${month}_${Date.now()}.pdf`;
+    const pdfOutput = doc.output('arraybuffer');
+    const pdfBlob = new Blob([pdfOutput], { type: 'application/pdf' });
 
     if (typeof navigator !== 'undefined' && typeof navigator.share === 'function') {
       try {
@@ -664,25 +851,36 @@ export async function shareOrSaveSingleMonthPDF(
 }
 
 /**
- * Robust print handler.
- * If printable-report-area is in the DOM, triggers clean window.print().
- * If print fails or is blocked by sandbox permissions, falls back to instant vector PDF download.
+ * Triggers direct synchronous window.print() from a direct user interaction.
+ * Returns true if window.print was invoked without error.
+ */
+export function triggerSystemPrint(): boolean {
+  if (typeof window === 'undefined' || typeof window.print !== 'function') {
+    return false;
+  }
+  try {
+    window.focus();
+    window.print();
+    return true;
+  } catch (err) {
+    console.error('Direct window.print() failed:', err);
+    return false;
+  }
+}
+
+/**
+ * Safe print handler:
+ * Direct synchronous call to window.print().
+ * If blocked or unsupported, generates and downloads vector PDF.
  */
 export async function printReportSafely(
   monthA: string,
   monthB: string,
   receipts: SavedReceipt[]
 ): Promise<{ success: boolean; method: 'print' | 'pdf'; message: string }> {
-  const printArea = document.getElementById('printable-report-area');
-
-  if (printArea && typeof window !== 'undefined') {
-    try {
-      window.focus();
-      window.print();
-      return { success: true, method: 'print', message: 'Print dialog opened.' };
-    } catch (err) {
-      console.warn('Browser print dialog encountered an issue, generating PDF fallback:', err);
-    }
+  const printSuccess = triggerSystemPrint();
+  if (printSuccess) {
+    return { success: true, method: 'print', message: 'Print dialog opened.' };
   }
 
   // Fallback: generate and download vector PDF
@@ -692,7 +890,7 @@ export async function printReportSafely(
       return {
         success: true,
         method: 'pdf',
-        message: 'Downloaded print-ready vector PDF to your device.'
+        message: `Downloaded print-ready vector PDF (${res.filename}) to your device.`
       };
     }
     return { success: false, method: 'pdf', message: 'Failed to generate PDF.' };

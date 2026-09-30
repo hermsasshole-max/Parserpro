@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   Printer, 
   Download, 
@@ -26,7 +26,8 @@ import {
   downloadSingleMonthPDF,
   shareOrSavePDF, 
   shareOrSaveSingleMonthPDF,
-  printReportSafely 
+  printReportSafely,
+  triggerSystemPrint
 } from '../utils/pdfGenerator';
 
 interface PrintableReportModalProps {
@@ -59,6 +60,14 @@ export const PrintableReportModal: React.FC<PrintableReportModalProps> = ({
     setTimeout(() => setFeedback(null), 5000);
   };
 
+  useEffect(() => {
+    const handleAfterPrint = () => {
+      showFeedback('info', 'Print dialogue closed.');
+    };
+    window.addEventListener('afterprint', handleAfterPrint);
+    return () => window.removeEventListener('afterprint', handleAfterPrint);
+  }, []);
+
   const handleDownloadPDF = async () => {
     setIsGeneratingPdf(true);
     setFeedback(null);
@@ -66,14 +75,14 @@ export const PrintableReportModal: React.FC<PrintableReportModalProps> = ({
       if (reportMode === 'comparison') {
         const res = await downloadComparisonPDF(monthA, monthB, receipts);
         if (res.success) {
-          showFeedback('success', `PDF (${res.filename}) downloaded successfully to your device!`);
+          showFeedback('success', `PDF (${res.filename}) generated & downloaded to device!`);
         } else {
           showFeedback('error', 'Could not generate comparison PDF.');
         }
       } else {
         const res = await downloadSingleMonthPDF(activeSingleMonth, receipts);
         if (res.success) {
-          showFeedback('success', `Monthly statement (${res.filename}) downloaded to your device!`);
+          showFeedback('success', `Monthly statement (${res.filename}) generated & downloaded to device!`);
         } else {
           showFeedback('error', 'Could not generate monthly statement PDF.');
         }
@@ -105,17 +114,13 @@ export const PrintableReportModal: React.FC<PrintableReportModalProps> = ({
     }
   };
 
-  const handlePrint = async () => {
-    try {
-      const res = await printReportSafely(monthA, monthB, receipts);
-      if (res.method === 'pdf') {
-        showFeedback('info', res.message);
-      } else {
-        showFeedback('success', 'Print preview initiated.');
-      }
-    } catch (e) {
-      console.error('Print error:', e);
-      showFeedback('error', 'Failed to initiate printing.');
+  const handlePrint = () => {
+    // Direct, synchronous invocation from user click gesture to prevent browser drop
+    const opened = triggerSystemPrint();
+    if (!opened) {
+      // If browser blocks window.print or inside restricted iframe, fallback to instant PDF download
+      handleDownloadPDF();
+      showFeedback('info', 'Print dialogue unavailable in this browser; generated vector PDF instead.');
     }
   };
 
@@ -144,7 +149,7 @@ export const PrintableReportModal: React.FC<PrintableReportModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-slate-900/75 backdrop-blur-xs flex flex-col items-center justify-start overflow-y-auto p-2 sm:p-6 print:p-0">
+    <div className="fixed inset-0 z-50 bg-slate-900/75 backdrop-blur-xs flex flex-col items-center justify-start overflow-y-auto p-2 sm:p-6 print:p-0 printable-modal-overlay">
       {/* Top Action & Toolbar (hidden on print) */}
       <div className="w-full max-w-4xl bg-slate-900 text-white p-3 sm:p-4 rounded-2xl mb-4 flex flex-col gap-3 shadow-xl no-print border border-slate-800">
         <div className="flex flex-wrap items-center justify-between gap-3">
@@ -191,19 +196,29 @@ export const PrintableReportModal: React.FC<PrintableReportModalProps> = ({
 
           {/* Action Buttons */}
           <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap ml-auto">
-            {/* Download PDF Button */}
+            {/* Direct Print Button */}
+            <button
+              onClick={handlePrint}
+              className="px-3.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-100 text-xs font-bold rounded-xl flex items-center gap-1.5 transition-colors border border-slate-600 cursor-pointer shadow-xs"
+              title="Open system print dialogue"
+            >
+              <Printer className="w-3.5 h-3.5 text-emerald-400" />
+              <span>Print</span>
+            </button>
+
+            {/* Save PDF / Print to PDF Button */}
             <button
               onClick={handleDownloadPDF}
               disabled={isGeneratingPdf}
               className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white text-xs font-bold rounded-xl flex items-center gap-1.5 transition-colors shadow-sm cursor-pointer"
-              title="Download vector PDF file to device Downloads"
+              title="Save document as PDF directly to your device storage"
             >
               {isGeneratingPdf ? (
                 <Loader2 className="w-3.5 h-3.5 animate-spin" />
               ) : (
                 <FileDown className="w-3.5 h-3.5" />
               )}
-              <span>{isGeneratingPdf ? 'Generating...' : 'Download PDF'}</span>
+              <span>{isGeneratingPdf ? 'Generating...' : 'Save PDF / Print to PDF'}</span>
             </button>
 
             {/* Share / Save to Drive / WhatsApp Button (VISIBLE ON ALL SCREENS) */}
@@ -218,17 +233,7 @@ export const PrintableReportModal: React.FC<PrintableReportModalProps> = ({
               ) : (
                 <Share2 className="w-3.5 h-3.5 text-emerald-400" />
               )}
-              <span>Share / Send</span>
-            </button>
-
-            {/* Direct Print Button */}
-            <button
-              onClick={handlePrint}
-              className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold rounded-xl flex items-center gap-1.5 transition-colors border border-slate-700 cursor-pointer"
-              title="Print formatted document"
-            >
-              <Printer className="w-3.5 h-3.5" />
-              <span>Print</span>
+              <span>Share</span>
             </button>
 
             {/* CSV */}
