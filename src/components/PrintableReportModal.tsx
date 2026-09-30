@@ -114,13 +114,21 @@ export const PrintableReportModal: React.FC<PrintableReportModalProps> = ({
     }
   };
 
-  const handlePrint = () => {
-    // Direct, synchronous invocation from user click gesture to prevent browser drop
-    const opened = triggerSystemPrint();
-    if (!opened) {
-      // If browser blocks window.print or inside restricted iframe, fallback to instant PDF download
-      handleDownloadPDF();
-      showFeedback('info', 'Print dialogue unavailable in this browser; generated vector PDF instead.');
+  const handlePrint = async () => {
+    setIsGeneratingPdf(true);
+    setFeedback(null);
+    try {
+      const res = await printReportSafely(monthA, monthB, receipts);
+      if (res.success) {
+        showFeedback('success', res.message);
+      } else {
+        showFeedback('error', res.message || 'Could not initiate printing.');
+      }
+    } catch (e) {
+      console.error('Print error:', e);
+      showFeedback('error', 'Could not open print dialogue.');
+    } finally {
+      setIsGeneratingPdf(false);
     }
   };
 

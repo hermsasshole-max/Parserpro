@@ -36,6 +36,8 @@ import {
   getActiveGeminiApiKey, 
   setClientGeminiApiKey 
 } from '../utils/geminiVision';
+import { requestNativeStoragePermissions, isNativeContainer } from '../utils/nativeAndroidExport';
+import { Camera } from '@capacitor/camera';
 
 interface SettingsViewProps {
   receipts: SavedReceipt[];
@@ -67,6 +69,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   const [feedbackToast, setFeedbackToast] = useState<string | null>(null);
   const [isPersistent, setIsPersistent] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
+  const [permissionStatus, setPermissionStatus] = useState<string | null>(null);
 
   useEffect(() => {
     checkStoragePersistence().then(res => setIsPersistent(res));
@@ -258,6 +261,42 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               <HardDrive className="w-3.5 h-3.5" />
               <span>Manage Rollback Snapshots & Health</span>
             </button>
+          )}
+
+          <button
+            onClick={async () => {
+              setPermissionStatus('Requesting permissions from Android system...');
+              try {
+                const storageGranted = await requestNativeStoragePermissions();
+                let cameraGranted = true;
+                try {
+                  const cam = await Camera.requestPermissions();
+                  cameraGranted = cam.camera === 'granted';
+                } catch (e) {
+                  console.warn('Camera permission note:', e);
+                }
+                if (storageGranted && cameraGranted) {
+                  setPermissionStatus('All Android permissions active: Storage, Media & Camera are granted!');
+                } else if (storageGranted) {
+                  setPermissionStatus('Android Storage & Files permission granted!');
+                } else {
+                  setPermissionStatus('Permission request sent to Android system.');
+                }
+                setTimeout(() => setPermissionStatus(null), 6000);
+              } catch (err: any) {
+                setPermissionStatus('Permission status: ' + (err?.message || 'Check Android App Settings'));
+              }
+            }}
+            className="w-full py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-900 border border-emerald-300 font-bold rounded-xl text-xs flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+          >
+            <ShieldCheck className="w-3.5 h-3.5 text-emerald-700" />
+            <span>Request / Verify Android Permissions</span>
+          </button>
+
+          {permissionStatus && (
+            <div className="p-2.5 bg-emerald-100/90 border border-emerald-300 rounded-xl text-[11px] text-emerald-950 font-semibold animate-in fade-in">
+              {permissionStatus}
+            </div>
           )}
         </div>
 

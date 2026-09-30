@@ -33,7 +33,7 @@ import {
   setClientGeminiApiKey 
 } from '../utils/geminiVision';
 import { captureReceiptWithNativeCamera, isCapacitorPlatform } from '../utils/nativeCamera';
-import { downloadSingleReceiptPDF, triggerSystemPrint } from '../utils/pdfGenerator';
+import { downloadSingleReceiptPDF, printSingleReceiptSafely } from '../utils/pdfGenerator';
 
 interface ReceiptScannerProps {
   onReceiptSaved: (receipt: SavedReceipt) => void;
@@ -965,10 +965,7 @@ export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
                           </button>
                           <button
                             type="button"
-                            onClick={() => {
-                              const ok = triggerSystemPrint();
-                              if (!ok) downloadSingleReceiptPDF(rec);
-                            }}
+                            onClick={() => printSingleReceiptSafely(rec)}
                             className="px-2.5 py-1 bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 rounded-lg text-[11px] font-bold flex items-center gap-1.5 shadow-2xs transition-colors cursor-pointer"
                             title="Print slip"
                           >

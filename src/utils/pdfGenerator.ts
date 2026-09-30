@@ -2,6 +2,12 @@ import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import type { SavedReceipt } from '../types';
 import { compareMonths, generateMonthReport } from './reportUtils';
+import { 
+  isNativeContainer, 
+  savePDFToNativeDevice, 
+  shareOrPrintPDFNative, 
+  requestNativeStoragePermissions 
+} from './nativeAndroidExport';
 
 export interface PDFExportOptions {
   monthA: string;
@@ -705,15 +711,24 @@ export function buildSingleReceiptPDFDoc(receipt: SavedReceipt): jsPDF {
 }
 
 /**
- * Downloads a single invoice PDF directly onto the device using the reliable Blob pipeline
+ * Downloads a single invoice PDF directly onto the device.
+ * On native Android, uses Capacitor Filesystem to save directly into device storage.
  */
-export async function downloadSingleReceiptPDF(receipt: SavedReceipt): Promise<{ success: boolean; filename: string }> {
+export async function downloadSingleReceiptPDF(receipt: SavedReceipt): Promise<{ success: boolean; filename: string; uri?: string }> {
   try {
     const doc = buildSingleReceiptPDFDoc(receipt);
     const sanitizedVendor = receipt.vendor_name.replace(/[^a-zA-Z0-9]/g, '_') || 'Receipt';
     const fileName = `Invoice_${sanitizedVendor}_${Date.now()}.pdf`;
 
-    // Actively convert document to Blob and trigger anchor download
+    // On native Android APK, write directly to native device filesystem
+    if (isNativeContainer()) {
+      const nativeRes = await savePDFToNativeDevice(doc, fileName);
+      if (nativeRes.success) {
+        return { success: true, filename: fileName, uri: nativeRes.uri };
+      }
+    }
+
+    // Standard Web/PWA anchor-tag download
     const pdfOutput = doc.output('arraybuffer');
     const blob = new Blob([pdfOutput], { type: 'application/pdf' });
     saveBlobToFile(blob, fileName);
@@ -727,10 +742,18 @@ export async function downloadSingleReceiptPDF(receipt: SavedReceipt): Promise<{
 /**
  * Downloads the comparison PDF directly onto the device storage.
  */
-export async function downloadComparisonPDF(monthA: string, monthB: string, receipts: SavedReceipt[]): Promise<{ success: boolean; filename: string }> {
+export async function downloadComparisonPDF(monthA: string, monthB: string, receipts: SavedReceipt[]): Promise<{ success: boolean; filename: string; uri?: string }> {
   try {
     const doc = buildComparisonPDFDoc(monthA, monthB, receipts);
     const fileName = `Expenditure_Report_${monthA}_vs_${monthB}_${Date.now()}.pdf`;
+
+    if (isNativeContainer()) {
+      const nativeRes = await savePDFToNativeDevice(doc, fileName);
+      if (nativeRes.success) {
+        return { success: true, filename: fileName, uri: nativeRes.uri };
+      }
+    }
+
     const pdfOutput = doc.output('arraybuffer');
     const blob = new Blob([pdfOutput], { type: 'application/pdf' });
     saveBlobToFile(blob, fileName);
@@ -744,10 +767,18 @@ export async function downloadComparisonPDF(monthA: string, monthB: string, rece
 /**
  * Downloads single month statement PDF.
  */
-export async function downloadSingleMonthPDF(month: string, receipts: SavedReceipt[]): Promise<{ success: boolean; filename: string }> {
+export async function downloadSingleMonthPDF(month: string, receipts: SavedReceipt[]): Promise<{ success: boolean; filename: string; uri?: string }> {
   try {
     const doc = buildSingleMonthPDFDoc(month, receipts);
     const fileName = `Monthly_Statement_${month}_${Date.now()}.pdf`;
+
+    if (isNativeContainer()) {
+      const nativeRes = await savePDFToNativeDevice(doc, fileName);
+      if (nativeRes.success) {
+        return { success: true, filename: fileName, uri: nativeRes.uri };
+      }
+    }
+
     const pdfOutput = doc.output('arraybuffer');
     const blob = new Blob([pdfOutput], { type: 'application/pdf' });
     saveBlobToFile(blob, fileName);
@@ -759,8 +790,7 @@ export async function downloadSingleMonthPDF(month: string, receipts: SavedRecei
 }
 
 /**
- * Shares or saves PDF via Web Share API or falls back to direct device download.
- * Handles mobile WhatsApp, Drive, Gmail, and nearby sharing seamlessly.
+ * Shares or saves PDF via Native Android Share/Print sheet, Web Share API, or direct download.
  */
 export async function shareOrSavePDF(
   monthA: string,
@@ -770,10 +800,25 @@ export async function shareOrSavePDF(
   try {
     const doc = buildComparisonPDFDoc(monthA, monthB, receipts);
     const fileName = `Expenditure_Report_${monthA}_vs_${monthB}_${Date.now()}.pdf`;
+
+    // Native Android device handler
+    if (isNativeContainer()) {
+      const nativeRes = await shareOrPrintPDFNative(
+        doc,
+        fileName,
+        `Household Expenditure: ${monthA} vs ${monthB}`
+      );
+      return {
+        success: nativeRes.success,
+        message: nativeRes.message,
+        sharedVia: 'native_share',
+      };
+    }
+
     const pdfOutput = doc.output('arraybuffer');
     const pdfBlob = new Blob([pdfOutput], { type: 'application/pdf' });
 
-    // Attempt Native Share Sheet (WhatsApp, Google Drive, Gmail, Files)
+    // Attempt Web Share Sheet (Chrome Android / Mobile browser)
     if (typeof navigator !== 'undefined' && typeof navigator.share === 'function') {
       try {
         const file = new File([pdfBlob], fileName, { type: 'application/pdf' });
@@ -816,6 +861,20 @@ export async function shareOrSaveSingleMonthPDF(
   try {
     const doc = buildSingleMonthPDFDoc(month, receipts);
     const fileName = `Monthly_Statement_${month}_${Date.now()}.pdf`;
+
+    if (isNativeContainer()) {
+      const nativeRes = await shareOrPrintPDFNative(
+        doc,
+        fileName,
+        `Monthly Expenditure Statement: ${month}`
+      );
+      return {
+        success: nativeRes.success,
+        message: nativeRes.message,
+        sharedVia: 'native_share',
+      };
+    }
+
     const pdfOutput = doc.output('arraybuffer');
     const pdfBlob = new Blob([pdfOutput], { type: 'application/pdf' });
 
@@ -852,9 +911,13 @@ export async function shareOrSaveSingleMonthPDF(
 
 /**
  * Triggers direct synchronous window.print() from a direct user interaction.
- * Returns true if window.print was invoked without error.
+ * Note: Android WebViews do not implement window.print(); returns false on native Android.
  */
 export function triggerSystemPrint(): boolean {
+  if (isNativeContainer()) {
+    // Android WebView does not implement window.print()
+    return false;
+  }
   if (typeof window === 'undefined' || typeof window.print !== 'function') {
     return false;
   }
@@ -870,14 +933,30 @@ export function triggerSystemPrint(): boolean {
 
 /**
  * Safe print handler:
- * Direct synchronous call to window.print().
- * If blocked or unsupported, generates and downloads vector PDF.
+ * On native Android: Saves PDF and opens native Android Print/Share sheet (which connects to Android Print Spooler).
+ * On desktop/browser: Triggers window.print().
  */
 export async function printReportSafely(
   monthA: string,
   monthB: string,
   receipts: SavedReceipt[]
 ): Promise<{ success: boolean; method: 'print' | 'pdf'; message: string }> {
+  const doc = buildComparisonPDFDoc(monthA, monthB, receipts);
+  const fileName = `Expenditure_Report_${monthA}_vs_${monthB}_${Date.now()}.pdf`;
+
+  if (isNativeContainer()) {
+    const res = await shareOrPrintPDFNative(
+      doc,
+      fileName,
+      `Print Expenditure Report: ${monthA} vs ${monthB}`
+    );
+    return {
+      success: res.success,
+      method: 'print',
+      message: res.message,
+    };
+  }
+
   const printSuccess = triggerSystemPrint();
   if (printSuccess) {
     return { success: true, method: 'print', message: 'Print dialog opened.' };
@@ -898,4 +977,40 @@ export async function printReportSafely(
     console.error('Print fallback error:', e);
     return { success: false, method: 'pdf', message: 'Print could not be initiated.' };
   }
+}
+
+/**
+ * Prints or shares an individual invoice on native Android or web.
+ */
+export async function printSingleReceiptSafely(
+  receipt: SavedReceipt
+): Promise<{ success: boolean; method: 'print' | 'pdf'; message: string }> {
+  const doc = buildSingleReceiptPDFDoc(receipt);
+  const sanitizedVendor = receipt.vendor_name.replace(/[^a-zA-Z0-9]/g, '_') || 'Receipt';
+  const fileName = `Invoice_${sanitizedVendor}_${Date.now()}.pdf`;
+
+  if (isNativeContainer()) {
+    const res = await shareOrPrintPDFNative(
+      doc,
+      fileName,
+      `Invoice: ${receipt.vendor_name}`
+    );
+    return {
+      success: res.success,
+      method: 'print',
+      message: res.message,
+    };
+  }
+
+  const printSuccess = triggerSystemPrint();
+  if (printSuccess) {
+    return { success: true, method: 'print', message: 'Print dialog opened.' };
+  }
+
+  const downloadRes = await downloadSingleReceiptPDF(receipt);
+  return {
+    success: downloadRes.success,
+    method: 'pdf',
+    message: `Invoice PDF (${downloadRes.filename}) downloaded to device.`
+  };
 }

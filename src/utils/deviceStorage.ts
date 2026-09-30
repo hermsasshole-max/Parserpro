@@ -1,4 +1,7 @@
 import type { SavedReceipt } from '../types';
+import { Filesystem, Directory } from '@capacitor/filesystem';
+import { Share } from '@capacitor/share';
+import { isNativeContainer, requestNativeStoragePermissions } from './nativeAndroidExport';
 
 const STORAGE_KEY = 'parserpro_saved_receipts_v1';
 const SNAPSHOTS_KEY = 'parserpro_device_snapshots_v1';
@@ -303,14 +306,44 @@ export async function exportDeviceBackupJSON(receipts: SavedReceipt[]): Promise<
   };
 
   const jsonString = JSON.stringify(backupPayload, null, 2);
-  const blob = new Blob([jsonString], { type: 'application/json' });
 
   // Update last backup date
   try {
     localStorage.setItem('parserpro_last_backup_export', now.toISOString());
   } catch (e) {}
 
-  // Try Android Native Share (allows user to select "Save to Files", "Google Drive", or file manager)
+  // Native Android APK Export Handler
+  if (isNativeContainer()) {
+    try {
+      await requestNativeStoragePermissions();
+      const res = await Filesystem.writeFile({
+        path: filename,
+        data: jsonString,
+        directory: Directory.Documents,
+        recursive: true,
+      });
+
+      // Launch native Android Share / Save sheet
+      try {
+        await Share.share({
+          title: `ParserPro Android Backup (${dateStr})`,
+          text: `ParserPro complete backup file with ${receipts.length} invoices.`,
+          url: res.uri,
+          dialogTitle: 'Save or Share Backup File',
+        });
+      } catch (shareErr) {
+        console.warn('Native share dialog skipped:', shareErr);
+      }
+
+      return { success: true, filename };
+    } catch (nativeErr) {
+      console.warn('Native file save failed, falling back to blob download:', nativeErr);
+    }
+  }
+
+  const blob = new Blob([jsonString], { type: 'application/json' });
+
+  // Try Web Share (allows mobile browser user to select "Save to Files", "Google Drive", or file manager)
   try {
     const file = new File([blob], filename, { type: 'application/json' });
     if (typeof navigator !== 'undefined' && navigator.canShare && navigator.canShare({ files: [file] })) {

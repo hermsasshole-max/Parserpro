@@ -50,7 +50,7 @@
   .no-print,
   .no-print-area,
   #install-android-btn,
-  .sm\\:hidden.fixed.bottom-0,
+  .fixed.bottom-0,
   [role="dialog"] > div.no-print {
     display: none !important;
   }

@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Calendar, Store, Tag, Plus, Search, ChevronDown, ChevronUp, Trash2, TrendingUp, Receipt, ShoppingCart, RotateCcw, Edit3, FileDown, Share2, Printer, Loader2, Check } from 'lucide-react';
 import type { SavedReceipt, ReceiptCategory } from '../types';
-import { downloadSingleMonthPDF, shareOrSaveSingleMonthPDF, downloadSingleReceiptPDF, triggerSystemPrint } from '../utils/pdfGenerator';
+import { downloadSingleMonthPDF, shareOrSaveSingleMonthPDF, downloadSingleReceiptPDF, triggerSystemPrint, printSingleReceiptSafely } from '../utils/pdfGenerator';
 
 interface MonthlyReceiptsListProps {
   receipts: SavedReceipt[];
@@ -462,14 +462,9 @@ export const MonthlyReceiptsList: React.FC<MonthlyReceiptsListProps> = ({
                         </button>
 
                         <button
-                          onClick={(e) => {
+                          onClick={async (e) => {
                             e.stopPropagation();
-                            // Direct synchronous print invocation
-                            const ok = triggerSystemPrint();
-                            if (!ok) {
-                              // If print dialogue blocked, download invoice PDF
-                              downloadSingleReceiptPDF(receipt);
-                            }
+                            await printSingleReceiptSafely(receipt);
                           }}
                           className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-2xs transition-colors cursor-pointer"
                           title="Print this invoice"
