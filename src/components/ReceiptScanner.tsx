@@ -23,7 +23,10 @@ import {
   Coins,
   Key,
   FileDown,
-  Printer
+  Printer,
+  AlertTriangle,
+  ShieldAlert,
+  Copy
 } from 'lucide-react';
 import type { ReceiptData, SavedReceipt, LineItem, ReceiptCategory } from '../types';
 import { compressAndPrepareImage } from '../utils/imageUtils';
@@ -34,6 +37,12 @@ import {
 } from '../utils/geminiVision';
 import { captureReceiptWithNativeCamera, isCapacitorPlatform } from '../utils/nativeCamera';
 import { downloadSingleReceiptPDF, printSingleReceiptSafely } from '../utils/pdfGenerator';
+import { 
+  identifyBatchDuplicates, 
+  findDuplicateForReceipt, 
+  isDuplicateQueuedFile, 
+  type DuplicateMatch 
+} from '../utils/duplicateDetection';
 
 interface ReceiptScannerProps {
   onReceiptSaved: (receipt: SavedReceipt) => void;
@@ -71,6 +80,13 @@ export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
   const [filedReceipts, setFiledReceipts] = useState<SavedReceipt[]>([]);
   const [isCopied, setIsCopied] = useState(false);
 
+  // Duplicate Scan Safety Engine State
+  const [duplicatesMap, setDuplicatesMap] = useState<Map<string, DuplicateMatch>>(new Map());
+  const [dismissedDuplicateIds, setDismissedDuplicateIds] = useState<Set<string>>(new Set());
+  const [showDuplicateSafetyModal, setShowDuplicateSafetyModal] = useState(false);
+  const [duplicateNotice, setDuplicateNotice] = useState<string | null>(null);
+  const [manualDuplicateWarning, setManualDuplicateWarning] = useState<DuplicateMatch | null>(null);
+
   // Manual Entry Form State
   const [showManualModal, setShowManualModal] = useState(false);
   const [manualVendor, setManualVendor] = useState('Pick n Pay');
@@ -102,7 +118,25 @@ export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
     const filesArray = Array.from(fileList);
     if (filesArray.length === 0) return;
 
-    const newQueued: QueuedFile[] = filesArray.map((f) => ({
+    // Safety feature: eliminate duplicate queued files
+    const uniqueFiles: File[] = [];
+    let duplicateCount = 0;
+    filesArray.forEach((f) => {
+      if (isDuplicateQueuedFile(f, queuedFiles)) {
+        duplicateCount++;
+      } else {
+        uniqueFiles.push(f);
+      }
+    });
+
+    if (duplicateCount > 0) {
+      setDuplicateNotice(`Safety Feature: ${duplicateCount} duplicate photo(s) already in queue were skipped.`);
+      setTimeout(() => setDuplicateNotice(null), 5000);
+    }
+
+    if (uniqueFiles.length === 0) return;
+
+    const newQueued: QueuedFile[] = uniqueFiles.map((f) => ({
       id: `file_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
       file: f,
       previewUrl: f.type.startsWith('image/') ? URL.createObjectURL(f) : null
@@ -112,6 +146,8 @@ export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
     setError(null);
     setDetectedReceipts([]);
     setFiledReceipts([]);
+    setDuplicatesMap(new Map());
+    setDismissedDuplicateIds(new Set());
   };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -332,6 +368,14 @@ export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
 
       console.log(`[ReceiptScanner] Successfully extracted ${allDiscoveredReceipts.length} receipt(s) in batch!`, allDiscoveredReceipts);
       setDetectedReceipts(allDiscoveredReceipts);
+
+      // Duplicate Scan Safety Analysis
+      const dups = identifyBatchDuplicates(allDiscoveredReceipts, recentReceipts);
+      setDuplicatesMap(dups);
+      setDismissedDuplicateIds(new Set());
+      if (dups.size > 0) {
+        setDuplicateNotice(`Safety Feature: ${dups.size} potential duplicate scan(s) identified. You can review and skip duplicates before filing.`);
+      }
     } catch (err: any) {
       console.error('[ReceiptScanner] Error during batch receipt scanning:', err);
       const rawMsg = err?.message || 'Failed to scan receipt';
@@ -363,19 +407,61 @@ export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
   };
 
   /**
-   * File all detected receipts in one click
+   * File all detected receipts with Duplicate Safety Interception
    */
   const handleFileAllDetected = () => {
     if (detectedReceipts.length === 0) return;
 
-    if (onMultipleReceiptsSaved) {
-      onMultipleReceiptsSaved(detectedReceipts);
-    } else {
-      detectedReceipts.forEach(r => onReceiptSaved(r));
+    // Check if any receipts have an active duplicate flag that hasn't been explicitly dismissed
+    const activeDuplicates = detectedReceipts.filter(
+      r => duplicatesMap.has(r.id) && !dismissedDuplicateIds.has(r.id)
+    );
+
+    if (activeDuplicates.length > 0) {
+      // Intercept with the Duplicate Safety Modal
+      setShowDuplicateSafetyModal(true);
+      return;
     }
 
-    setFiledReceipts(detectedReceipts);
+    executeFileReceipts(detectedReceipts);
+  };
+
+  const executeFileReceipts = (receiptsToFile: SavedReceipt[]) => {
+    if (receiptsToFile.length === 0) return;
+
+    if (onMultipleReceiptsSaved) {
+      onMultipleReceiptsSaved(receiptsToFile);
+    } else {
+      receiptsToFile.forEach(r => onReceiptSaved(r));
+    }
+
+    setFiledReceipts(receiptsToFile);
     setDetectedReceipts([]);
+    setDuplicatesMap(new Map());
+    setDismissedDuplicateIds(new Set());
+    setShowDuplicateSafetyModal(false);
+  };
+
+  /**
+   * Safely skip duplicate slips and file only unique/new slips
+   */
+  const handleSkipDuplicatesAndFileNew = () => {
+    const nonDuplicates = detectedReceipts.filter(
+      r => !duplicatesMap.has(r.id) || dismissedDuplicateIds.has(r.id)
+    );
+
+    if (nonDuplicates.length === 0) {
+      setDuplicateNotice('All detected slips were duplicates and have been safely dismissed.');
+      setDetectedReceipts([]);
+      setShowDuplicateSafetyModal(false);
+      return;
+    }
+
+    executeFileReceipts(nonDuplicates);
+  };
+
+  const handleDismissDuplicate = (id: string) => {
+    setDismissedDuplicateIds(prev => new Set(prev).add(id));
   };
 
   const updateDetectedReceipt = (id: string, updates: Partial<SavedReceipt>) => {
@@ -404,9 +490,9 @@ export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
     });
   };
 
-  // Manual Entry Submission
-  const handleSaveManual = (e: React.FormEvent) => {
-    e.preventDefault();
+  // Manual Entry Submission with Duplicate Check
+  const handleSaveManual = (e?: React.FormEvent, forceSave: boolean = false) => {
+    if (e) e.preventDefault();
     const total = parseFloat(manualTotal) || 0;
     const invDate = manualDate || new Date().toISOString().split('T')[0];
     const mYear = invDate.substring(0, 7);
@@ -429,9 +515,19 @@ export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
       file_name: 'manual-entry.jpg'
     };
 
+    // Duplicate check for manual submission
+    if (!forceSave && !manualDuplicateWarning) {
+      const dup = findDuplicateForReceipt(manualReceipt, recentReceipts);
+      if (dup) {
+        setManualDuplicateWarning(dup);
+        return;
+      }
+    }
+
     onReceiptSaved(manualReceipt);
     setFiledReceipts([manualReceipt]);
     setShowManualModal(false);
+    setManualDuplicateWarning(null);
     setError(null);
   };
 
@@ -534,6 +630,22 @@ export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
                 Upload single or multiple receipt photos, or capture slips side-by-side
               </p>
             </div>
+
+            {duplicateNotice && (
+              <div className="w-full p-3 bg-amber-50 border border-amber-300 rounded-xl text-xs text-amber-950 flex items-center justify-between gap-2 animate-in fade-in">
+                <div className="flex items-center gap-2">
+                  <ShieldAlert className="w-4 h-4 text-amber-600 shrink-0" />
+                  <span>{duplicateNotice}</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setDuplicateNotice(null)}
+                  className="text-amber-700 hover:text-amber-900 text-xs font-bold cursor-pointer"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            )}
 
             <div className="flex items-center gap-2 flex-wrap">
               <button
@@ -823,42 +935,117 @@ export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
         )}
 
         {/* Detected Receipts Review List (Before Final Filing) */}
-        {detectedReceipts.length > 0 && (
-          <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-5 space-y-4 animate-in fade-in">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 pb-4">
-              <div>
-                <div className="flex items-center gap-2">
-                  <span className="px-2.5 py-1 bg-emerald-100 text-emerald-800 text-xs font-black rounded-lg">
-                    {detectedReceipts.length} Receipt{detectedReceipts.length > 1 ? 's' : ''} Detected
-                  </span>
-                  <span className="text-xs font-bold text-slate-500">
-                    Combined Spend: <strong className="text-slate-800 font-mono">R {totalDetectedAmount.toFixed(2)}</strong>
-                  </span>
+        {detectedReceipts.length > 0 && (() => {
+          const totalDetectedAmount = detectedReceipts.reduce((acc, r) => acc + (r.total_amount || 0), 0);
+          const activeDuplicateCount = detectedReceipts.filter(r => duplicatesMap.has(r.id) && !dismissedDuplicateIds.has(r.id)).length;
+
+          return (
+            <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-5 space-y-4 animate-in fade-in">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 pb-4">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="px-2.5 py-1 bg-emerald-100 text-emerald-800 text-xs font-black rounded-lg">
+                      {detectedReceipts.length} Receipt{detectedReceipts.length > 1 ? 's' : ''} Detected
+                    </span>
+                    <span className="text-xs font-bold text-slate-500">
+                      Combined Spend: <strong className="text-slate-800 font-mono">R {totalDetectedAmount.toFixed(2)}</strong>
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-400 mt-1">
+                    Review and adjust stores, amounts, or categories before filing to your monthly ledger
+                  </p>
                 </div>
-                <p className="text-xs text-slate-400 mt-1">
-                  Review and adjust stores, amounts, or categories before filing to your monthly ledger
-                </p>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={handleFileAllDetected}
+                    className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white font-black rounded-xl text-xs flex items-center justify-center gap-2 shadow-md transition-all cursor-pointer"
+                  >
+                    <Check className="w-4 h-4" />
+                    <span>File All {detectedReceipts.length} Receipts to Ledger</span>
+                  </button>
+                </div>
               </div>
 
-              <button
-                onClick={handleFileAllDetected}
-                className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white font-black rounded-xl text-xs flex items-center justify-center gap-2 shadow-md transition-all cursor-pointer"
-              >
-                <Check className="w-4 h-4" />
-                <span>File All {detectedReceipts.length} Receipts to Ledger</span>
-              </button>
-            </div>
-
-            {/* List of Detected Slips */}
-            <div className="space-y-3">
-              {detectedReceipts.map((rec, idx) => {
-                const isExpanded = expandedReceiptIds.has(rec.id);
-                return (
-                  <div
-                    key={rec.id}
-                    className="p-4 rounded-xl border border-slate-200 bg-slate-50/60 hover:bg-slate-50 transition-all space-y-3"
+              {/* Duplicate Safety Alert Banner */}
+              {activeDuplicateCount > 0 && (
+                <div className="bg-amber-500/10 border border-amber-300 rounded-2xl p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs text-amber-950">
+                  <div className="flex items-center gap-3">
+                    <div className="w-9 h-9 rounded-xl bg-amber-500/20 text-amber-800 flex items-center justify-center shrink-0">
+                      <ShieldAlert className="w-5 h-5 text-amber-700" />
+                    </div>
+                    <div>
+                      <div className="font-bold text-amber-900 text-sm">
+                        Duplicate Protection Active: {activeDuplicateCount} potential duplicate slip{activeDuplicateCount > 1 ? 's' : ''} detected
+                      </div>
+                      <div className="text-amber-800 text-xs">
+                        We detected matching purchases in your ledger. You can skip duplicates or file only new receipts.
+                      </div>
+                    </div>
+                  </div>
+                  <button
+                    onClick={handleSkipDuplicatesAndFileNew}
+                    className="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white font-bold rounded-xl text-xs shrink-0 cursor-pointer shadow-xs transition-colors self-end sm:self-auto flex items-center gap-1.5"
                   >
-                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                    <Check className="w-3.5 h-3.5" />
+                    <span>Skip Duplicates & File New ({detectedReceipts.length - activeDuplicateCount})</span>
+                  </button>
+                </div>
+              )}
+
+              {/* List of Detected Slips */}
+              <div className="space-y-3">
+                {detectedReceipts.map((rec, idx) => {
+                  const isExpanded = expandedReceiptIds.has(rec.id);
+                  const dup = duplicatesMap.get(rec.id);
+                  const isDuplicate = Boolean(dup && !dismissedDuplicateIds.has(rec.id));
+
+                  return (
+                    <div
+                      key={rec.id}
+                      className={`p-4 rounded-xl border transition-all space-y-3 ${
+                        isDuplicate
+                          ? 'border-amber-300 bg-amber-50/40 shadow-xs ring-1 ring-amber-300/60'
+                          : 'border-slate-200 bg-slate-50/60 hover:bg-slate-50'
+                      }`}
+                    >
+                      {/* Per-Slip Duplicate Warning Banner */}
+                      {isDuplicate && dup && (
+                        <div className="bg-amber-100/90 border border-amber-300 rounded-xl p-3 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2.5 text-xs text-amber-950">
+                          <div className="flex items-center gap-2">
+                            <AlertTriangle className="w-4 h-4 text-amber-700 shrink-0" />
+                            <div>
+                              <span className="font-bold text-amber-900">Duplicate Scan Warning: </span>
+                              <span className="text-amber-800">{dup.matchReason}</span>
+                              {!dup.isBatchDuplicate && (
+                                <div className="text-[11px] text-amber-700 mt-0.5">
+                                  Matches existing ledger entry from <strong>{dup.matchedReceipt.month_year}</strong> ({dup.matchedReceipt.invoice_date})
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-2 shrink-0 self-end sm:self-auto">
+                            <button
+                              type="button"
+                              onClick={() => removeDetectedReceipt(rec.id)}
+                              className="px-2.5 py-1 bg-rose-600 hover:bg-rose-700 text-white rounded-lg text-xs font-bold transition-colors cursor-pointer shadow-2xs"
+                              title="Discard this duplicate slip"
+                            >
+                              Skip Duplicate
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleDismissDuplicate(rec.id)}
+                              className="px-2.5 py-1 bg-white hover:bg-slate-100 text-slate-700 border border-slate-300 rounded-lg text-xs font-semibold transition-colors cursor-pointer"
+                              title="Keep as legitimate separate purchase"
+                            >
+                              Keep Anyway
+                            </button>
+                          </div>
+                        </div>
+                      )}
+
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                       <div className="flex items-center gap-2.5 flex-1">
                         <span className="w-6 h-6 rounded-full bg-slate-900 text-white text-[11px] font-bold flex items-center justify-center shrink-0">
                           {idx + 1}
@@ -994,7 +1181,92 @@ export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
               </button>
             </div>
           </div>
-        )}
+        );
+      })()}
+
+      {/* Duplicate Scan Safety Interceptor Modal */}
+      {showDuplicateSafetyModal && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-in fade-in">
+          <div className="bg-white rounded-3xl max-w-lg w-full flex flex-col shadow-2xl border border-slate-200 overflow-hidden">
+            <div className="p-5 border-b border-amber-200 flex items-center justify-between bg-amber-50">
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-xl bg-amber-500/20 text-amber-700 flex items-center justify-center shrink-0">
+                  <ShieldAlert className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-amber-950 text-base leading-tight">Duplicate Scan Protection</h3>
+                  <p className="text-xs text-amber-800">Safety check before filing to monthly ledger</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowDuplicateSafetyModal(false)}
+                className="p-1 text-slate-400 hover:text-slate-600 rounded-lg transition-colors cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-5 space-y-4 max-h-[60vh] overflow-y-auto">
+              <div className="text-xs text-slate-600 leading-relaxed">
+                The scanner detected that <strong>{detectedReceipts.filter(r => duplicatesMap.has(r.id) && !dismissedDuplicateIds.has(r.id)).length}</strong> of your <strong>{detectedReceipts.length}</strong> receipts appear to already be recorded in your ledger. Filing duplicate scans can duplicate expenditure and skew totals.
+              </div>
+
+              {/* Duplicate summary list */}
+              <div className="space-y-2">
+                {detectedReceipts
+                  .filter(r => duplicatesMap.has(r.id) && !dismissedDuplicateIds.has(r.id))
+                  .map(dupSlip => {
+                    const match = duplicatesMap.get(dupSlip.id);
+                    return (
+                      <div key={dupSlip.id} className="p-3 bg-amber-50/70 border border-amber-200 rounded-xl text-xs space-y-1">
+                        <div className="flex items-center justify-between font-bold text-slate-900">
+                          <span>{dupSlip.vendor_name}</span>
+                          <span className="font-mono text-emerald-800">R {Number(dupSlip.total_amount).toFixed(2)}</span>
+                        </div>
+                        <div className="text-[11px] text-amber-900">
+                          {match?.matchReason}
+                        </div>
+                        {match && !match.isBatchDuplicate && (
+                          <div className="text-[10px] text-slate-500">
+                            Recorded in ledger: {match.matchedReceipt.month_year} ({match.matchedReceipt.invoice_date})
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+              </div>
+            </div>
+
+            <div className="p-5 border-t border-slate-100 bg-slate-50/70 flex flex-col sm:flex-row gap-2.5 justify-end">
+              <button
+                type="button"
+                onClick={() => setShowDuplicateSafetyModal(false)}
+                className="px-4 py-2.5 bg-white hover:bg-slate-100 text-slate-700 font-bold rounded-xl text-xs border border-slate-200 cursor-pointer"
+              >
+                Cancel & Review Slips
+              </button>
+
+              <button
+                type="button"
+                onClick={() => executeFileReceipts(detectedReceipts)}
+                className="px-4 py-2.5 bg-slate-200 hover:bg-slate-300 text-slate-800 font-bold rounded-xl text-xs cursor-pointer"
+                title="Save all receipts anyway including duplicates"
+              >
+                File All Anyway ({detectedReceipts.length})
+              </button>
+
+              <button
+                type="button"
+                onClick={handleSkipDuplicatesAndFileNew}
+                className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-xs cursor-pointer shadow-sm flex items-center justify-center gap-1.5"
+              >
+                <Check className="w-4 h-4" />
+                <span>Skip Duplicates & File New ({detectedReceipts.length - detectedReceipts.filter(r => duplicatesMap.has(r.id) && !dismissedDuplicateIds.has(r.id)).length})</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       </section>
 
       {/* Manual Entry Modal */}
@@ -1020,6 +1292,35 @@ export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
             </div>
 
             <form onSubmit={handleSaveManual} className="p-5 overflow-y-auto space-y-4 flex-1">
+              {/* Duplicate Safety Warning for Manual Entry */}
+              {manualDuplicateWarning && (
+                <div className="p-3.5 bg-amber-50 border border-amber-300 rounded-2xl text-xs text-amber-950 space-y-2.5 animate-in fade-in">
+                  <div className="flex items-center gap-2 font-bold text-amber-900">
+                    <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+                    <span>Duplicate Purchase Safety Warning</span>
+                  </div>
+                  <p className="text-[11px] text-amber-800 leading-relaxed">
+                    An existing receipt for <strong>{manualDuplicateWarning.matchedReceipt.vendor_name}</strong> on <strong>{manualDuplicateWarning.matchedReceipt.invoice_date}</strong> (R {Number(manualDuplicateWarning.matchedReceipt.total_amount).toFixed(2)}) is already in your ledger.
+                  </p>
+                  <div className="flex items-center gap-2 pt-1">
+                    <button
+                      type="button"
+                      onClick={() => handleSaveManual(undefined, true)}
+                      className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-bold transition-colors cursor-pointer shadow-2xs"
+                    >
+                      Save Anyway
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setManualDuplicateWarning(null)}
+                      className="px-3 py-1.5 bg-white hover:bg-slate-100 text-slate-700 border border-slate-300 rounded-xl text-xs font-semibold transition-colors cursor-pointer"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              )}
+
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-bold text-slate-700 mb-1">Vendor / Store Name</label>

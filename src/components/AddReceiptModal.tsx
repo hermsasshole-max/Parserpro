@@ -1,17 +1,20 @@
 import React, { useState } from 'react';
-import { X, Plus, Trash2 } from 'lucide-react';
+import { X, Plus, Trash2, AlertTriangle, ShieldAlert } from 'lucide-react';
 import type { SavedReceipt, ReceiptCategory, LineItem } from '../types';
+import { findDuplicateForReceipt, type DuplicateMatch } from '../utils/duplicateDetection';
 
 interface AddReceiptModalProps {
   onClose: () => void;
   onSave: (receipt: SavedReceipt) => void;
   defaultMonth?: string;
+  existingReceipts?: SavedReceipt[];
 }
 
 export const AddReceiptModal: React.FC<AddReceiptModalProps> = ({
   onClose,
   onSave,
-  defaultMonth
+  defaultMonth,
+  existingReceipts = []
 }) => {
   const currentMonth = defaultMonth || new Date().toISOString().substring(0, 7);
   const todayDate = new Date().toISOString().substring(0, 10);
@@ -20,6 +23,7 @@ export const AddReceiptModal: React.FC<AddReceiptModalProps> = ({
   const [invoiceDate, setInvoiceDate] = useState(todayDate);
   const [category, setCategory] = useState<ReceiptCategory>('Food & Groceries');
   const [notes, setNotes] = useState('');
+  const [duplicateWarning, setDuplicateWarning] = useState<DuplicateMatch | null>(null);
   const [items, setItems] = useState<LineItem[]>([
     { description: '', quantity: 1, unit_price: 0, total_price: 0 }
   ]);
@@ -52,8 +56,8 @@ export const AddReceiptModal: React.FC<AddReceiptModalProps> = ({
   const tax = Number((subtotal * 0.15).toFixed(2));
   const totalAmount = Number((subtotal + tax).toFixed(2));
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleSubmit = (e?: React.FormEvent, forceSave: boolean = false) => {
+    if (e) e.preventDefault();
     if (!vendorName.trim()) {
       alert('Please enter a vendor/provider name.');
       return;
@@ -82,6 +86,14 @@ export const AddReceiptModal: React.FC<AddReceiptModalProps> = ({
       created_at: new Date().toISOString()
     };
 
+    if (!forceSave && !duplicateWarning && existingReceipts.length > 0) {
+      const dup = findDuplicateForReceipt(newReceipt, existingReceipts);
+      if (dup) {
+        setDuplicateWarning(dup);
+        return;
+      }
+    }
+
     onSave(newReceipt);
     onClose();
   };
@@ -95,6 +107,35 @@ export const AddReceiptModal: React.FC<AddReceiptModalProps> = ({
             <X className="w-5 h-5" />
           </button>
         </div>
+
+        {/* Duplicate Safety Warning */}
+        {duplicateWarning && (
+          <div className="p-4 bg-amber-50 border border-amber-300 rounded-xl text-xs text-amber-950 space-y-2 animate-in fade-in">
+            <div className="flex items-center gap-2 font-bold text-amber-900">
+              <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+              <span>Duplicate Receipt Safety Alert</span>
+            </div>
+            <p className="text-xs text-amber-800">
+              An existing receipt matching <strong>{duplicateWarning.matchedReceipt.vendor_name}</strong> on <strong>{duplicateWarning.matchedReceipt.invoice_date}</strong> (R {Number(duplicateWarning.matchedReceipt.total_amount).toFixed(2)}) is already recorded in {duplicateWarning.matchedReceipt.month_year}.
+            </p>
+            <div className="flex items-center gap-2 pt-1">
+              <button
+                type="button"
+                onClick={() => handleSubmit(undefined, true)}
+                className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-xs font-bold transition-colors cursor-pointer"
+              >
+                Save Anyway as Separate Purchase
+              </button>
+              <button
+                type="button"
+                onClick={() => setDuplicateWarning(null)}
+                className="px-3 py-1.5 bg-white hover:bg-slate-100 text-slate-700 border border-slate-300 rounded-lg text-xs font-semibold transition-colors cursor-pointer"
+              >
+                Cancel & Edit Details
+              </button>
+            </div>
+          </div>
+        )}
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">

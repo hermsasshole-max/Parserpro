@@ -19,6 +19,7 @@ import {
   createDeviceSnapshot, 
   requestPersistentDeviceStorage 
 } from './utils/deviceStorage';
+import { checkAndRequestStartupPermissions, type AndroidStartupPermissionsResult } from './utils/nativePermissions';
 import type { SavedReceipt } from './types';
 
 const STORAGE_KEY = 'parserpro_saved_receipts_v1';
@@ -67,8 +68,10 @@ export default function App() {
   const [isQuickMenuOpen, setIsQuickMenuOpen] = useState(false);
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
   const [saveToast, setSaveToast] = useState<{ message: string; month?: string } | null>(null);
+  const [androidPermissions, setAndroidPermissions] = useState<AndroidStartupPermissionsResult | null>(null);
+  const [showPermissionBanner, setShowPermissionBanner] = useState(false);
 
-  // Initialize Android IndexedDB and persistent storage guarantee
+  // Initialize Android IndexedDB and persistent storage guarantee, and request native permissions on startup
   useEffect(() => {
     loadReceiptsFromDevice().then(loaded => {
       if (loaded && loaded.length > 0) {
@@ -76,6 +79,18 @@ export default function App() {
       }
     });
     requestPersistentDeviceStorage();
+
+    // Check & request Camera and Filesystem permissions explicitly on Android startup
+    checkAndRequestStartupPermissions()
+      .then(result => {
+        setAndroidPermissions(result);
+        if (result.isAndroid && (!result.cameraGranted || !result.storageGranted)) {
+          setShowPermissionBanner(true);
+        }
+      })
+      .catch(err => {
+        console.warn('[App] Startup permissions error:', err);
+      });
   }, []);
 
   // Global keyboard shortcuts (Cmd+K / Ctrl+K / slash for search)
@@ -241,6 +256,38 @@ export default function App() {
         onOpenBackupModal={() => setIsBackupModalOpen(true)}
       />
 
+      {/* Android Startup Permissions Banner (if permissions were denied or restricted on Android) */}
+      {showPermissionBanner && androidPermissions?.isAndroid && (!androidPermissions.cameraGranted || !androidPermissions.storageGranted) && (
+        <div className="bg-amber-500/10 border-b border-amber-300 text-amber-950 px-4 py-2.5 text-xs flex flex-wrap items-center justify-between gap-3 shrink-0">
+          <div className="flex items-center gap-2">
+            <span className="w-2.5 h-2.5 rounded-full bg-amber-500 animate-ping shrink-0"></span>
+            <span>
+              <strong>Android Device Permissions:</strong> Camera or Storage access is currently limited. Enable permissions to scan receipts directly with your camera and save vector PDF statements.
+            </span>
+          </div>
+          <div className="flex items-center gap-2 ml-auto">
+            <button
+              onClick={async () => {
+                const res = await checkAndRequestStartupPermissions();
+                setAndroidPermissions(res);
+                if (res.cameraGranted && res.storageGranted) {
+                  setShowPermissionBanner(false);
+                }
+              }}
+              className="px-3 py-1 bg-amber-600 hover:bg-amber-700 text-white rounded-lg font-bold text-xs cursor-pointer shadow-xs transition-colors"
+            >
+              Grant Permissions
+            </button>
+            <button
+              onClick={() => setShowPermissionBanner(false)}
+              className="px-2 py-1 text-amber-800 hover:text-amber-950 text-xs font-semibold cursor-pointer"
+            >
+              Dismiss
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Save Notification Toast */}
       {saveToast && (
         <div className="fixed bottom-20 sm:bottom-6 right-4 sm:right-6 z-50 bg-slate-900 text-white px-4 py-3 rounded-2xl shadow-xl border border-slate-700 flex items-center gap-3 text-xs animate-bounce">
@@ -371,6 +418,7 @@ export default function App() {
       {isAddModalOpen && (
         <AddReceiptModal
           defaultMonth={selectedMonth}
+          existingReceipts={receipts}
           onClose={() => setIsAddModalOpen(false)}
           onSave={handleReceiptSaved}
         />
