@@ -7,6 +7,7 @@ on:
       - master
   workflow_dispatch:
 
+# Ensure concurrent runs do not conflict
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -20,58 +21,80 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      - name: Setup Node.js (for Capacitor web assets)
+      - name: Setup Node.js 22 (LTS)
         uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: 'npm'
 
-      - name: Install NPM Dependencies & Build Web Assets
-        run: |
-          if [ -f package.json ]; then
-            if [ -f package-lock.json ]; then
-              npm ci || npm install
-            else
-              npm install
-            fi
-            npm run build
-            if npx cap --version >/dev/null 2>&1; then
-              npx cap sync android
-            fi
-          fi
-
-      - name: Set up Java Development Kit (JDK 21)
+      - name: Set up Java JDK 21
         uses: actions/setup-java@v4
         with:
           distribution: 'zulu'
-          java-version: '21'
+          java-version: 21
           cache: 'gradle'
 
-      - name: Grant execution permissions to the Gradle wrapper
+      - name: Accept Android SDK Licenses & Prepare Android SDK 36
         run: |
-          if [ -f "./gradlew" ]; then
-            chmod +x ./gradlew
-          fi
-          if [ -f "./android/gradlew" ]; then
-            chmod +x ./android/gradlew
-          fi
+          mkdir -p "$ANDROID_HOME/licenses" || true
+          echo "24333f8a63b6825ea9c5514f83c2829b004d1fee" >> "$ANDROID_HOME/licenses/android-sdk-license"
+          echo "84831b9409646a532e303d725c4b378b164a3767" >> "$ANDROID_HOME/licenses/android-sdk-license"
+          echo "d56f5187479451eabf01fb78af6dfcb131a6481e" >> "$ANDROID_HOME/licenses/android-sdk-license"
+          echo "8933bad161af4178b1185d1a37fbf41ea5269c55" >> "$ANDROID_HOME/licenses/android-sdk-preview-license"
+          yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses 2>/dev/null || true
+          $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager "platforms;android-36" "platforms;android-35" "platforms;android-34" "build-tools;36.0.0" "build-tools;35.0.0" "build-tools;34.0.0" || true
 
-      - name: Build Release Android App Bundle
+      - name: Install NPM Dependencies
         run: |
-          if [ -f "./gradlew" ]; then
-            ./gradlew bundleRelease
-          elif [ -d "./android" ]; then
-            cd android
-            ./gradlew bundleRelease
+          if [ -f package-lock.json ]; then
+            npm ci || (echo "Lockfile desync detected, falling back to npm install..." && npm install)
           else
-            echo "Error: Gradle wrapper not found" && exit 1
+            npm install
           fi
 
-      - name: Upload Release Android App Bundle
+      - name: Generate PWA Assets & Build Production Web Dist
+        run: |
+          node generate-icons.js
+          npm run build
+        env:
+          NODE_ENV: production
+
+      - name: Sync Capacitor Android Project
+        run: npx cap sync android
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.14.3'
+          validate-wrappers: false
+
+      - name: Make Gradle Wrapper Executable and Ensure Wrapper
+        run: |
+          chmod +x android/gradlew
+          cd android
+          if [ ! -f "gradle/wrapper/gradle-wrapper.jar" ]; then
+            echo "Generating Gradle wrapper..."
+            gradle wrapper --gradle-version 8.14.3 || true
+          fi
+
+      - name: Build Release Android App Bundle (.aab)
+        run: |
+          cd android
+          if [ -f "gradle/wrapper/gradle-wrapper.jar" ]; then
+            ./gradlew bundleRelease --no-daemon --stacktrace
+          else
+            gradle bundleRelease --no-daemon --stacktrace
+          fi
+
+      - name: Verify and Locate Generated App Bundle (.aab)
+        run: |
+          echo "=== Locating generated .aab files ==="
+          find . -name "*.aab" -exec ls -lh {} +
+
+      - name: Upload Release Android App Bundle Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: app-release-bundle
+          name: receipt-scanner-release-aab
           path: |
-            **/build/outputs/bundle/release/*.aab
+            android/app/build/outputs/bundle/release/*.aab
           retention-days: 30
           if-no-files-found: error
