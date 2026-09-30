@@ -3,8 +3,8 @@
 These workflow files are stored here to avoid GitHub OAuth scope restrictions during direct sync from Google AI Studio.
 
 ## Included Workflows:
-1. `build-apk.yml`: Automatically builds a signed or unsigned debug Android APK using Capacitor and Android SDK 36.
-2. `bundle-release.yml`: Builds a production-ready Android App Bundle (`.aab`) via `./gradlew bundleRelease` for Google Play Store publishing.
+1. `bundle-release.yml`: Builds a production-ready Android App Bundle (`.aab`) via `./gradlew bundleRelease` for Google Play Store publishing.
+2. `build-apk.yml`: Automatically builds an installable debug Android APK using Capacitor and Android SDK 36.
 3. `deploy.yml`: Deploys the web application to GitHub Pages.
 
 ## How to enable them on GitHub:
@@ -16,9 +16,12 @@ Once pushed to your GitHub repository:
 5. Name it `.github/workflows/deploy.yml` and paste the contents of `ci-workflows/deploy.yml`.
 6. Commit directly on GitHub.
 
-### Critical: Configure GitHub Pages Source
-Before running `deploy.yml`:
-1. Go to repository **Settings** -> **Pages** (in the left sidebar).
-2. Under **Build and deployment**, set **Source** to **GitHub Actions** (instead of "Deploy from a branch").
-3. Click Save.
-Now re-run the workflow or push, and it will deploy smoothly without `HttpError: Not Found`.
+### GitHub Pages Settings
+The updated `deploy.yml` uses the reliable `peaceiris/actions-gh-pages` engine which deploys to the `gh-pages` branch without crashing on `HttpError: Not Found`.
+
+1. In your GitHub repository, ensure Actions have write permissions:
+   - Go to **Settings** -> **Actions** -> **General** -> scroll down to **Workflow permissions** -> select **Read and write permissions** -> **Save**.
+2. Under **Settings** -> **Pages**:
+   - **Source**: Select **Deploy from a branch**
+   - **Branch**: Select **`gh-pages`** and folder **`/ (root)`**.
+3. Your site will automatically be live at `https://hermsasshole-max.github.io/Parserpro/`!
