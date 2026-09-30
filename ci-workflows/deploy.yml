@@ -5,6 +5,10 @@ on:
     branches:
       - main
       - master
+    paths-ignore:
+      - 'android/**'
+      - '.github/workflows/bundle-release.yml'
+      - '.github/workflows/build-apk.yml'
   workflow_dispatch:
 
 # Sets permissions of the GITHUB_TOKEN to allow deployment to GitHub Pages
@@ -50,8 +54,6 @@ jobs:
 
       - name: Setup GitHub Pages
         uses: actions/configure-pages@v5
-        with:
-          enablement: true
 
       - name: Upload Artifact
         uses: actions/upload-pages-artifact@v3
