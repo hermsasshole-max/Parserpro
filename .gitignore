@@ -5,6 +5,8 @@ coverage/
 .DS_Store
 *.log
 *.jar
+!android/gradle/wrapper/gradle-wrapper.jar
+!gradle/wrapper/gradle-wrapper.jar
 *.map
 *.apk
 *.aab

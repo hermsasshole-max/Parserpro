@@ -71,9 +71,10 @@ jobs:
         run: |
           chmod +x android/gradlew
           cd android
+          mkdir -p gradle/wrapper
           if [ ! -f "gradle/wrapper/gradle-wrapper.jar" ]; then
-            echo "Generating Gradle wrapper..."
-            gradle wrapper --gradle-version 8.14.3 || true
+            echo "Downloading Gradle wrapper jar..."
+            curl -fsSL -o gradle/wrapper/gradle-wrapper.jar https://raw.githubusercontent.com/gradle/gradle/v8.14.3/gradle/wrapper/gradle-wrapper.jar || true
           fi
 
       - name: Build Debug APK with Gradle
@@ -84,6 +85,11 @@ jobs:
           else
             gradle assembleDebug --no-daemon --stacktrace
           fi
+
+      - name: Verify and Locate Generated APK
+        run: |
+          echo "=== Locating generated APK files ==="
+          find android/app/build/outputs/apk -name "*.apk" -exec ls -lh {} +
 
       - name: Upload Native Android APK Artifact
         uses: actions/upload-artifact@v4
