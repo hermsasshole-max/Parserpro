@@ -12,6 +12,10 @@ export interface LineItem {
   total_price: number;
 }
 
+export type OcrEngineType = 'cloud_api' | 'local_tesseract' | 'manual';
+
+export type OcrEngineMode = 'auto_fallback' | 'cloud_only' | 'local_tesseract_only';
+
 export interface ReceiptData {
   vendor_name: string;
   invoice_date: string;
@@ -23,6 +27,7 @@ export interface ReceiptData {
   tax: number;
   total_amount: number;
   notes: string;
+  engine_used?: OcrEngineType;
 }
 
 export interface SavedReceipt extends ReceiptData {
@@ -30,6 +35,33 @@ export interface SavedReceipt extends ReceiptData {
   created_at: string;
   file_name?: string;
   image_preview?: string;
+}
+
+export interface CachedReceiptJob {
+  id: string;
+  fileName: string;
+  fileSize: number;
+  mimeType: string;
+  base64Data: string;
+  previewUrl?: string;
+  createdAt: string;
+  status: 'pending' | 'processing' | 'fallback_extracted' | 'completed' | 'failed';
+  attempts: number;
+  maxAttempts: number;
+  lastAttemptAt?: string;
+  nextRetryAt: number; // timestamp in ms
+  lastError?: string;
+  engineUsed?: OcrEngineType;
+  extractedReceipts?: ReceiptData[];
+}
+
+export interface QueueStatusStats {
+  total: number;
+  pending: number;
+  processing: number;
+  fallbackExtracted: number;
+  completed: number;
+  failed: number;
 }
 
 export interface AggregatedItem {

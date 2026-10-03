@@ -26,7 +26,12 @@ import {
   Printer,
   AlertTriangle,
   ShieldAlert,
-  Copy
+  Copy,
+  Cpu,
+  Cloud,
+  Wifi,
+  WifiOff,
+  Sliders
 } from 'lucide-react';
 import type { ReceiptData, SavedReceipt, LineItem, ReceiptCategory } from '../types';
 import { compressAndPrepareImage } from '../utils/imageUtils';
@@ -35,6 +40,14 @@ import {
   getActiveGeminiApiKey, 
   setClientGeminiApiKey 
 } from '../utils/geminiVision';
+import { 
+  executeFailSafeOcr, 
+  getStoredOcrMode, 
+  getStoredApiTimeoutMs, 
+  startBackgroundQueueWorker 
+} from '../utils/failSafeOcrCoordinator';
+import { subscribeToQueue } from '../utils/offlineOcrQueue';
+import { OfflineOcrQueueModal } from './OfflineOcrQueueModal';
 import { captureReceiptWithNativeCamera, isCapacitorPlatform } from '../utils/nativeCamera';
 import { downloadSingleReceiptPDF, printSingleReceiptSafely } from '../utils/pdfGenerator';
 import { 
@@ -86,6 +99,34 @@ export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
   const [showDuplicateSafetyModal, setShowDuplicateSafetyModal] = useState(false);
   const [duplicateNotice, setDuplicateNotice] = useState<string | null>(null);
   const [manualDuplicateWarning, setManualDuplicateWarning] = useState<DuplicateMatch | null>(null);
+
+  // Fail-Safe OCR & Offline Queue State
+  const [showQueueModal, setShowQueueModal] = useState(false);
+  const [pendingQueueCount, setPendingQueueCount] = useState(0);
+  const [failSafeNotice, setFailSafeNotice] = useState<string | null>(null);
+  const [isOnline, setIsOnline] = useState(() => (typeof navigator !== 'undefined' ? navigator.onLine : true));
+
+  // Listen to network status and background queue
+  React.useEffect(() => {
+    const handleOnline = () => setIsOnline(true);
+    const handleOffline = () => setIsOnline(false);
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+
+    const unsubscribeQueue = subscribeToQueue((jobs) => {
+      const activePending = jobs.filter(j => j.status === 'pending' || j.status === 'processing' || j.status === 'fallback_extracted').length;
+      setPendingQueueCount(activePending);
+    });
+
+    const stopWorker = startBackgroundQueueWorker();
+
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+      unsubscribeQueue();
+      stopWorker();
+    };
+  }, []);
 
   // Manual Entry Form State
   const [showManualModal, setShowManualModal] = useState(false);
@@ -243,97 +284,28 @@ export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
         );
 
         let fileExtracted: ReceiptData[] = [];
-        let serverError: any = null;
-        let isStaticOrNoBackend = false;
 
-        // 1. Try server-side proxy route (/api/parse-receipt)
-        try {
-          const res = await fetch('/api/parse-receipt', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              imageBase64: prepared.base64Data,
-              mimeType: prepared.mimeType,
-            }),
-          });
-
-          // Always read response text to be resilient to missing or altered Content-Type headers
-          const rawText = await res.text();
-          let json: any = null;
-          try {
-            json = JSON.parse(rawText.trim());
-          } catch {
-            // Resilient JSON substring extraction if proxy prepends or appends data
-            const startObj = rawText.indexOf('{');
-            const endObj = rawText.lastIndexOf('}');
-            if (startObj !== -1 && endObj > startObj) {
-              try {
-                json = JSON.parse(rawText.substring(startObj, endObj + 1));
-              } catch {}
+        // Fail-Safe OCR: Attempts Cloud API, automatically fails over to local Tesseract on timeout/network drops,
+        // and persists to local cache with exponential backoff retry.
+        const failSafeResult = await executeFailSafeOcr({
+          base64Data: prepared.base64Data,
+          mimeType: prepared.mimeType,
+          fileName: qFile.file.name,
+          fileSize: qFile.file.size,
+          previewUrl: qFile.previewUrl || undefined,
+          options: {
+            timeoutMs: getStoredApiTimeoutMs(),
+            mode: getStoredOcrMode(),
+            onStage: (stage) => setLoadingStage(stage),
+            onEngineSwitched: (engine, reason) => {
+              setFailSafeNotice(`⚡ ${reason}`);
             }
           }
+        });
 
-          if (json && typeof json === 'object') {
-            if (res.ok) {
-              if (Array.isArray(json.receipts) && json.receipts.length > 0) {
-                fileExtracted = json.receipts;
-              } else if (json.vendor_name) {
-                fileExtracted = [json];
-              } else {
-                serverError = new Error('No receipt items returned from AI service');
-              }
-            } else {
-              serverError = new Error(json.error || `Server OCR returned status ${res.status}`);
-            }
-          } else {
-            console.warn('[ReceiptScanner] Non-JSON response received from server:', rawText.slice(0, 150));
-            const lowerText = rawText.toLowerCase();
-            const isHtml =
-              lowerText.includes('<!doctype') ||
-              lowerText.includes('<html') ||
-              lowerText.includes('<head') ||
-              lowerText.includes('<body') ||
-              lowerText.includes('<script') ||
-              (res.headers.get('content-type') || '').toLowerCase().includes('text/html');
-
-            if (isHtml) {
-              isStaticOrNoBackend = true;
-              serverError = new Error('STATIC_HOST_NO_BACKEND');
-            } else if (res.status === 504 || lowerText.includes('504') || res.status === 502) {
-              serverError = new Error('Server timed out processing image. Falling back to on-device OCR...');
-            } else {
-              serverError = new Error(`OCR service responded with status ${res.status}`);
-            }
-          }
-        } catch (netErr: any) {
-          console.warn('[ReceiptScanner] Network proxy error, checking client fallback:', netErr);
-          isStaticOrNoBackend = true;
-          serverError = netErr;
-        }
-
-        // 2. Client-side fallback if server failed or is a static host (APK / GitHub Pages)
-        if (fileExtracted.length === 0) {
-          const clientKey = getActiveGeminiApiKey();
-          if (clientKey) {
-            setLoadingStage(`Using on-device Gemini Vision OCR (Photo ${i + 1}/${queuedFiles.length})...`);
-            fileExtracted = await parseMultipleReceiptsWithGemini(
-              prepared.base64Data,
-              prepared.mimeType,
-              {
-                onProgress: (stage) => setLoadingStage(stage),
-                apiKey: clientKey
-              }
-            );
-          } else if (isStaticOrNoBackend) {
-            setShowApiKeyModal(true);
-            throw new Error('STANDALONE_APK_NEEDS_KEY');
-          } else if (serverError) {
-            throw serverError;
-          } else {
-            throw new Error('Could not parse receipt. Please verify image clarity or enter manually.');
-          }
+        fileExtracted = failSafeResult.receipts;
+        if (failSafeResult.fallbackTriggered) {
+          setFailSafeNotice(failSafeResult.warning || 'Switched to on-device Tesseract OCR engine.');
         }
 
         // 3. Map into SavedReceipt objects
@@ -355,6 +327,7 @@ export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
             subtotal: typeof rec.subtotal === 'number' ? rec.subtotal : (rec.total_amount || 0),
             tax: typeof rec.tax === 'number' ? rec.tax : 0,
             notes: rec.notes || (fileExtracted.length > 1 ? `Slip ${slipIdx + 1} of ${fileExtracted.length} in photo` : ''),
+            engine_used: rec.engine_used || failSafeResult.engineUsed,
             created_at: new Date().toISOString(),
             file_name: qFile.file.name,
             image_preview: qFile.previewUrl || undefined
@@ -647,7 +620,54 @@ export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
               </div>
             )}
 
+            {failSafeNotice && (
+              <div className="w-full p-3 bg-emerald-50 border border-emerald-300 rounded-xl text-xs text-emerald-950 flex items-center justify-between gap-2 animate-in fade-in">
+                <div className="flex items-center gap-2">
+                  <Cpu className="w-4 h-4 text-emerald-600 shrink-0" />
+                  <span className="font-medium">{failSafeNotice}</span>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => setShowQueueModal(true)}
+                    className="text-emerald-800 underline text-xs font-bold cursor-pointer"
+                  >
+                    View Queue
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setFailSafeNotice(null)}
+                    className="text-emerald-700 hover:text-emerald-900 text-xs font-bold cursor-pointer p-1"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              </div>
+            )}
+
             <div className="flex items-center gap-2 flex-wrap">
+              <button
+                onClick={() => setShowQueueModal(true)}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer border ${
+                  pendingQueueCount > 0
+                    ? 'bg-amber-50 text-amber-900 border-amber-300 hover:bg-amber-100'
+                    : 'bg-slate-100 hover:bg-slate-200 text-slate-800 border-slate-200'
+                }`}
+                title="Manage Fail-Safe OCR Engine & Offline Retry Queue"
+              >
+                <Cpu className="w-3.5 h-3.5 text-emerald-600" />
+                <span>Fail-Safe OCR</span>
+                {pendingQueueCount > 0 ? (
+                  <span className="px-1.5 py-0.2 rounded-full text-[10px] font-black bg-amber-500 text-white animate-pulse">
+                    {pendingQueueCount}
+                  </span>
+                ) : (
+                  <span className="text-[10px] px-1 py-0.2 rounded bg-emerald-100 text-emerald-800">
+                    Tesseract Ready
+                  </span>
+                )}
+              </button>
+
               <button
                 onClick={triggerCameraInput}
                 className="px-3 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer"
@@ -1051,13 +1071,26 @@ export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
                           {idx + 1}
                         </span>
                         <div className="flex-1">
-                          <input
-                            type="text"
-                            value={rec.vendor_name}
-                            onChange={(e) => updateDetectedReceipt(rec.id, { vendor_name: e.target.value })}
-                            className="font-bold text-slate-900 text-sm bg-transparent border-b border-transparent hover:border-slate-300 focus:border-emerald-500 focus:bg-white px-1 py-0.5 rounded transition-all w-full max-w-xs focus:outline-none"
-                            placeholder="Store Name"
-                          />
+                          <div className="flex items-center gap-1.5">
+                            <input
+                              type="text"
+                              value={rec.vendor_name}
+                              onChange={(e) => updateDetectedReceipt(rec.id, { vendor_name: e.target.value })}
+                              className="font-bold text-slate-900 text-sm bg-transparent border-b border-transparent hover:border-slate-300 focus:border-emerald-500 focus:bg-white px-1 py-0.5 rounded transition-all w-full max-w-xs focus:outline-none"
+                              placeholder="Store Name"
+                            />
+                            {rec.engine_used === 'local_tesseract' ? (
+                              <span className="inline-flex items-center gap-1 text-[10px] font-bold px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800 border border-emerald-300 shrink-0" title="Extracted offline using on-device Tesseract OCR">
+                                <Cpu className="w-3 h-3 text-emerald-600" />
+                                <span>Tesseract</span>
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1 text-[10px] font-bold px-1.5 py-0.5 rounded bg-blue-50 text-blue-700 border border-blue-200 shrink-0" title="Extracted using Cloud AI Vision">
+                                <Cloud className="w-3 h-3 text-blue-600" />
+                                <span>Cloud AI</span>
+                              </span>
+                            )}
+                          </div>
                           {rec.notes && (
                             <div className="text-[10px] text-slate-400 px-1">{rec.notes}</div>
                           )}
@@ -1536,6 +1569,17 @@ export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
           </div>
         </div>
       )}
+
+      {/* Offline OCR Queue Modal */}
+      <OfflineOcrQueueModal
+        isOpen={showQueueModal}
+        onClose={() => setShowQueueModal(false)}
+        onImportExtractedReceipts={(receipts) => {
+          setDetectedReceipts((prev) => [...prev, ...receipts]);
+          setFailSafeNotice(`Imported ${receipts.length} receipt(s) from offline cache.`);
+          setTimeout(() => setFailSafeNotice(null), 4000);
+        }}
+      />
     </div>
   );
 };

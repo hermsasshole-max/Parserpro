@@ -22,9 +22,18 @@ import {
   Share2,
   FileSpreadsheet,
   Edit3,
-  Key
+  Key,
+  Clock,
+  Sliders
 } from 'lucide-react';
-import type { SavedReceipt } from '../types';
+import type { SavedReceipt, OcrEngineMode } from '../types';
+import { 
+  getStoredOcrMode, 
+  setStoredOcrMode, 
+  getStoredApiTimeoutMs, 
+  setStoredApiTimeoutMs 
+} from '../utils/failSafeOcrCoordinator';
+import { OfflineOcrQueueModal } from './OfflineOcrQueueModal';
 import { 
   exportDeviceBackupJSON, 
   parseBackupFile, 
@@ -70,6 +79,9 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   const [isPersistent, setIsPersistent] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
   const [permissionStatus, setPermissionStatus] = useState<string | null>(null);
+  const [showQueueModal, setShowQueueModal] = useState(false);
+  const [engineMode, setEngineMode] = useState<OcrEngineMode>(() => getStoredOcrMode());
+  const [timeoutSec, setTimeoutSec] = useState<number>(() => Math.round(getStoredApiTimeoutMs() / 1000));
 
   useEffect(() => {
     checkStoragePersistence().then(res => setIsPersistent(res));
@@ -338,22 +350,75 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         {/* Gemini Vision Server & AI Engine Card */}
         <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm space-y-4">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-bold uppercase tracking-wider text-slate-500 flex items-center gap-1.5">
-              <Cpu className="w-3.5 h-3.5 text-slate-600" /> AI Vision OCR Engine
+            <span className="text-xs font-bold uppercase tracking-wider text-slate-700 flex items-center gap-1.5">
+              <Cpu className="w-3.5 h-3.5 text-emerald-600" /> Fail-Safe OCR & Engine Settings
             </span>
             <span className="px-2 py-0.5 text-[10px] font-bold rounded-full border bg-emerald-50 text-emerald-700 border-emerald-200 flex items-center gap-1">
               <Sparkles className="w-3 h-3 text-emerald-600" />
-              <span>Active</span>
+              <span>Tesseract + Cloud Ready</span>
             </span>
           </div>
 
           <p className="text-xs text-slate-600 leading-relaxed">
-            High-precision multimodal receipt extraction powered by Google Gemini Vision. Automatic line-item itemization, subtotal & tax detection, and month-by-month chronological filing.
+            Automatic fail-safe architecture: attempts high-precision Cloud Vision first, seamlessly switches to local on-device Tesseract OCR on timeout or network drops, and saves unprocessed receipts to local cache with exponential backoff.
           </p>
 
-          <div className="pt-1 flex items-center justify-between text-[11px] text-slate-500">
-            <span className="font-medium text-emerald-800">Endpoint: /api/parse-receipt</span>
-            <span className="px-2 py-0.5 bg-slate-100 rounded text-slate-600 font-mono text-[10px]">Zero Config</span>
+          <div className="space-y-2 pt-1 border-t border-slate-100 text-xs">
+            <div className="flex items-center justify-between">
+              <span className="text-slate-600 font-medium">Execution Strategy:</span>
+              <select
+                value={engineMode}
+                onChange={(e) => {
+                  const m = e.target.value as OcrEngineMode;
+                  setEngineMode(m);
+                  setStoredOcrMode(m);
+                  setFeedbackToast(`OCR strategy changed to ${m}`);
+                  setTimeout(() => setFeedbackToast(null), 3000);
+                }}
+                className="bg-slate-100 font-bold text-slate-800 text-xs px-2.5 py-1 rounded-lg border border-slate-200 focus:outline-none cursor-pointer"
+              >
+                <option value="auto_fallback">Auto Fail-Safe (Cloud with Tesseract Fallback)</option>
+                <option value="local_tesseract_only">100% Offline (Local Tesseract Only)</option>
+                <option value="cloud_only">Cloud API Only</option>
+              </select>
+            </div>
+
+            <div className="flex items-center justify-between">
+              <span className="text-slate-600 font-medium">Cloud Timeout:</span>
+              <div className="flex items-center gap-1">
+                {[8, 12, 15, 20].map((s) => (
+                  <button
+                    key={s}
+                    type="button"
+                    onClick={() => {
+                      setTimeoutSec(s);
+                      setStoredApiTimeoutMs(s * 1000);
+                      setFeedbackToast(`Timeout set to ${s} seconds`);
+                      setTimeout(() => setFeedbackToast(null), 2500);
+                    }}
+                    className={`px-2 py-0.5 rounded text-xs transition-colors cursor-pointer ${
+                      timeoutSec === s
+                        ? 'bg-emerald-600 text-white font-bold'
+                        : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                    }`}
+                  >
+                    {s}s
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          <div className="pt-2 flex items-center justify-between">
+            <button
+              type="button"
+              onClick={() => setShowQueueModal(true)}
+              className="px-3 py-1.5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-colors shadow-xs cursor-pointer"
+            >
+              <Cpu className="w-3.5 h-3.5 text-emerald-400" />
+              <span>Open Offline Cache & Retries</span>
+            </button>
+            <span className="text-[11px] text-slate-400 font-mono">Tesseract v5 WebAssembly</span>
           </div>
         </div>
 
@@ -624,6 +689,17 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           </div>
         </div>
       )}
+
+      {/* Offline Queue Modal */}
+      <OfflineOcrQueueModal
+        isOpen={showQueueModal}
+        onClose={() => setShowQueueModal(false)}
+        onImportExtractedReceipts={(imported) => {
+          onImportData(imported);
+          setFeedbackToast(`Imported ${imported.length} receipt(s) from offline cache.`);
+          setTimeout(() => setFeedbackToast(null), 4000);
+        }}
+      />
     </div>
   );
 };
