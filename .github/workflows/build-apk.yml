@@ -7,6 +7,10 @@ on:
       - master
   workflow_dispatch:
 
+permissions:
+  contents: write
+  actions: read
+
 # Ensure concurrent runs do not conflict
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -94,7 +98,48 @@ jobs:
       - name: Upload Native Android APK Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: receipt-scanner-android-apk
-          path: android/app/build/outputs/apk/debug/*.apk
+          name: app-debug
+          path: android/app/build/outputs/apk/debug/app-debug.apk
           retention-days: 30
           if-no-files-found: error
+
+      - name: Publish Direct APK Download to GitHub Releases
+        if: success()
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG_NAME="v1.0-debug"
+          APK_PATH="android/app/build/outputs/apk/debug/app-debug.apk"
+          
+          if [ -f "$APK_PATH" ]; then
+            echo "Publishing direct download APK to GitHub Releases tag $TAG_NAME..."
+            gh release upload "$TAG_NAME" "$APK_PATH" --clobber 2>/dev/null || \
+            gh release create "$TAG_NAME" "$APK_PATH" \
+              --title "ParserPro Android Debug APK (Direct Download)" \
+              --notes "### Direct 1-Click APK Download:
+Download **[app-debug.apk](https://github.com/${{ github.repository }}/releases/download/${TAG_NAME}/app-debug.apk)** directly to your Android device without unzipping.
+- Built from commit: \`${{ github.sha }}\`
+- Built on: $(date -u '+%Y-%m-%d %H:%M:%S UTC')" \
+              --prerelease || echo "GitHub Release upload completed or skipped"
+          else
+            echo "APK file not found at $APK_PATH"
+          fi
+
+      - name: Add Direct Download Links to Run Summary
+        if: always()
+        run: |
+          echo "# 📱 Android Debug APK Build Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          if [ -f "android/app/build/outputs/apk/debug/app-debug.apk" ]; then
+            APK_SIZE=$(ls -lh android/app/build/outputs/apk/debug/app-debug.apk | awk '{print $5}')
+            APK_SHA=$(sha256sum android/app/build/outputs/apk/debug/app-debug.apk | awk '{print $1}')
+            echo "### ✅ Build Succeeded!" >> $GITHUB_STEP_SUMMARY
+            echo "- **File**: \`app-debug.apk\` (${APK_SIZE})" >> $GITHUB_STEP_SUMMARY
+            echo "- **SHA256**: \`${APK_SHA}\`" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "### 📥 How to Download:" >> $GITHUB_STEP_SUMMARY
+            echo "1. **Direct 1-Click APK (No unzipping needed)**: Open **[GitHub Releases](https://github.com/${{ github.repository }}/releases)** and download \`app-debug.apk\` directly." >> $GITHUB_STEP_SUMMARY
+            echo "2. **Actions Artifact**: In the **Artifacts** section at the bottom of this page, click **\`app-debug\`** (Note: GitHub requires you to be logged into your GitHub account to download Actions artifacts)." >> $GITHUB_STEP_SUMMARY
+          else
+            echo "### ⚠️ APK file was not found" >> $GITHUB_STEP_SUMMARY
+          fi
