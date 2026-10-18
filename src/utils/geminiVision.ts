@@ -341,3 +341,62 @@ export async function parseReceiptWithGemini(
     notes: ''
   };
 }
+
+/**
+ * Tests a Gemini API key with a minimal request to verify connectivity and validity.
+ */
+export async function testGeminiApiKey(apiKeyToTest: string): Promise<{ success: boolean; message: string; latencyMs?: number }> {
+  const key = apiKeyToTest.trim();
+  if (!key) {
+    return { success: false, message: 'Please enter a valid API key.' };
+  }
+
+  const startTime = Date.now();
+  try {
+    const ai = new GoogleGenAI({
+      apiKey: key,
+      httpOptions: {
+        headers: {
+          'User-Agent': 'aistudio-build',
+        },
+      },
+    });
+
+    const candidateModels = ['gemini-flash-latest', 'gemini-3.8-flash', 'gemini-3.1-flash-lite'];
+    let lastErr: any = null;
+
+    for (const model of candidateModels) {
+      try {
+        const response = await ai.models.generateContent({
+          model,
+          contents: 'Respond with OK.',
+        });
+        if (response.text) {
+          const latencyMs = Date.now() - startTime;
+          return {
+            success: true,
+            message: `Key is valid and active! Connected via ${model} (${latencyMs}ms)`,
+            latencyMs,
+          };
+        }
+      } catch (err: any) {
+        lastErr = err;
+        const msg = err?.message || String(err);
+        if (msg.includes('API_KEY_INVALID') || msg.includes('not valid') || msg.includes('PERMISSION_DENIED')) {
+          return {
+            success: false,
+            message: 'Invalid API key. Please check your key in Google AI Studio and re-enter.',
+          };
+        }
+      }
+    }
+
+    throw lastErr || new Error('No response from Gemini API models.');
+  } catch (err: any) {
+    const msg = err?.message || String(err);
+    if (msg.includes('API_KEY_INVALID') || msg.includes('not valid')) {
+      return { success: false, message: 'Invalid API key. Please check your key from Google AI Studio.' };
+    }
+    return { success: false, message: `Connection test error: ${msg.slice(0, 120)}` };
+  }
+}

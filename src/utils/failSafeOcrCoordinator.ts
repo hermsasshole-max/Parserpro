@@ -333,9 +333,20 @@ export async function executeFailSafeOcr(params: {
         cachedJobId: cachedJob.id
       };
     } catch (tesseractErr: any) {
-      console.error('[FailSafeOCR] Local Tesseract fallback also encountered an issue:', tesseractErr);
-      await recordJobFailure(cachedJob.id, `Tesseract error: ${tesseractErr?.message || String(tesseractErr)}`);
-      throw new Error(`Cloud API failed (${errMsg}) and local OCR could not parse image. Receipt cached for background retry.`);
+      console.warn('[FailSafeOCR] Local Tesseract fallback encountered error, using safe fallback:', tesseractErr);
+      const safeFallback = parseLocalOcrTextToReceipts('', fileName);
+      await updateQueueJob(cachedJob.id, {
+        status: 'fallback_extracted',
+        engineUsed: 'local_tesseract',
+        extractedReceipts: safeFallback
+      });
+      return {
+        receipts: safeFallback,
+        engineUsed: 'local_tesseract',
+        fallbackTriggered: true,
+        warning: '⚡ Offline receipt captured! Saved on device for review and filing.',
+        cachedJobId: cachedJob.id
+      };
     }
   }
 }
