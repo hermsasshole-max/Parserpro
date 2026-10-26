@@ -8,11 +8,11 @@ on:
   workflow_dispatch:
     inputs:
       version_name:
-        description: 'Release versionName (optional, e.g. 1.0.31)'
+        description: 'Release versionName (optional, e.g. 1.0.40)'
         required: false
         type: string
       version_code:
-        description: 'Release integer versionCode (optional, auto-increments >= 130 by default)'
+        description: 'Release integer versionCode (optional, auto-increments >= 140 by default)'
         required: false
         type: string
       signing_key_preference:
@@ -155,11 +155,11 @@ jobs:
           INPUT_VERSION_NAME: ${{ inputs.version_name }}
           SIGNING_KEY_PREF: ${{ inputs.signing_key_preference }}
         run: |
-          # 1. Compute strictly increasing Play Console versionCode (>= 130, strictly > used 113 & 125) & versionName
-          MIN_VERSION_CODE=130
+          # 1. Compute strictly increasing Play Console versionCode (>= 140, strictly > used 113, 125 & 131+) & versionName
+          MIN_VERSION_CODE=140
           ATTEMPT_NUM="${GITHUB_RUN_ATTEMPT:-1}"
           ATTEMPT_OFFSET=$(( ATTEMPT_NUM > 1 ? ATTEMPT_NUM - 1 : 0 ))
-          AUTO_VC=$(( 115 + GITHUB_RUN_NUMBER + ATTEMPT_OFFSET ))
+          AUTO_VC=$(( 125 + GITHUB_RUN_NUMBER + ATTEMPT_OFFSET ))
           if [ "$AUTO_VC" -lt "$MIN_VERSION_CODE" ]; then
             AUTO_VC="$MIN_VERSION_CODE"
           fi
@@ -623,7 +623,7 @@ jobs:
           AAB_CERT_INFO=$(keytool -printcert -jarfile "$VERSIONED_AAB" 2>/dev/null || true)
           echo "$AAB_CERT_INFO" | grep -E "Owner:|SHA1:|SHA256:" || true
 
-          echo "=== Verifying Merged Manifest Package, Version (>= 130) & Provider Authorities ==="
+          echo "=== Verifying Merged Manifest Package, Version (>= 140) & Provider Authorities ==="
           MERGED_MANIFEST=$(find android/app/build/intermediates/merged_manifests/release -name "AndroidManifest.xml" | head -n 1)
           if [ -n "$MERGED_MANIFEST" ]; then
             grep -q 'package="com.receiptscannerpro.app"' "$MERGED_MANIFEST"
@@ -635,11 +635,11 @@ jobs:
             fi
             MANIFEST_VC=$(grep -oE 'android:versionCode="[0-9]+"' "$MERGED_MANIFEST" | head -n 1 | grep -oE '[0-9]+' || true)
             echo "Merged Manifest versionCode=${MANIFEST_VC}"
-            if [ -n "$MANIFEST_VC" ] && [ "$MANIFEST_VC" -lt 130 ]; then
-              echo "ERROR: Merged Manifest versionCode (${MANIFEST_VC}) must be >= 130 (strictly greater than used Play Console version 113 & 125)!"
+            if [ -n "$MANIFEST_VC" ] && [ "$MANIFEST_VC" -lt 140 ]; then
+              echo "ERROR: Merged Manifest versionCode (${MANIFEST_VC}) must be >= 140 (strictly greater than used Play Console versions)!"
               exit 1
             fi
-            echo "Verified package=com.receiptscannerpro.app, versionCode=${MANIFEST_VC} (>= 130), and unique provider authorities!"
+            echo "Verified package=com.receiptscannerpro.app, versionCode=${MANIFEST_VC} (>= 140), and unique provider authorities!"
           fi
 
           echo "=== Verifying R8 DEX Code Optimization & Deobfuscation Mapping (mapping.txt) ==="
@@ -822,7 +822,7 @@ jobs:
             echo "### Bundle & Signing Verification" >> $GITHUB_STEP_SUMMARY
             echo "- **Upload File**: \`${VERSIONED_AAB_NAME}\` (${AAB_SIZE}) — *Upload **ONLY** this file after clicking \`✕\` on old failed bundles in Play Console*" >> $GITHUB_STEP_SUMMARY
             echo "- **Package Name**: \`com.receiptscannerpro.app\`" >> $GITHUB_STEP_SUMMARY
-            echo "- **Version**: \`${VN}\` (\`versionCode ${VC}\` >= 130) ✅" >> $GITHUB_STEP_SUMMARY
+            echo "- **Version**: \`${VN}\` (\`versionCode ${VC}\` >= 140) ✅" >> $GITHUB_STEP_SUMMARY
             echo "- **Upload Signing Key Source**: \`${KEY_MODE}\` (${SIGN_NOTE})" >> $GITHUB_STEP_SUMMARY
             if [[ "$SIGN_SHA1" == ${EXPECTED_UPLOAD_PREFIX}* ]]; then
               echo "- **Upload Key Certificate SHA1**: \`${SIGN_SHA1}\` *(Matches Play Console Expected Upload Key \`F5:BA:06:8E:...\`!)* ✅" >> $GITHUB_STEP_SUMMARY
