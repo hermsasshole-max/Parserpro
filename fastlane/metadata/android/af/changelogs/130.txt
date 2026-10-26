@@ -1,0 +1,4 @@
+• Vinniger skandering van inkopiestrokies en fakture met verbeterde item-herkenning
+• Vanlyn OCR-tou vir skandering sonder internetverbinding
+• Maandelikse kategoriebegrotings, bestedingsverslae en CSV/JSON-rugsteun
+• Afrikaanse taalondersteuning en werkverrigtingverbeterings

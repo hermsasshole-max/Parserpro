@@ -1,0 +1,12 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">ParserPro</string>
+    <string name="title_activity_main">ParserPro</string>
+    <string name="app_tagline">Scanner de Reçus et Suivi de Budget</string>
+    <string name="action_scan_receipt">Scanner un Reçu</string>
+    <string name="action_offline_queue">File OCR Hors Ligne</string>
+    <string name="action_monthly_reports">Rapports Mensuels</string>
+    <string name="action_category_budgets">Budgets par Catégorie</string>
+    <string name="action_export_backup">Exporter en CSV ou JSON</string>
+    <string name="privacy_local_storage_notice">Vos reçus sont stockés localement sur votre appareil sans suivi publicitaire.</string>
+</resources>

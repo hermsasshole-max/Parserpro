@@ -1,0 +1,8 @@
+ParserPro verwandelt Kassenbons und Rechnungen sekundenschnell in übersichtliche Haushaltsausgaben.
+
+HAUPTFUNKTIONEN
+• Intelligente Beleg- & Rechnungs-OCR: Fotografieren Sie Kassenbons, um Händler, Datum, Steuern, Gesamtsummen und einzelne Positionen automatisch zu erfassen.
+• Offline-OCR-Warteschlange: Scannen Sie Belege auch ohne Internetverbindung direkt auf Ihrem Gerät.
+• Monatliche Kategorie-Budgets: Behalten Sie Lebensmittel, Nebenkosten, Tanken und Haushalt mit klaren Monatslimits im Blick.
+• Artikelsuche & Bearbeitung: Durchsuchen Sie vergangene Einkäufe nach Geschäft, Datum oder Artikel.
+• Lokaler Datenschutz: Alle Daten bleiben lokal auf Ihrem Smartphone – ohne Werbung und ohne Tracking. Jederzeit als CSV oder JSON exportierbar.

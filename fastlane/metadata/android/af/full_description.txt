@@ -1,0 +1,8 @@
+ParserPro verander inkopiestrokies en fakture binne sekondes in netjiese, georganiseerde huishoudelike uitgawerekords.
+
+HOOFKENMERKE
+• Slim Strokie- en Faktuur-OCR: Neem 'n foto van enige kasregisterstrokie of faktuur om winkelname, datums, BTW, totale en individuele items outomaties te onttrek.
+• Aanlyn en Vanlyn OCR-tou: Geen sein in die winkel nie? Stoor strokies in die vanlyn tou of verwerk teks direk op jou toestel.
+• Maandelikse Begrotings: Stel maandelikse limiete vir kruideniersware, krag en water, brandstof, uiteet en huishoudelike uitgawes in Rand (ZAR) of ander geldeenhede.
+• Soek en Wysig Items: Soek vinnig deur vorige aankope volgens winkel, datum of itemnaam.
+• Privaat op jou Toestel: Alle rekords word plaaslik op jou foon gestoor sonder advertensies of opsporing. Voer rugsteune enige tyd uit na CSV of JSON.

@@ -1,0 +1,12 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">ParserPro</string>
+    <string name="title_activity_main">ParserPro</string>
+    <string name="app_tagline">Scanner de Recibos e Controle de Gastos</string>
+    <string name="action_scan_receipt">Escanear Recibo</string>
+    <string name="action_offline_queue">Fila OCR Offline</string>
+    <string name="action_monthly_reports">Relatórios Mensais</string>
+    <string name="action_category_budgets">Orçamentos por Categoria</string>
+    <string name="action_export_backup">Exportar Backup CSV ou JSON</string>
+    <string name="privacy_local_storage_notice">Seus recibos ficam salvos localmente no aparelho sem rastreamento de anúncios.</string>
+</resources>

@@ -1,0 +1,8 @@
+ParserPro turns supermarket till slips, municipal bills, and invoices into organized household expense records in seconds.
+
+KEY FEATURES
+• Smart Till Slip & Invoice OCR: Snap a photo of slips from grocery stores, pharmacies, fuel stations, or hardware retailers to extract vendor names, dates, VAT, totals, and line items in ZAR (R) or other currencies.
+• Offline On-Device Queue: Queue till slips without mobile data or use on-device OCR anytime—ideal during travel or load-shedding.
+• Monthly Category Budgets: Set monthly Rand limits for groceries, electricity & utilities, transport, dining, and household essentials.
+• Item Price History & Search: Search every scanned slip by shop, date, or product name to compare prices month to month.
+• Private Local Storage & Backups: Your slips stay on your phone with zero ads or tracking SDKs. Export anytime to CSV or JSON.

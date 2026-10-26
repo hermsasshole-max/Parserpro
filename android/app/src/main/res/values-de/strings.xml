@@ -1,0 +1,12 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">ParserPro</string>
+    <string name="title_activity_main">ParserPro</string>
+    <string name="app_tagline">Intelligenter Belegscanner &amp; Ausgabenplaner</string>
+    <string name="action_scan_receipt">Beleg scannen</string>
+    <string name="action_offline_queue">Offline-OCR-Warteschlange</string>
+    <string name="action_monthly_reports">Monatsberichte</string>
+    <string name="action_category_budgets">Kategorie-Budgets</string>
+    <string name="action_export_backup">CSV- oder JSON-Backup exportieren</string>
+    <string name="privacy_local_storage_notice">Belege werden lokal auf Ihrem Gerät ohne Werbe-Tracking gespeichert.</string>
+</resources>

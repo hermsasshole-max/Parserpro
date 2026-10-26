@@ -1,0 +1,4 @@
+• Scansione più rapida di scontrini e fatture con estrazione precisa degli articoli
+• Coda OCR offline per acquisire ricevute senza connessione internet
+• Budget mensili per categoria ed esportazione backup in CSV/JSON
+• Miglioramenti alle prestazioni e alla stabilità

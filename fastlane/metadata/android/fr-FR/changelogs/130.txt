@@ -1,0 +1,4 @@
+• Numérisation plus rapide des tickets et factures avec extraction précise des articles
+• File OCR hors ligne pour scanner vos reçus sans connexion internet
+• Budgets mensuels par catégorie, graphiques et sauvegardes CSV/JSON
+• Optimisation des performances et prise en charge multilingue

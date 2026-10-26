@@ -1,0 +1,12 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">ParserPro</string>
+    <string name="title_activity_main">ParserPro</string>
+    <string name="app_tagline">スマートレシート読取＆家計予算管理</string>
+    <string name="action_scan_receipt">レシート読取</string>
+    <string name="action_offline_queue">オフラインOCRキュー</string>
+    <string name="action_monthly_reports">月間支出レポート</string>
+    <string name="action_category_budgets">カテゴリ予算</string>
+    <string name="action_export_backup">CSV / JSONバックアップ出力</string>
+    <string name="privacy_local_storage_notice">レシートは端末内に保存され、広告トラッキングは一切行われません。</string>
+</resources>

@@ -1,0 +1,4 @@
+• Faster receipt and invoice scanning with improved line-item recognition
+• Offline on-device OCR queue for capturing receipts without signal
+• Monthly category budgets, spending breakdowns, and CSV/JSON backups
+• Performance optimisation and stability improvements

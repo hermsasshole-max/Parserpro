@@ -1,0 +1,8 @@
+O ParserPro transforma talões de compra e faturas em registos de despesas organizados em poucos segundos.
+
+FUNCIONALIDADES PRINCIPAIS
+• OCR Inteligente de Talões e Faturas: Fotografe qualquer talão para extrair loja, data, IVA, total e cada artigo automaticamente.
+• Fila OCR Offline: Registe talões sem ligação à internet e processe-os diretamente no telemóvel.
+• Orçamentos Mensais por Categoria: Acompanhe supermercado, serviços, combustível e despesas domésticas.
+• Pesquisa Rápida de Artigos: Encontre compras anteriores por comerciante, data ou descrição.
+• Privacidade Local: Os seus dados ficam guardados no dispositivo, sem anúncios nem rastreio. Exporte cópias em CSV ou JSON.

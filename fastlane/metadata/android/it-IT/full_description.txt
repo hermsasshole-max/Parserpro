@@ -1,0 +1,8 @@
+ParserPro trasforma scontrini cartacei e fatture in registri di spesa domestica ordinati in pochi secondi.
+
+CARATTERISTICHE PRINCIPALI
+• OCR Intelligente per Scontrini e Fatture: Scatta una foto per estrarre automaticamente negozio, data, IVA, totale e singoli articoli.
+• Coda OCR Offline: Acquisisci gli scontrini anche senza connessione internet grazie all'elaborazione sul dispositivo.
+• Budget Mensili per Categoria: Tieni sotto controllo spesa alimentare, bollette, carburante e casa.
+• Ricerca Rapida Articoli: Cerca gli acquisti passati per negozio, data o descrizione prodotto.
+• Privacy Locale: I tuoi dati restano salvati sul telefono senza pubblicità né tracciamento. Esporta backup in CSV o JSON in qualsiasi momento.

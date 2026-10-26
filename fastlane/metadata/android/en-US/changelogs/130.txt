@@ -1,0 +1,4 @@
+• Faster receipt and invoice scanning with improved line-item extraction
+• Offline on-device OCR queue for scanning without internet access
+• Monthly category budgets, spending charts, and CSV/JSON device backups
+• Added multi-language support, R8 performance optimization, and stability fixes

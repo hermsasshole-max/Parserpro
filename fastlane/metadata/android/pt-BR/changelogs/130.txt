@@ -1,0 +1,4 @@
+• Escaneamento mais rápido de recibos e notas com extração precisa de itens
+• Fila OCR offline para capturar comprovantes sem conexão com a internet
+• Orçamentos mensais por categoria e backups completos em CSV/JSON
+• Otimização de desempenho e melhorias de estabilidade

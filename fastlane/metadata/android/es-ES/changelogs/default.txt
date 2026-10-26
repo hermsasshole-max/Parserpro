@@ -1,0 +1,4 @@
+• Escaneo más rápido de tickets y facturas con extracción precisa de artículos
+• Cola OCR sin conexión para escanear recibos sin internet
+• Presupuestos mensuales por categoría y exportación de copias en CSV/JSON
+• Mejoras de rendimiento, estabilidad y soporte multilingüe

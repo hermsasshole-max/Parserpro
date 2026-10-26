@@ -1,0 +1,8 @@
+ParserPro convierte tus tickets de compra y facturas en registros de gastos domésticos claros y organizados en segundos.
+
+CARACTERÍSTICAS PRINCIPALES
+• OCR Inteligente de Tickets y Facturas: Haz una foto o importa una imagen para extraer automáticamente comercios, fechas, impuestos, totales y líneas de artículos.
+• Cola OCR Sin Conexión: Captura tickets sin cobertura y procésalos en el dispositivo o al recuperar la conexión.
+• Presupuestos Mensuales por Categoría: Controla alimentación, suministros, transporte, restaurantes y hogar con límites mensuales claros.
+• Búsqueda y Edición Detallada: Busca compras anteriores por tienda, fecha o producto.
+• Privacidad Local: Tus datos financieros se guardan en tu dispositivo sin anuncios ni rastreadores. Exporta copias en CSV o JSON cuando quieras.

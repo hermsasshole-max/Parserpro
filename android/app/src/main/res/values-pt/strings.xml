@@ -1,0 +1,12 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">ParserPro</string>
+    <string name="title_activity_main">ParserPro</string>
+    <string name="app_tagline">Scanner de Talões e Gestor de Despesas</string>
+    <string name="action_scan_receipt">Digitalizar Talão</string>
+    <string name="action_offline_queue">Fila OCR Offline</string>
+    <string name="action_monthly_reports">Relatórios Mensais</string>
+    <string name="action_category_budgets">Orçamentos por Categoria</string>
+    <string name="action_export_backup">Exportar Cópia CSV ou JSON</string>
+    <string name="privacy_local_storage_notice">Os talões são guardados localmente no dispositivo sem rastreio publicitário.</string>
+</resources>

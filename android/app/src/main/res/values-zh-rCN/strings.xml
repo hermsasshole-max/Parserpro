@@ -1,0 +1,12 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">ParserPro</string>
+    <string name="title_activity_main">ParserPro</string>
+    <string name="app_tagline">智能小票扫描与月度预算管家</string>
+    <string name="action_scan_receipt">扫描小票</string>
+    <string name="action_offline_queue">离线 OCR 队列</string>
+    <string name="action_monthly_reports">月度支出报表</string>
+    <string name="action_category_budgets">分类预算</string>
+    <string name="action_export_backup">导出 CSV 或 JSON 备份</string>
+    <string name="privacy_local_storage_notice">所有小票仅保存在您的设备本地，无任何广告追踪。</string>
+</resources>

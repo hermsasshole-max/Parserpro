@@ -1,0 +1,4 @@
+• Escaneo mejorado de recibos y facturas con extracción automática de productos
+• Cola OCR sin conexión para capturar recibos sin datos móviles
+• Presupuestos mensuales por categoría y respaldos locales en CSV/JSON
+• Optimización de velocidad y estabilidad general

@@ -1,0 +1,8 @@
+ParserPro transforme vos tickets de caisse et factures en relevés de dépenses clairs et organisés en quelques secondes.
+
+FONCTIONNALITÉS CLÉS
+• OCR Intelligent de Reçus et Factures : Prenez en photo un ticket pour extraire automatiquement le commerçant, la date, la TVA, le total et chaque article.
+• File d'attente OCR Hors Ligne : Scannez vos reçus même sans réseau grâce au traitement local sur l'appareil.
+• Budgets Mensuels par Catégorie : Suivez vos dépenses d'alimentation, d'énergie, de transport et de maison avec des plafonds personnalisés.
+• Recherche par Article : Retrouvez instantanément vos achats par magasin, date ou produit.
+• Confidentialité Totale : Vos données restent stockées localement sur votre téléphone, sans publicité ni pistage. Exportez vos sauvegardes en CSV ou JSON.

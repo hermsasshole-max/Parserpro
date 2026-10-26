@@ -1,0 +1,8 @@
+ParserPro turns paper till receipts and digital invoices into tidy, searchable household expense records in seconds.
+
+KEY FEATURES
+• Smart Receipt & Invoice OCR: Photograph or upload any receipt to automatically capture shop names, dates, VAT, totals, and individual line items.
+• Offline On-Device Queue: Capture receipts without mobile signal and process them offline on your device or when back online.
+• Monthly Spending & Category Budgets: Monitor groceries, utilities, transport, dining, and household bills with custom monthly targets.
+• Instant Item Search: Find past purchases by shop, date, or item description in seconds.
+• Private Local Storage: Your records remain on your device with zero adverts or trackers. Export backups to CSV or JSON anytime.

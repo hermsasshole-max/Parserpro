@@ -1,0 +1,4 @@
+• Schnelleres Scannen von Kassenbons und Rechnungen mit präziser Positionserkennung
+• Offline-OCR-Warteschlange für das Scannen ohne Internetverbindung
+• Monatliche Budgets pro Kategorie sowie CSV- und JSON-Backups
+• Leistungs- und Stabilitätsverbesserungen

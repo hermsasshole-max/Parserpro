@@ -1,0 +1,4 @@
+• Leitura mais rápida de talões e faturas com extração detalhada de artigos
+• Fila OCR offline para digitalizar recibos sem acesso à internet
+• Orçamentos mensais por categoria e exportação de cópias em CSV/JSON
+• Melhorias de desempenho e estabilidade

@@ -1,0 +1,12 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">ParserPro</string>
+    <string name="title_activity_main">ParserPro</string>
+    <string name="app_tagline">स्मार्ट रसीद स्कैनर और खर्च ट्रैकर</string>
+    <string name="action_scan_receipt">रसीद स्कैन करें</string>
+    <string name="action_offline_queue">ऑफ़लाइन OCR कतार</string>
+    <string name="action_monthly_reports">मासिक खर्च रिपोर्ट</string>
+    <string name="action_category_budgets">श्रेणी बजट</string>
+    <string name="action_export_backup">CSV या JSON बैकअप निर्यात करें</string>
+    <string name="privacy_local_storage_notice">आपकी रसीदें बिना किसी विज्ञापन ट्रैकिंग के आपके डिवाइस पर सुरक्षित रहती हैं।</string>
+</resources>

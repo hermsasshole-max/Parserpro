@@ -394,6 +394,35 @@ self.addEventListener('fetch', (e) => {
     return res.status(404).send("Privacy policy page not found.");
   });
 
+  // Direct Play Console Translation Import Packages (.zip, .csv, .txt)
+  app.get(["/play-console-translations/:filename", "/api/play-console/translations/:filename"], (req, res) => {
+    const safeName = path.basename(req.params.filename || "");
+    if (!safeName || !/\.(zip|csv|txt|xlf)$/i.test(safeName)) {
+      return res.status(400).json({ error: "Invalid translation artifact filename." });
+    }
+    const candidates = [
+      path.join(process.cwd(), "public", "play-console-translations", safeName),
+      path.join(process.cwd(), "dist", "play-console-translations", safeName),
+    ];
+    for (const candidate of candidates) {
+      if (fs.existsSync(candidate)) {
+        res.setHeader("Access-Control-Allow-Origin", "*");
+        if (safeName.endsWith(".zip")) {
+          res.setHeader("Content-Type", "application/zip");
+        } else if (safeName.endsWith(".csv")) {
+          res.setHeader("Content-Type", "text/csv; charset=utf-8");
+        } else if (safeName.endsWith(".xlf")) {
+          res.setHeader("Content-Type", "application/xliff+xml; charset=utf-8");
+        } else {
+          res.setHeader("Content-Type", "text/plain; charset=utf-8");
+        }
+        res.setHeader("Content-Disposition", `attachment; filename="${safeName}"`);
+        return res.sendFile(candidate);
+      }
+    }
+    return res.status(404).json({ error: `Translation package ${safeName} not found.` });
+  });
+
   // Receipt OCR extraction endpoint supporting both Multipart Form and JSON payloads
   app.options(["/api/parse-receipt", "/api/parse-receipt/"], (req, res) => {
     res.setHeader("Access-Control-Allow-Origin", "*");

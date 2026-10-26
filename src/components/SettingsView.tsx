@@ -27,7 +27,8 @@ import {
   Sliders,
   Eye,
   EyeOff,
-  ExternalLink
+  ExternalLink,
+  Globe
 } from 'lucide-react';
 import type { SavedReceipt, OcrEngineMode, CategoryBudgets, ReceiptCategory } from '../types';
 import { 
@@ -38,6 +39,7 @@ import {
 } from '../utils/failSafeOcrCoordinator';
 import { OfflineOcrQueueModal } from './OfflineOcrQueueModal';
 import { BudgetLimitsModal } from './BudgetLimitsModal';
+import { PlayConsoleTranslationsModal } from './PlayConsoleTranslationsModal';
 import { ALL_RECEIPT_CATEGORIES, loadCategoryBudgets, saveCategoryBudgets } from '../utils/budgetStorage';
 import { 
   exportDeviceBackupJSON, 
@@ -100,6 +102,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   const [isTestingKey, setIsTestingKey] = useState(false);
   const [testKeyFeedback, setTestKeyFeedback] = useState<{ success: boolean; message: string } | null>(null);
   const [showPrivacyModal, setShowPrivacyModal] = useState(false);
+  const [showTranslationsModal, setShowTranslationsModal] = useState(false);
 
   const activeBudgets = externalBudgets || localBudgets;
 
@@ -844,6 +847,40 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         </div>
       </div>
 
+      {/* Google Play Console Translations Import Section */}
+      <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div className="flex items-start gap-3">
+          <div className="w-10 h-10 rounded-xl bg-slate-100 flex items-center justify-center text-slate-800 shrink-0">
+            <Globe className="w-5 h-5" />
+          </div>
+          <div>
+            <h2 className="text-sm font-bold text-slate-800">Google Play Console Translations</h2>
+            <p className="text-xs text-slate-500 mt-0.5 leading-relaxed">
+              17 verified locales (<span className="font-mono">en-ZA</span>, <span className="font-mono">af</span>, <span className="font-mono">zu</span>, <span className="font-mono">en-US</span>, <span className="font-mono">es-ES</span>, <span className="font-mono">fr-FR</span>, <span className="font-mono">de-DE</span> &amp; more) ready for Play Console App Strings ZIP upload, CSV/XLIFF import, and single-paste Release Notes.
+            </p>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2 shrink-0">
+          <button
+            type="button"
+            onClick={() => setShowTranslationsModal(true)}
+            className="min-h-[40px] px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer whitespace-nowrap"
+          >
+            <Globe className="w-3.5 h-3.5" />
+            <span>Open Translations</span>
+          </button>
+          <a
+            href="./play-console-translations/play-console-translations-bundle.zip"
+            download="play-console-translations-bundle.zip"
+            className="min-h-[40px] px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-colors whitespace-nowrap"
+          >
+            <Download className="w-3.5 h-3.5" />
+            <span>Download ZIP</span>
+          </a>
+        </div>
+      </div>
+
       {/* Confirm Reset ALL Data Modal */}
       {showConfirmResetAll && (
         <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
@@ -976,6 +1013,12 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           </div>
         </div>
       )}
+
+      {/* Google Play Console Translations Modal */}
+      <PlayConsoleTranslationsModal
+        isOpen={showTranslationsModal}
+        onClose={() => setShowTranslationsModal(false)}
+      />
     </div>
   );
 };

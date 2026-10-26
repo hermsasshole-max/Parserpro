@@ -1,0 +1,12 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">ParserPro</string>
+    <string name="title_activity_main">ParserPro</string>
+    <string name="app_tagline">Smart Till Slip Scanner &amp; Budget Tracker</string>
+    <string name="action_scan_receipt">Scan Till Slip</string>
+    <string name="action_offline_queue">Offline OCR Queue</string>
+    <string name="action_monthly_reports">Monthly Spending Reports</string>
+    <string name="action_category_budgets">Category Budgets</string>
+    <string name="action_export_backup">Export CSV or JSON Backup</string>
+    <string name="privacy_local_storage_notice">Till slips are stored locally on your phone with zero ad tracking.</string>
+</resources>

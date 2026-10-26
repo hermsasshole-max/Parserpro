@@ -1,0 +1,12 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">ParserPro</string>
+    <string name="title_activity_main">ParserPro</string>
+    <string name="app_tagline">ماسح الإيصالات الذكي ومتتبع المصروفات</string>
+    <string name="action_scan_receipt">مسح إيصال</string>
+    <string name="action_offline_queue">قائمة OCR دون إنترنت</string>
+    <string name="action_monthly_reports">التقارير الشهرية</string>
+    <string name="action_category_budgets">ميزانيات الفئات</string>
+    <string name="action_export_backup">تصدير نسخة احتياطية CSV أو JSON</string>
+    <string name="privacy_local_storage_notice">تُحفظ الإيصالات محلياً على جهازك دون أي تتبع إعلاني.</string>
+</resources>

@@ -1,0 +1,1 @@
+Escaneie recibos e notas, extraia itens e controle seu orçamento mensal.

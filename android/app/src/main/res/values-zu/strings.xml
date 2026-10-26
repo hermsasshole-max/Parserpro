@@ -1,0 +1,12 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">ParserPro</string>
+    <string name="title_activity_main">ParserPro</string>
+    <string name="app_tagline">Isiskena Samarisidi Nesilawuli Sezindleko</string>
+    <string name="action_scan_receipt">Skena Irisidi</string>
+    <string name="action_offline_queue">Uhlu Lwe-OCR Ngaphandle Kwe-inthanethi</string>
+    <string name="action_monthly_reports">Imibiko Yenyanga</string>
+    <string name="action_category_budgets">Izabelomali Zezigaba</string>
+    <string name="action_export_backup">Khipha Isipele se-CSV noma JSON</string>
+    <string name="privacy_local_storage_notice">Amarisidi agcinwa kudivayisi yakho ngaphandle kokulandelelwa kwezikhangiso.</string>
+</resources>

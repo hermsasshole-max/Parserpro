@@ -1,0 +1,1 @@
+Digitalize talões e faturas, extraia artigos e controle o orçamento mensal.

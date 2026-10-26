@@ -1,0 +1,12 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">ParserPro</string>
+    <string name="title_activity_main">ParserPro</string>
+    <string name="app_tagline">Slimme Bonnenscanner &amp; Budgetbeheer</string>
+    <string name="action_scan_receipt">Bon Scannen</string>
+    <string name="action_offline_queue">Offline OCR-wachtrij</string>
+    <string name="action_monthly_reports">Maandoverzichten</string>
+    <string name="action_category_budgets">Categoriebudgetten</string>
+    <string name="action_export_backup">CSV- of JSON-back-up exporteren</string>
+    <string name="privacy_local_storage_notice">Bonnen worden lokaal op je toestel opgeslagen zonder advertentietracking.</string>
+</resources>

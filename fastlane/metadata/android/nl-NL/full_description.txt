@@ -1,0 +1,8 @@
+ParserPro zet papieren kassabonnen en digitale facturen binnen enkele seconden om in overzichtelijke uitgavenoverzichten.
+
+BELANGRIJKSTE FUNCTIES
+• Slimme Bon- & Factuur-OCR: Maak een foto van je bon om winkelnaam, datum, btw, totaalbedrag en losse artikelen automatisch uit te lezen.
+• Offline OCR-wachtrij: Geen bereik in de winkel? Scan bonnen offline en verwerk ze direct op je toestel.
+• Maandbudgetten per Categorie: Stel limieten in voor boodschappen, energie, vervoer en huishouden.
+• Snel Zoeken & Bewerken: Doorzoek eerdere aankopen op winkel, datum of productnaam.
+• Lokale Privacy: Al je gegevens blijven lokaal op je telefoon staan, zonder advertenties of trackers. Exporteer back-ups naar CSV of JSON.

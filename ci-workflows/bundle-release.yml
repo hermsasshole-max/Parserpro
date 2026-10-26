@@ -742,16 +742,18 @@ jobs:
           MAPPING_PATH="${GITHUB_WORKSPACE}/mapping.txt"
           SYMBOLS_PATH="${GITHUB_WORKSPACE}/native-debug-symbols.zip"
           PEM_PATH="${GITHUB_WORKSPACE}/upload_certificate.pem"
+          APP_STRINGS_ZIP="${GITHUB_WORKSPACE}/public/play-console-translations/play-console-app-strings.zip"
+          TRANSLATIONS_BUNDLE_ZIP="${GITHUB_WORKSPACE}/public/play-console-translations/play-console-translations-bundle.zip"
           SIGN_SHA1="${{ steps.signing_setup.outputs.signing_sha1 }}"
           SIGN_MODE="${{ steps.signing_setup.outputs.keystore_mode }}"
           PLAY_DEPLOY_SHA1="AA:14:BE:52:28:F8:80:7C:13:DE:D0:86:F1:11:6A:0F:AE:93:17:4D"
 
           if [ -f "$VERSIONED_AAB_PATH" ]; then
-            echo "Publishing Play Console AAB (${VERSIONED_AAB_NAME}), R8 Mapping & Native Debug Symbols to GitHub Releases ($TAG_NAME)..."
+            echo "Publishing Play Console AAB (${VERSIONED_AAB_NAME}), R8 Mapping, Native Debug Symbols & Translations to GitHub Releases ($TAG_NAME)..."
             NOTES_FILE="${RUNNER_TEMP}/aab-release-notes.md"
             {
               echo "### Google Play Console Signed App Bundle (.aab) — versionCode ${VC} (${VN})"
-              echo "- **1-Click App Bundle (Upload ONLY this file to Play Console)**: **[${VERSIONED_AAB_NAME}](https://github.com/${{ github.repository }}/releases/download/${TAG_NAME}/${VERSIONED_AAB_NAME})** *(R8 DEX-optimized + embedded proguard.map & native debug symbols)*"
+              echo "- **1-Click App Bundle (Upload ONLY this file to Play Console)**: **[${VERSIONED_AAB_NAME}](https://github.com/${{ github.repository }}/releases/download/${TAG_NAME}/${VERSIONED_AAB_NAME})** *(R8 DEX-optimized + embedded proguard.map, native debug symbols & 17 locales)*"
               if [ -f "$PEM_PATH" ]; then
                 echo "- **Upload Certificate (.pem)**: **[upload_certificate.pem](https://github.com/${{ github.repository }}/releases/download/${TAG_NAME}/upload_certificate.pem)**"
               fi
@@ -760,6 +762,12 @@ jobs:
               fi
               if [ -f "$SYMBOLS_PATH" ]; then
                 echo "- **Native Debug Symbols (.zip)**: **[native-debug-symbols.zip](https://github.com/${{ github.repository }}/releases/download/${TAG_NAME}/native-debug-symbols.zip)**"
+              fi
+              if [ -f "$APP_STRINGS_ZIP" ]; then
+                echo "- **Play Console App Strings Translations (.zip)**: **[play-console-app-strings.zip](https://github.com/${{ github.repository }}/releases/download/${TAG_NAME}/play-console-app-strings.zip)**"
+              fi
+              if [ -f "$TRANSLATIONS_BUNDLE_ZIP" ]; then
+                echo "- **Play Console Complete Translations Bundle (.zip)**: **[play-console-translations-bundle.zip](https://github.com/${{ github.repository }}/releases/download/${TAG_NAME}/play-console-translations-bundle.zip)**"
               fi
               echo "- **Application ID**: \`com.receiptscannerpro.app\`"
               echo "- **Version Name**: \`${VN}\` (\`versionCode ${VC}\`)"
@@ -772,6 +780,8 @@ jobs:
             [ -f "$MAPPING_PATH" ] && ASSETS+=("$MAPPING_PATH")
             [ -f "$SYMBOLS_PATH" ] && ASSETS+=("$SYMBOLS_PATH")
             [ -f "$PEM_PATH" ] && ASSETS+=("$PEM_PATH")
+            [ -f "$APP_STRINGS_ZIP" ] && ASSETS+=("$APP_STRINGS_ZIP")
+            [ -f "$TRANSLATIONS_BUNDLE_ZIP" ] && ASSETS+=("$TRANSLATIONS_BUNDLE_ZIP")
 
             if gh release view "$TAG_NAME" >/dev/null 2>&1; then
               # Remove stale .aab files from previous runs so there is only ONE unmistakable .aab on the Release page
@@ -821,6 +831,7 @@ jobs:
             fi
             echo "- **Play App Signing Certificate (\`deployment_cert.der\`) SHA1**: \`${PLAY_DEPLOY_SHA1}\` ✅" >> $GITHUB_STEP_SUMMARY
             echo "- **DEX Optimization & Native Debug Symbols**: Embedded (\`proguard.map\` + \`FULL\` symbols) ✅" >> $GITHUB_STEP_SUMMARY
+            echo "- **Embedded App Locales**: 17 languages (\`en-US\`, \`en-ZA\`, \`en-GB\`, \`af\`, \`zu\`, \`es-ES\`, \`es-419\`, \`fr-FR\`, \`de-DE\`, \`pt-PT\`, \`pt-BR\`, \`nl-NL\`, \`it-IT\`, \`ar\`, \`hi-IN\`, \`zh-CN\`, \`ja-JP\`) ✅" >> $GITHUB_STEP_SUMMARY
             if [ -n "$OVERRIDE_WARN" ]; then
               echo "" >> $GITHUB_STEP_SUMMARY
               echo "> **ℹ️ Signing Auto-Fix Applied**: ${OVERRIDE_WARN}" >> $GITHUB_STEP_SUMMARY
@@ -831,6 +842,8 @@ jobs:
             echo "2. **Upload Certificate (\`.pem\`)**: **[Download upload_certificate.pem](https://github.com/${{ github.repository }}/releases/download/v1.0-playstore-aab/upload_certificate.pem)**" >> $GITHUB_STEP_SUMMARY
             echo "3. **R8 Deobfuscation Mapping (\`.txt\`)**: **[Download mapping.txt](https://github.com/${{ github.repository }}/releases/download/v1.0-playstore-aab/mapping.txt)**" >> $GITHUB_STEP_SUMMARY
             echo "4. **Native Debug Symbols (\`.zip\`)**: **[Download native-debug-symbols.zip](https://github.com/${{ github.repository }}/releases/download/v1.0-playstore-aab/native-debug-symbols.zip)**" >> $GITHUB_STEP_SUMMARY
+            echo "5. **Play Console App Strings (\`.zip\`)**: **[Download play-console-app-strings.zip](https://github.com/${{ github.repository }}/releases/download/v1.0-playstore-aab/play-console-app-strings.zip)**" >> $GITHUB_STEP_SUMMARY
+            echo "6. **Play Console All Translations Bundle (\`.zip\`)**: **[Download play-console-translations-bundle.zip](https://github.com/${{ github.repository }}/releases/download/v1.0-playstore-aab/play-console-translations-bundle.zip)**" >> $GITHUB_STEP_SUMMARY
           else
             echo "### ⚠️ App Bundle (.aab) was not generated" >> $GITHUB_STEP_SUMMARY
           fi

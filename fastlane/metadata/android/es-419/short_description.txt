@@ -1,0 +1,1 @@
+Escanea recibos y facturas, extrae productos y controla tus gastos mensuales.

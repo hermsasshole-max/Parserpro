@@ -1,0 +1,8 @@
+O ParserPro transforma cupons fiscais, recibos e faturas em registros de despesas domésticas organizados em segundos.
+
+PRINCIPAIS RECURSOS
+• OCR Inteligente de Recibos: Tire uma foto do comprovante para extrair automaticamente estabelecimento, data, impostos, valor total e itens comprados.
+• Fila OCR Offline: Sem internet na loja? Salve recibos na fila offline ou processe direto no aparelho.
+• Orçamento Mensal por Categoria: Defina metas para mercado, contas, combustível, saúde e lazer.
+• Busca por Produto: Pesquise compras passadas por loja, data ou nome do item.
+• Privacidade no Aparelho: Seus dados ficam salvos localmente no celular, sem anúncios ou rastreadores. Exporte backups em CSV ou JSON quando quiser.

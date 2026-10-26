@@ -1,0 +1,4 @@
+• Improved till slip and invoice scanning with accurate Rand (ZAR) item extraction
+• Offline OCR queue so you can capture till slips without mobile data
+• Monthly category budgets, spending summaries, and CSV/JSON device backups
+• Added South African & global language support plus R8 performance upgrades

@@ -1,0 +1,4 @@
+• Ukuskena amarisidi nama-invoyisi okusheshayo nokukhipha izinto ngokunembile
+• Uhlu lwe-OCR olusebenza ngaphandle kwe-inthanethi
+• Izabelomali zenyanga, imibiko yezindleko kanye nesipele se-CSV/JSON
+• Ukusekelwa kolimi lwesiZulu nokuthuthukiswa kokusebenza kohlelo

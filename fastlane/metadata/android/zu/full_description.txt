@@ -1,0 +1,8 @@
+I-ParserPro iguqula amarisidi aseveki nama-invoyisi abe amarekhodi ezindleko zasendlini ahlelekile ngemizuzwana.
+
+IZICI EZIYINHLOKO
+• Ukuskena Amarisidi Okuhlakaniphile (OCR): Thatha isithombe serisidi noma i-invoyisi ukuze ukhiphe igama lesitolo, usuku, intela, inani eliphelele kanye nezinto ozithengile.
+• Isebenza Ngaphandle Kwe-inthanethi: Gcina amarisidi ohlwini olungaxhunyiwe ku-inthanethi noma uwacubungule khona manjalo efonini yakho.
+• Izabelomali Zenyanga: Lawula izindleko zegrosa, ugesi namanzi, uphethiloli kanye nezidingo zasekhaya ngezigaba zenyanga.
+• Ukusesha Nokuhlela Kalula: Sesha okuthengile ngesitolo, usuku noma igama lento.
+• Ubumfihlo Obuphelele: Amarekhodi akho agcinwa kudivayisi yakho ngaphandle kwezikhangiso. Khipha isipele se-CSV noma se-JSON noma nini.

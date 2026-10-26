@@ -1,0 +1,12 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">ParserPro</string>
+    <string name="title_activity_main">ParserPro</string>
+    <string name="app_tagline">Escáner de Tickets y Control de Gastos</string>
+    <string name="action_scan_receipt">Escanear Ticket</string>
+    <string name="action_offline_queue">Cola OCR Sin Conexión</string>
+    <string name="action_monthly_reports">Informes Mensuales</string>
+    <string name="action_category_budgets">Presupuestos por Categoría</string>
+    <string name="action_export_backup">Exportar Copia CSV o JSON</string>
+    <string name="privacy_local_storage_notice">Tus tickets se guardan localmente en tu dispositivo sin rastreo publicitario.</string>
+</resources>

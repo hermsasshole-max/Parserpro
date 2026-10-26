@@ -1,0 +1,1 @@
+Escanea tickets y facturas, extrae artículos y controla tu presupuesto mensual.

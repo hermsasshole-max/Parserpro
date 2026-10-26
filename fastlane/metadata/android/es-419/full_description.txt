@@ -1,0 +1,8 @@
+ParserPro transforma tus recibos de compra y facturas en registros de gastos organizados en segundos.
+
+FUNCIONES PRINCIPALES
+• OCR Inteligente de Recibos: Toma una foto de cualquier recibo o factura para extraer tienda, fecha, impuestos, total y cada artículo comprado.
+• Modo Sin Conexión: Guarda recibos en la cola sin internet o procésalos directamente en tu teléfono.
+• Presupuestos Mensuales: Define límites mensuales para supermercado, servicios, transporte, salud y hogar.
+• Historial de Precios y Búsqueda: Encuentra cualquier gasto por comercio, fecha o descripción de producto.
+• Almacenamiento Local y Privado: Tus recibos permanecen en tu dispositivo sin anuncios ni rastreadores. Exporta respaldos en CSV o JSON en cualquier momento.

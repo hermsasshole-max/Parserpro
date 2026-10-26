@@ -1,0 +1,1 @@
+Scan till slips & invoices, extract items in Rands, and track monthly budgets.

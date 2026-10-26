@@ -1,0 +1,4 @@
+• Sneller kassabonnen en facturen scannen met verbeterde artikelherkenning
+• Offline OCR-wachtrij voor scannen zonder internetverbinding
+• Maandbudgetten per categorie en CSV/JSON-back-ups op je toestel
+• Prestatie- en stabiliteitsverbeteringen

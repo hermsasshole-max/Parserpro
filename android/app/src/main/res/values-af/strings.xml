@@ -1,0 +1,12 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">ParserPro</string>
+    <string name="title_activity_main">ParserPro</string>
+    <string name="app_tagline">Slim Strokieskandeerder en Begrotingsbestuurder</string>
+    <string name="action_scan_receipt">Skandeer Strokie</string>
+    <string name="action_offline_queue">Vanlyn OCR-tou</string>
+    <string name="action_monthly_reports">Maandelikse Verslae</string>
+    <string name="action_category_budgets">Kategoriebegrotings</string>
+    <string name="action_export_backup">Voer CSV- of JSON-rugsteun uit</string>
+    <string name="privacy_local_storage_notice">Strokies word plaaslik op jou toestel gestoor sonder advertensie-opsporing.</string>
+</resources>

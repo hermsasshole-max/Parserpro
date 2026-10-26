@@ -1,0 +1,1 @@
+Scansiona scontrini e fatture, estrai gli articoli e gestisci il budget mensile.

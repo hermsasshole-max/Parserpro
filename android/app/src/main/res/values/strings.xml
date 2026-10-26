@@ -2,6 +2,13 @@
 <resources>
     <string name="app_name">ParserPro</string>
     <string name="title_activity_main">ParserPro</string>
-    <string name="package_name">com.receiptscannerpro.app</string>
-    <string name="custom_url_scheme">com.receiptscannerpro.app</string>
+    <string name="app_tagline">Smart Receipt Scanner &amp; Expense Tracker</string>
+    <string name="action_scan_receipt">Scan Receipt</string>
+    <string name="action_offline_queue">Offline OCR Queue</string>
+    <string name="action_monthly_reports">Monthly Spending Reports</string>
+    <string name="action_category_budgets">Category Budgets</string>
+    <string name="action_export_backup">Export CSV or JSON Backup</string>
+    <string name="privacy_local_storage_notice">Receipts are stored locally on your device with zero ad tracking.</string>
+    <string name="package_name" translatable="false">com.receiptscannerpro.app</string>
+    <string name="custom_url_scheme" translatable="false">com.receiptscannerpro.app</string>
 </resources>
