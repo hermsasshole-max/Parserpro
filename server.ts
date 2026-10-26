@@ -377,6 +377,23 @@ self.addEventListener('fetch', (e) => {
     return res.sendFile(symbolsZipPath);
   });
 
+  // Static Privacy Policy endpoints for Google Play Console & Render Web Service hosting
+  app.get(["/privacy", "/privacy/", "/privacy-policy", "/privacy-policy/", "/privacy.html"], (req, res) => {
+    const candidates = [
+      path.join(process.cwd(), "privacy-site", "index.html"),
+      path.join(process.cwd(), "public", "privacy.html"),
+      path.join(process.cwd(), "dist", "privacy.html"),
+    ];
+    for (const candidate of candidates) {
+      if (fs.existsSync(candidate)) {
+        res.setHeader("Content-Type", "text/html; charset=utf-8");
+        res.setHeader("Cache-Control", "public, max-age=3600");
+        return res.sendFile(candidate);
+      }
+    }
+    return res.status(404).send("Privacy policy page not found.");
+  });
+
   // Receipt OCR extraction endpoint supporting both Multipart Form and JSON payloads
   app.options(["/api/parse-receipt", "/api/parse-receipt/"], (req, res) => {
     res.setHeader("Access-Control-Allow-Origin", "*");

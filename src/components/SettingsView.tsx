@@ -99,6 +99,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   const [showApiKeyText, setShowApiKeyText] = useState(false);
   const [isTestingKey, setIsTestingKey] = useState(false);
   const [testKeyFeedback, setTestKeyFeedback] = useState<{ success: boolean; message: string } | null>(null);
+  const [showPrivacyModal, setShowPrivacyModal] = useState(false);
 
   const activeBudgets = externalBudgets || localBudgets;
 
@@ -809,6 +810,40 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         </div>
       </div>
 
+      {/* Privacy Policy & Google Play Data Safety Section */}
+      <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div className="flex items-start gap-3">
+          <div className="w-10 h-10 rounded-xl bg-emerald-50 flex items-center justify-center text-emerald-700 shrink-0">
+            <ShieldCheck className="w-5 h-5" />
+          </div>
+          <div>
+            <h2 className="text-sm font-bold text-slate-800">Privacy Policy &amp; Data Safety</h2>
+            <p className="text-xs text-slate-500 mt-0.5 leading-relaxed">
+              ParserPro (<span className="font-mono">com.receiptscannerpro.app</span>) stores your receipts locally on your device, processes OCR images transiently over HTTPS, and includes zero ad or tracking SDKs.
+            </p>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2 shrink-0">
+          <button
+            type="button"
+            onClick={() => setShowPrivacyModal(true)}
+            className="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer whitespace-nowrap"
+          >
+            <FileText className="w-3.5 h-3.5" />
+            <span>Read Privacy Policy</span>
+          </button>
+          <a
+            href="./privacy.html"
+            download="parserpro-privacy-policy.html"
+            className="px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-colors whitespace-nowrap"
+          >
+            <Download className="w-3.5 h-3.5" />
+            <span>Download HTML</span>
+          </a>
+        </div>
+      </div>
+
       {/* Confirm Reset ALL Data Modal */}
       {showConfirmResetAll && (
         <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
@@ -913,6 +948,34 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         selectedMonth={availableMonths[0]}
         initialFocusCategory={focusBudgetCategory}
       />
+
+      {/* In-App Privacy Policy Viewer Modal */}
+      {showPrivacyModal && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-6">
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-4xl w-full h-[85vh] flex flex-col overflow-hidden">
+            <div className="px-5 py-3.5 border-b border-slate-200 flex items-center justify-between gap-4 bg-slate-50">
+              <div className="flex items-center gap-2 min-w-0">
+                <ShieldCheck className="w-4 h-4 text-emerald-700 shrink-0" />
+                <h3 className="text-sm font-bold text-slate-800 truncate">
+                  ParserPro Privacy Policy (com.receiptscannerpro.app)
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowPrivacyModal(false)}
+                className="px-3.5 py-1.5 bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold rounded-lg transition-colors cursor-pointer shrink-0"
+              >
+                Close
+              </button>
+            </div>
+            <iframe
+              src="./privacy.html"
+              title="ParserPro Privacy Policy"
+              className="w-full flex-1 border-0 bg-[#fbf9f5]"
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 };

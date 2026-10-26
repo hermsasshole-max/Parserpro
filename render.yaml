@@ -1,0 +1,17 @@
+services:
+  - type: web
+    name: parserpro-privacy
+    runtime: static
+    buildCommand: ""
+    staticPublishPath: ./privacy-site
+    headers:
+      - path: /*
+        name: Cache-Control
+        value: public, max-age=3600
+    routes:
+      - type: rewrite
+        source: /privacy
+        destination: /index.html
+      - type: rewrite
+        source: /privacy-policy
+        destination: /index.html
