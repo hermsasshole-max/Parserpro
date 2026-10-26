@@ -10,10 +10,10 @@ def envVersionCode = System.getenv("ANDROID_VERSION_CODE")
 def envVersionName = System.getenv("ANDROID_VERSION_NAME")
 
 android {
-    namespace = "com.receiptscanner.app"
+    namespace = "com.cortech.praiserpro"
     compileSdk = rootProject.ext.compileSdkVersion
     defaultConfig {
-        applicationId "com.receiptscanner.app"
+        applicationId "com.cortech.praiserpro"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode envVersionCode ? envVersionCode.toInteger() : 1

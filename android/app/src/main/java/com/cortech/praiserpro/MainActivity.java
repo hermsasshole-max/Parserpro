@@ -1,4 +1,4 @@
-package com.receiptscanner.app;
+package com.cortech.praiserpro;
 
 import com.getcapacitor.BridgeActivity;
 

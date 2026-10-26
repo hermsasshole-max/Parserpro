@@ -206,6 +206,19 @@ jobs:
           echo "=== Verifying Release Cryptographic Signature ==="
           jarsigner -verify "${GITHUB_WORKSPACE}/ParserPro-release.aab"
 
+          echo "=== Verifying Merged Manifest Package & Provider Authorities ==="
+          MERGED_MANIFEST=$(find android/app/build/intermediates/merged_manifests/release -name "AndroidManifest.xml" | head -n 1)
+          if [ -n "$MERGED_MANIFEST" ]; then
+            grep -q 'package="com.cortech.praiserpro"' "$MERGED_MANIFEST"
+            grep -q 'com.cortech.praiserpro.fileprovider' "$MERGED_MANIFEST"
+            grep -q 'com.cortech.praiserpro.androidx-startup' "$MERGED_MANIFEST"
+            if grep -q 'com.receiptscanner.app' "$MERGED_MANIFEST"; then
+              echo "ERROR: Conflicting com.receiptscanner.app authority found in merged manifest!"
+              exit 1
+            fi
+            echo "Verified package=com.cortech.praiserpro and unique provider authorities!"
+          fi
+
       - name: Upload Play Console App Bundle (.aab) Artifact
         uses: actions/upload-artifact@v4
         with:
@@ -237,7 +250,7 @@ jobs:
             {
               echo "### Google Play Console Signed App Bundle (.aab)"
               echo "- **Direct 1-Click Download**: **[ParserPro-release.aab](https://github.com/${{ github.repository }}/releases/download/${TAG_NAME}/ParserPro-release.aab)**"
-              echo "- **Application ID**: \`com.receiptscanner.app\`"
+              echo "- **Application ID**: \`com.cortech.praiserpro\`"
               echo "- **Version Name**: \`${{ steps.signing_setup.outputs.version_name }}\`"
               echo "- **Version Code**: \`${{ steps.signing_setup.outputs.version_code }}\`"
               echo "- **Built from commit**: \`${{ github.sha }}\`"
@@ -264,7 +277,7 @@ jobs:
             AAB_SHA=$(sha256sum "${GITHUB_WORKSPACE}/ParserPro-release.aab" | awk '{print $1}')
             echo "### ✅ Signed Release Bundle Ready for Google Play Console" >> $GITHUB_STEP_SUMMARY
             echo "- **File**: \`ParserPro-release.aab\` (${AAB_SIZE})" >> $GITHUB_STEP_SUMMARY
-            echo "- **Package Name**: \`com.receiptscanner.app\`" >> $GITHUB_STEP_SUMMARY
+            echo "- **Package Name**: \`com.cortech.praiserpro\`" >> $GITHUB_STEP_SUMMARY
             echo "- **Version**: \`${{ steps.signing_setup.outputs.version_name }}\` (\`versionCode ${{ steps.signing_setup.outputs.version_code }}\`)" >> $GITHUB_STEP_SUMMARY
             echo "- **SHA256**: \`${AAB_SHA}\`" >> $GITHUB_STEP_SUMMARY
             echo "- **Signing Key Source**: \`${{ steps.signing_setup.outputs.keystore_mode }}\`" >> $GITHUB_STEP_SUMMARY
