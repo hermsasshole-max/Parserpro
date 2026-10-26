@@ -83,6 +83,7 @@ jobs:
           SECRET_KEY_PW: ${{ secrets.ANDROID_KEY_PASSWORD }}
           INPUT_VERSION_CODE: ${{ inputs.version_code }}
           INPUT_VERSION_NAME: ${{ inputs.version_name }}
+          EXPECTED_PLAY_SHA1: "4A:C2:38:3A:F5:41:99:5E:99:FD:CC:CD:E5:BC:F7:C8:2A:52:DC:3B"
         run: |
           # 1. Compute strictly increasing Play Console versionCode & versionName
           if [ -n "$INPUT_VERSION_CODE" ]; then
@@ -103,19 +104,107 @@ jobs:
           echo "version_name=${COMPUTED_VN}" >> $GITHUB_OUTPUT
 
           KEYSTORE_FILE="${GITHUB_WORKSPACE}/android/upload-keystore.jks"
+          REPO_KEYSTORE_FILE=$(find "${GITHUB_WORKSPACE}/android/signing" -maxdepth 1 -type f \( -name "*.jks" -o -name "*.keystore" -o -name "*.p12" -o -name "*.pfx" \) 2>/dev/null | head -n 1 || true)
 
-          # 2. Load persistent upload keystore from GitHub Secrets or generate a Play Console upload key
-          if [ -n "$SECRET_KEYSTORE_B64" ] && [ -n "$SECRET_KEYSTORE_PW" ] && [ -n "$SECRET_KEY_ALIAS" ]; then
+          resolve_keystore_alias_and_sha1() {
+            local ks_file="$1"
+            local ks_pw="$2"
+            local preferred_alias="$3"
+
+            if ! keytool -list -keystore "$ks_file" -storepass "$ks_pw" >/dev/null 2>&1; then
+              echo "ERROR: Could not unlock keystore with ANDROID_KEYSTORE_PASSWORD. Check your password secret and keystore file."
+              exit 1
+            fi
+
+            local aliases
+            aliases=$(keytool -list -v -keystore "$ks_file" -storepass "$ks_pw" 2>/dev/null | awk '
+              /^Alias name:/ { sub(/^Alias name:[[:space:]]*/, ""); current_alias=$0 }
+              tolower($0) ~ /^entry type:.*privatekeyentry/ { if (current_alias != "") print current_alias }
+            ')
+            if [ -z "$aliases" ]; then
+              aliases=$(keytool -list -v -keystore "$ks_file" -storepass "$ks_pw" 2>/dev/null | awk '/^Alias name:/ { sub(/^Alias name:[[:space:]]*/, ""); print $0 }')
+            fi
+
+            local matched_play_alias=""
+            local first_alias=""
+            local preferred_exists=""
+
+            while IFS= read -r candidate; do
+              [ -z "$candidate" ] && continue
+              [ -z "$first_alias" ] && first_alias="$candidate"
+              if [ -n "$preferred_alias" ] && [ "$candidate" = "$preferred_alias" ]; then
+                preferred_exists="$candidate"
+              fi
+              local cand_sha1
+              cand_sha1=$(keytool -exportcert -rfc -keystore "$ks_file" -alias "$candidate" -storepass "$ks_pw" 2>/dev/null | openssl x509 -noout -fingerprint -sha1 2>/dev/null | cut -d'=' -f2 | tr '[:lower:]' '[:upper:]' | tr -d ' \r\n' || true)
+              echo "Detected keystore alias '${candidate}' -> SHA1: ${cand_sha1}"
+              if [ "$cand_sha1" = "$EXPECTED_PLAY_SHA1" ]; then
+                matched_play_alias="$candidate"
+              fi
+            done <<< "$aliases"
+
+            if [ -n "$matched_play_alias" ]; then
+              RESOLVED_ALIAS="$matched_play_alias"
+            elif [ -n "$preferred_exists" ]; then
+              RESOLVED_ALIAS="$preferred_exists"
+            elif [ -n "$preferred_alias" ] && keytool -list -keystore "$ks_file" -alias "$preferred_alias" -storepass "$ks_pw" >/dev/null 2>&1; then
+              RESOLVED_ALIAS="$preferred_alias"
+            elif [ -n "$first_alias" ]; then
+              RESOLVED_ALIAS="$first_alias"
+            else
+              echo "ERROR: No key alias found inside keystore!"
+              exit 1
+            fi
+
+            RESOLVED_SHA1=$(keytool -exportcert -rfc -keystore "$ks_file" -alias "$RESOLVED_ALIAS" -storepass "$ks_pw" 2>/dev/null | openssl x509 -noout -fingerprint -sha1 2>/dev/null | cut -d'=' -f2 | tr '[:lower:]' '[:upper:]' | tr -d ' \r\n' || true)
+          }
+
+          # 2. Load persistent upload keystore from GitHub Secrets, android/signing/ file, or generate fallback
+          if [ -n "$SECRET_KEYSTORE_B64" ]; then
+            if [ -z "$SECRET_KEYSTORE_PW" ]; then
+              echo "ERROR: ANDROID_KEYSTORE_BASE64 is set, but ANDROID_KEYSTORE_PASSWORD secret is missing!"
+              exit 1
+            fi
             echo "Using persistent Android Upload Keystore from GitHub Secrets..."
-            echo "$SECRET_KEYSTORE_B64" | tr -d ' \n\r' | base64 -d > "$KEYSTORE_FILE"
+            CLEAN_B64=$(printf '%s\n' "$SECRET_KEYSTORE_B64" | grep -v '^-----' | sed 's/^data:[^;]*;base64,//' | tr -d ' \t\n\r')
+            printf '%s' "$CLEAN_B64" | base64 -d > "$KEYSTORE_FILE"
+
+            resolve_keystore_alias_and_sha1 "$KEYSTORE_FILE" "$SECRET_KEYSTORE_PW" "$SECRET_KEY_ALIAS"
             FINAL_KEY_PW="${SECRET_KEY_PW:-$SECRET_KEYSTORE_PW}"
+
             echo "ANDROID_KEYSTORE_PATH=${KEYSTORE_FILE}" >> $GITHUB_ENV
             echo "ANDROID_KEYSTORE_PASSWORD=${SECRET_KEYSTORE_PW}" >> $GITHUB_ENV
-            echo "ANDROID_KEY_ALIAS=${SECRET_KEY_ALIAS}" >> $GITHUB_ENV
+            echo "ANDROID_KEY_ALIAS=${RESOLVED_ALIAS}" >> $GITHUB_ENV
             echo "ANDROID_KEY_PASSWORD=${FINAL_KEY_PW}" >> $GITHUB_ENV
             echo "keystore_mode=secrets" >> $GITHUB_OUTPUT
+            echo "signing_sha1=${RESOLVED_SHA1}" >> $GITHUB_OUTPUT
+            echo "signing_alias=${RESOLVED_ALIAS}" >> $GITHUB_OUTPUT
+
+            keytool -exportcert -rfc -keystore "$KEYSTORE_FILE" -alias "$RESOLVED_ALIAS" -storepass "$SECRET_KEYSTORE_PW" -file "${GITHUB_WORKSPACE}/upload_certificate.pem" || true
+
+          elif [ -n "$REPO_KEYSTORE_FILE" ]; then
+            if [ -z "$SECRET_KEYSTORE_PW" ]; then
+              echo "ERROR: Found keystore file in android/signing/, but ANDROID_KEYSTORE_PASSWORD secret is missing in GitHub Secrets!"
+              exit 1
+            fi
+            echo "Using Android Upload Keystore from repository android/signing/ folder..."
+            cp "$REPO_KEYSTORE_FILE" "$KEYSTORE_FILE"
+
+            resolve_keystore_alias_and_sha1 "$KEYSTORE_FILE" "$SECRET_KEYSTORE_PW" "$SECRET_KEY_ALIAS"
+            FINAL_KEY_PW="${SECRET_KEY_PW:-$SECRET_KEYSTORE_PW}"
+
+            echo "ANDROID_KEYSTORE_PATH=${KEYSTORE_FILE}" >> $GITHUB_ENV
+            echo "ANDROID_KEYSTORE_PASSWORD=${SECRET_KEYSTORE_PW}" >> $GITHUB_ENV
+            echo "ANDROID_KEY_ALIAS=${RESOLVED_ALIAS}" >> $GITHUB_ENV
+            echo "ANDROID_KEY_PASSWORD=${FINAL_KEY_PW}" >> $GITHUB_ENV
+            echo "keystore_mode=repo_file" >> $GITHUB_OUTPUT
+            echo "signing_sha1=${RESOLVED_SHA1}" >> $GITHUB_OUTPUT
+            echo "signing_alias=${RESOLVED_ALIAS}" >> $GITHUB_OUTPUT
+
+            keytool -exportcert -rfc -keystore "$KEYSTORE_FILE" -alias "$RESOLVED_ALIAS" -storepass "$SECRET_KEYSTORE_PW" -file "${GITHUB_WORKSPACE}/upload_certificate.pem" || true
+
           else
-            echo "No GitHub signing secrets found — generating a new Play Console Upload Keystore..."
+            echo "No GitHub signing secrets or android/signing/ keystore found — generating a new Play Console Upload Keystore..."
             GEN_PW=$(openssl rand -hex 16)
             GEN_ALIAS="upload"
             echo "::add-mask::${GEN_PW}"
@@ -129,28 +218,40 @@ jobs:
               -alias "$GEN_ALIAS" \
               -storepass "$GEN_PW" \
               -keypass "$GEN_PW" \
-              -dname "CN=ParserPro, OU=Mobile, O=ParserPro, L=Johannesburg, S=GP, C=ZA"
+              -dname "CN=ParserPro, OU=Mobile, O=CorTech, L=Johannesburg, S=GP, C=ZA"
+
+            RESOLVED_SHA1=$(keytool -exportcert -rfc -keystore "$KEYSTORE_FILE" -alias "$GEN_ALIAS" -storepass "$GEN_PW" 2>/dev/null | openssl x509 -noout -fingerprint -sha1 2>/dev/null | cut -d'=' -f2 | tr '[:lower:]' '[:upper:]' | tr -d ' \r\n' || true)
 
             echo "ANDROID_KEYSTORE_PATH=${KEYSTORE_FILE}" >> $GITHUB_ENV
             echo "ANDROID_KEYSTORE_PASSWORD=${GEN_PW}" >> $GITHUB_ENV
             echo "ANDROID_KEY_ALIAS=${GEN_ALIAS}" >> $GITHUB_ENV
             echo "ANDROID_KEY_PASSWORD=${GEN_PW}" >> $GITHUB_ENV
             echo "keystore_mode=generated" >> $GITHUB_OUTPUT
+            echo "signing_sha1=${RESOLVED_SHA1}" >> $GITHUB_OUTPUT
+            echo "signing_alias=${GEN_ALIAS}" >> $GITHUB_OUTPUT
+
+            # Export public upload_certificate.pem (used if requesting Play Console Upload Key Reset)
+            keytool -exportcert -rfc -keystore "$KEYSTORE_FILE" -alias "$GEN_ALIAS" -storepass "$GEN_PW" -file "${GITHUB_WORKSPACE}/upload_certificate.pem"
 
             # Package private signing backup kit for authenticated Actions Artifact download
             mkdir -p "${GITHUB_WORKSPACE}/play-signing-kit"
             cp "$KEYSTORE_FILE" "${GITHUB_WORKSPACE}/play-signing-kit/upload-keystore.jks"
+            cp "${GITHUB_WORKSPACE}/upload_certificate.pem" "${GITHUB_WORKSPACE}/play-signing-kit/upload_certificate.pem"
             B64_STR=$(base64 -w 0 "$KEYSTORE_FILE" 2>/dev/null || base64 "$KEYSTORE_FILE" | tr -d '\n')
 
             {
               echo "==================================================================="
               echo "GOOGLE PLAY CONSOLE UPLOAD KEYSTORE — SAVE THESE TO GITHUB SECRETS!"
               echo "==================================================================="
-              echo "Google Play Console requires all future app updates to be signed with"
-              echo "the EXACT SAME upload key as your first upload."
+              echo "Generated Certificate SHA1: ${RESOLVED_SHA1}"
+              echo "Play Console Expected SHA1: ${EXPECTED_PLAY_SHA1}"
               echo ""
-              echo "Go to your GitHub Repository -> Settings -> Secrets and variables -> Actions"
-              echo "and create these 4 Repository Secrets:"
+              echo "If you LOST your old ${EXPECTED_PLAY_SHA1} keystore:"
+              echo "  1) Save the 4 secrets below into GitHub -> Settings -> Secrets and variables -> Actions"
+              echo "     so every future build permanently signs with THIS key (${RESOLVED_SHA1})."
+              echo "  2) In Google Play Console -> Test and release -> Setup -> App signing,"
+              echo "     click 'Request upload key reset' -> 'I lost my upload key' and upload"
+              echo "     'upload_certificate.pem' (included right inside this folder)."
               echo ""
               echo "1. ANDROID_KEYSTORE_BASE64"
               echo "${B64_STR}"
@@ -243,6 +344,9 @@ jobs:
         run: |
           TAG_NAME="v1.0-playstore-aab"
           AAB_PATH="${GITHUB_WORKSPACE}/ParserPro-release.aab"
+          PEM_PATH="${GITHUB_WORKSPACE}/upload_certificate.pem"
+          SIGN_SHA1="${{ steps.signing_setup.outputs.signing_sha1 }}"
+          EXPECTED_SHA1="4A:C2:38:3A:F5:41:99:5E:99:FD:CC:CD:E5:BC:F7:C8:2A:52:DC:3B"
 
           if [ -f "$AAB_PATH" ]; then
             echo "Publishing Play Console AAB to GitHub Releases ($TAG_NAME)..."
@@ -250,45 +354,70 @@ jobs:
             {
               echo "### Google Play Console Signed App Bundle (.aab)"
               echo "- **Direct 1-Click Download**: **[ParserPro-release.aab](https://github.com/${{ github.repository }}/releases/download/${TAG_NAME}/ParserPro-release.aab)**"
+              if [ -f "$PEM_PATH" ]; then
+                echo "- **Upload Certificate (.pem for Play Console Key Reset)**: **[upload_certificate.pem](https://github.com/${{ github.repository }}/releases/download/${TAG_NAME}/upload_certificate.pem)**"
+              fi
               echo "- **Application ID**: \`com.cortech.praiserpro\`"
-              echo "- **Version Name**: \`${{ steps.signing_setup.outputs.version_name }}\`"
-              echo "- **Version Code**: \`${{ steps.signing_setup.outputs.version_code }}\`"
+              echo "- **Version Name**: \`${{ steps.signing_setup.outputs.version_name }}\` (\`versionCode ${{ steps.signing_setup.outputs.version_code }}\`)"
+              echo "- **Signed Certificate SHA1**: \`${SIGN_SHA1}\`"
+              if [ "$SIGN_SHA1" = "$EXPECTED_SHA1" ]; then
+                echo "- **Play Console Key Match**: ✅ **Matches Expected SHA1 (\`${EXPECTED_SHA1}\`)**"
+              else
+                echo "- **Play Console Expected SHA1**: \`${EXPECTED_SHA1}\` *(Add your keystore to GitHub Secrets or reset upload key in Play Console — see Actions Summary)*"
+              fi
               echo "- **Built from commit**: \`${{ github.sha }}\`"
             } > "$NOTES_FILE"
 
             if gh release view "$TAG_NAME" >/dev/null 2>&1; then
-              gh release upload "$TAG_NAME" "$AAB_PATH" --clobber || echo "GitHub Release upload skipped"
+              gh release upload "$TAG_NAME" "$AAB_PATH" --clobber || echo "GitHub Release AAB upload skipped"
+              if [ -f "$PEM_PATH" ]; then
+                gh release upload "$TAG_NAME" "$PEM_PATH" --clobber || true
+              fi
               gh release edit "$TAG_NAME" --notes-file "$NOTES_FILE" || true
             else
-              gh release create "$TAG_NAME" "$AAB_PATH" \
-                --title "ParserPro Google Play Console Bundle (.aab)" \
-                --notes-file "$NOTES_FILE" \
-                --prerelease || echo "GitHub Release creation skipped"
+              if [ -f "$PEM_PATH" ]; then
+                gh release create "$TAG_NAME" "$AAB_PATH" "$PEM_PATH" \
+                  --title "ParserPro Google Play Console Bundle (.aab)" \
+                  --notes-file "$NOTES_FILE" \
+                  --prerelease || echo "GitHub Release creation skipped"
+              else
+                gh release create "$TAG_NAME" "$AAB_PATH" \
+                  --title "ParserPro Google Play Console Bundle (.aab)" \
+                  --notes-file "$NOTES_FILE" \
+                  --prerelease || echo "GitHub Release creation skipped"
+              fi
             fi
           fi
 
       - name: Add Direct Play Console AAB Download Links to Run Summary
         if: always()
         run: |
+          EXPECTED_SHA1="4A:C2:38:3A:F5:41:99:5E:99:FD:CC:CD:E5:BC:F7:C8:2A:52:DC:3B"
+          SIGN_SHA1="${{ steps.signing_setup.outputs.signing_sha1 }}"
           echo "# 📦 Google Play Console App Bundle (.aab) Summary" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           if [ -f "${GITHUB_WORKSPACE}/ParserPro-release.aab" ]; then
             AAB_SIZE=$(ls -lh "${GITHUB_WORKSPACE}/ParserPro-release.aab" | awk '{print $5}')
-            AAB_SHA=$(sha256sum "${GITHUB_WORKSPACE}/ParserPro-release.aab" | awk '{print $1}')
-            echo "### ✅ Signed Release Bundle Ready for Google Play Console" >> $GITHUB_STEP_SUMMARY
+            echo "### Bundle Details" >> $GITHUB_STEP_SUMMARY
             echo "- **File**: \`ParserPro-release.aab\` (${AAB_SIZE})" >> $GITHUB_STEP_SUMMARY
             echo "- **Package Name**: \`com.cortech.praiserpro\`" >> $GITHUB_STEP_SUMMARY
             echo "- **Version**: \`${{ steps.signing_setup.outputs.version_name }}\` (\`versionCode ${{ steps.signing_setup.outputs.version_code }}\`)" >> $GITHUB_STEP_SUMMARY
-            echo "- **SHA256**: \`${AAB_SHA}\`" >> $GITHUB_STEP_SUMMARY
-            echo "- **Signing Key Source**: \`${{ steps.signing_setup.outputs.keystore_mode }}\`" >> $GITHUB_STEP_SUMMARY
+            echo "- **Signing Key Source**: \`${{ steps.signing_setup.outputs.keystore_mode }}\` (alias: \`${{ steps.signing_setup.outputs.signing_alias }}\`)" >> $GITHUB_STEP_SUMMARY
+            echo "- **Signed Certificate SHA1**: \`${SIGN_SHA1}\`" >> $GITHUB_STEP_SUMMARY
+            if [ "$SIGN_SHA1" = "$EXPECTED_SHA1" ]; then
+              echo "- **Play Console Key Check**: ✅ **MATCHES \`${EXPECTED_SHA1}\` — Ready to upload to Google Play Console!**" >> $GITHUB_STEP_SUMMARY
+            else
+              echo "- **Play Console Key Check**: ⚠️ **Signed with \`${SIGN_SHA1}\`, while Play Console currently expects \`${EXPECTED_SHA1}\`**" >> $GITHUB_STEP_SUMMARY
+            fi
             echo "" >> $GITHUB_STEP_SUMMARY
-            echo "### 📥 How to Download Your \`.aab\` File" >> $GITHUB_STEP_SUMMARY
-            echo "1. **Direct 1-Click \`.aab\` Download (No unzipping needed)**: **[Download ParserPro-release.aab from GitHub Releases](https://github.com/${{ github.repository }}/releases/download/v1.0-playstore-aab/ParserPro-release.aab)** (or visit **[Releases](https://github.com/${{ github.repository }}/releases)**)." >> $GITHUB_STEP_SUMMARY
-            echo "2. **Actions Artifact**: Scroll to the **Artifacts** table below and click **\`ParserPro-PlayConsole-AAB\`** (requires being logged into GitHub; downloads as a \`.zip\` containing \`ParserPro-release.aab\`)." >> $GITHUB_STEP_SUMMARY
-            if [ "${{ steps.signing_setup.outputs.keystore_mode }}" = "generated" ]; then
+            echo "### 📥 Direct 1-Click Downloads" >> $GITHUB_STEP_SUMMARY
+            echo "1. **App Bundle (\`.aab\`)**: **[Download ParserPro-release.aab](https://github.com/${{ github.repository }}/releases/download/v1.0-playstore-aab/ParserPro-release.aab)**" >> $GITHUB_STEP_SUMMARY
+            echo "2. **Upload Certificate (\`.pem\` for Play Console Key Reset)**: **[Download upload_certificate.pem](https://github.com/${{ github.repository }}/releases/download/v1.0-playstore-aab/upload_certificate.pem)**" >> $GITHUB_STEP_SUMMARY
+            if [ "$SIGN_SHA1" != "$EXPECTED_SHA1" ]; then
               echo "" >> $GITHUB_STEP_SUMMARY
-              echo "### 🔑 Important for Future Play Store Updates" >> $GITHUB_STEP_SUMMARY
-              echo "Because no signing secrets were configured yet, a fresh release upload keystore was generated to sign this bundle. **Download the \`PlayConsole-Upload-Keystore-Backup-SAVE-THIS\` artifact below** and copy the 4 values inside \`GITHUB_SECRETS_SETUP.txt\` into your repository's **Settings → Secrets and variables → Actions** so all future updates use the exact same Play Console upload certificate." >> $GITHUB_STEP_SUMMARY
+              echo "### 🔑 How to Match Google Play Console's Signing Key (\`${EXPECTED_SHA1}\`)" >> $GITHUB_STEP_SUMMARY
+              echo "- **Option A (You HAVE your original \`.jks\` / \`.keystore\` file)**: Add \`ANDROID_KEYSTORE_BASE64\` and \`ANDROID_KEYSTORE_PASSWORD\` in **Settings → Secrets and variables → Actions** (or upload your keystore into \`android/signing/\` if your repo is Private) and re-run this workflow. Alias & SHA1 are auto-detected!" >> $GITHUB_STEP_SUMMARY
+              echo "- **Option B (You LOST the old \`${EXPECTED_SHA1}\` keystore)**: First download the \`PlayConsole-Upload-Keystore-Backup-SAVE-THIS\` artifact at the bottom of this page and save the 4 secrets inside \`GITHUB_SECRETS_SETUP.txt\` into GitHub Secrets so this key stays permanent. Then in **Google Play Console → Setup → App signing**, click **Request upload key reset** and upload \`upload_certificate.pem\`." >> $GITHUB_STEP_SUMMARY
             fi
           else
             echo "### ⚠️ App Bundle (.aab) was not generated" >> $GITHUB_STEP_SUMMARY
