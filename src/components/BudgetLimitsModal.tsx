@@ -1,245 +1,150 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { X, Check, RotateCcw, Sliders } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { X, Lock, Check } from 'lucide-react';
 import type { CategoryBudgets, ReceiptCategory } from '../types';
+import { ALL_RECEIPT_CATEGORIES } from '../utils/budgetStorage';
 import {
-  ALL_RECEIPT_CATEGORIES,
-  DEFAULT_CATEGORY_BUDGETS,
-} from '../utils/budgetStorage';
+  FREE_MAX_ACTIVE_BUDGETS,
+  type UpgradeTriggerReason,
+} from '../utils/subscriptionManager';
+import { getCurrencySymbol, formatMoney } from '../utils/currencyFormat';
 
 interface BudgetLimitsModalProps {
   isOpen: boolean;
   onClose: () => void;
   budgets: CategoryBudgets;
-  onSave: (updatedBudgets: CategoryBudgets) => void;
-  selectedMonth?: string;
-  monthCategoryTotals?: Partial<Record<ReceiptCategory, number>>;
-  initialFocusCategory?: ReceiptCategory | null;
+  onSaveBudgets: (updated: CategoryBudgets) => void;
+  isPlus: boolean;
+  currencyCode: string;
+  onOpenUpgrade: (reason: UpgradeTriggerReason) => void;
 }
 
 export const BudgetLimitsModal: React.FC<BudgetLimitsModalProps> = ({
   isOpen,
   onClose,
   budgets,
-  onSave,
-  selectedMonth,
-  monthCategoryTotals,
-  initialFocusCategory,
+  onSaveBudgets,
+  isPlus,
+  currencyCode,
+  onOpenUpgrade,
 }) => {
-  const [draftValues, setDraftValues] = useState<Record<ReceiptCategory, string>>(() => {
-    const init = {} as Record<ReceiptCategory, string>;
-    for (const cat of ALL_RECEIPT_CATEGORIES) {
-      init[cat] = String(budgets[cat] ?? 0);
-    }
-    return init;
-  });
-
-  const inputRefs = useRef<Partial<Record<ReceiptCategory, HTMLInputElement | null>>>({});
+  const [draft, setDraft] = useState<CategoryBudgets>(budgets);
 
   useEffect(() => {
     if (isOpen) {
-      const next = {} as Record<ReceiptCategory, string>;
-      for (const cat of ALL_RECEIPT_CATEGORIES) {
-        next[cat] = String(budgets[cat] ?? 0);
-      }
-      setDraftValues(next);
-
-      if (initialFocusCategory) {
-        setTimeout(() => {
-          const el = inputRefs.current[initialFocusCategory];
-          if (el) {
-            el.focus();
-            el.select();
-          }
-        }, 60);
-      }
+      setDraft({ ...budgets });
     }
-  }, [isOpen, budgets, initialFocusCategory]);
+  }, [isOpen, budgets]);
 
   if (!isOpen) return null;
 
-  const parseDraftNumber = (val: string): number => {
-    const num = parseFloat(val);
-    if (Number.isNaN(num) || num < 0) return 0;
-    return Number(num.toFixed(2));
-  };
-
-  const adjustCategory = (cat: ReceiptCategory, delta: number) => {
-    setDraftValues((prev) => {
-      const current = parseDraftNumber(prev[cat] || '0');
-      const updated = Math.max(0, Number((current + delta).toFixed(2)));
-      return { ...prev, [cat]: String(updated) };
-    });
-  };
-
-  const handleResetDefaults = () => {
-    const reset = {} as Record<ReceiptCategory, string>;
-    for (const cat of ALL_RECEIPT_CATEGORIES) {
-      reset[cat] = String(DEFAULT_CATEGORY_BUDGETS[cat]);
-    }
-    setDraftValues(reset);
-  };
-
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    const cleaned = {} as CategoryBudgets;
-    for (const cat of ALL_RECEIPT_CATEGORIES) {
-      cleaned[cat] = parseDraftNumber(draftValues[cat] || '0');
-    }
-    onSave(cleaned);
-    onClose();
-  };
-
-  const totalDraftBudget = ALL_RECEIPT_CATEGORIES.reduce(
-    (sum, cat) => sum + parseDraftNumber(draftValues[cat] || '0'),
+  const symbol = getCurrencySymbol(currencyCode);
+  const activeCategories = ALL_RECEIPT_CATEGORIES.filter((cat) => (draft[cat] || 0) > 0);
+  const activeCount = activeCategories.length;
+  const totalMonthlyTarget = ALL_RECEIPT_CATEGORIES.reduce(
+    (sum, cat) => sum + (Number(draft[cat]) || 0),
     0
   );
 
+  const handleAmountChange = (category: ReceiptCategory, rawVal: string) => {
+    const parsed = parseFloat(rawVal);
+    const nextVal = Number.isNaN(parsed) || parsed < 0 ? 0 : parsed;
+
+    // Enforce Free Starter 3-active-category limit when enabling a 4th category
+    const wasActive = (draft[category] || 0) > 0;
+    if (!isPlus && !wasActive && nextVal > 0 && activeCount >= FREE_MAX_ACTIVE_BUDGETS) {
+      onOpenUpgrade('unlimited_budgets');
+      return;
+    }
+
+    setDraft((prev) => ({
+      ...prev,
+      [category]: nextVal,
+    }));
+  };
+
+  const handleSave = (e: React.FormEvent) => {
+    e.preventDefault();
+    onSaveBudgets(draft);
+    onClose();
+  };
+
   return (
     <div
-      className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-6 overflow-y-auto"
-      onClick={onClose}
+      className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="budget-modal-title"
     >
-      <div
-        className="w-full max-w-xl bg-white rounded-2xl shadow-xl border border-slate-200 overflow-hidden flex flex-col max-h-[92vh]"
-        onClick={(e) => e.stopPropagation()}
-      >
-        {/* Header */}
-        <div className="px-5 py-4 border-b border-slate-200 flex items-center justify-between bg-white">
-          <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-xl bg-emerald-50 text-emerald-700 flex items-center justify-center shrink-0">
-              <Sliders className="w-4 h-4" />
-            </div>
-            <div>
-              <h2 className="text-base font-bold text-slate-900">
-                Monthly Category Budget Limits
-              </h2>
-              <p className="text-xs text-slate-500">
-                Set a monthly ZAR spending target per category (enter 0 to disable a limit)
-              </p>
-            </div>
+      <div className="w-full sm:max-w-lg bg-white dark:bg-slate-900 rounded-t-3xl sm:rounded-3xl border border-slate-200 dark:border-slate-800 shadow-xl overflow-hidden max-h-[90vh] flex flex-col">
+        <div className="sm:hidden w-10 h-1.5 bg-slate-300 dark:bg-slate-700 rounded-full mx-auto mt-3" />
+
+        <div className="px-6 py-4 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between gap-4">
+          <div>
+            <h2
+              id="budget-modal-title"
+              className="text-lg font-bold text-slate-900 dark:text-white"
+            >
+              Monthly Category Budgets
+            </h2>
+            <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+              {isPlus
+                ? 'Set targets across all 5 household categories (0 = off).'
+                : `Free Starter includes up to ${FREE_MAX_ACTIVE_BUDGETS} active budgets (${activeCount}/${FREE_MAX_ACTIVE_BUDGETS} used).`}
+            </p>
           </div>
           <button
             type="button"
             onClick={onClose}
-            className="w-9 h-9 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 flex items-center justify-center transition-colors cursor-pointer"
             aria-label="Close budget settings"
+            className="min-h-[44px] min-w-[44px] flex items-center justify-center rounded-xl text-slate-400 hover:text-slate-700 dark:hover:text-white"
           >
-            <X className="w-4 h-4" />
+            <X className="w-5 h-5" />
           </button>
         </div>
 
-        {/* Form Body */}
-        <form onSubmit={handleSubmit} className="flex flex-col flex-1 overflow-hidden">
-          <div className="px-5 py-2 overflow-y-auto divide-y divide-slate-100 flex-1">
+        <form onSubmit={handleSave} className="p-6 space-y-4 overflow-y-auto">
+          <div className="space-y-3">
             {ALL_RECEIPT_CATEGORIES.map((category) => {
-              const limitNum = parseDraftNumber(draftValues[category] || '0');
-              const spent = Number((monthCategoryTotals?.[category] || 0).toFixed(2));
-              const rawPct = limitNum > 0 ? (spent / limitNum) * 100 : 0;
-              const barPct = Math.min(100, Math.max(0, rawPct));
-              const isOver = limitNum > 0 && rawPct >= 100;
-              const isNear = limitNum > 0 && rawPct >= 80 && rawPct < 100;
+              const currentVal = draft[category] || 0;
+              const isLockedOnFree =
+                !isPlus && currentVal <= 0 && activeCount >= FREE_MAX_ACTIVE_BUDGETS;
 
               return (
-                <div key={category} className="py-3.5 space-y-2">
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                    <div>
-                      <label
-                        htmlFor={`budget-input-${category}`}
-                        className="text-sm font-semibold text-slate-900 block"
-                      >
-                        {category}
-                      </label>
-                      {selectedMonth && (
-                        <div className="text-xs text-slate-500 tabular-nums mt-0.5 flex items-center gap-1.5">
-                          <span>
-                            {selectedMonth} spend: R {spent.toFixed(2)}
-                          </span>
-                          {limitNum > 0 && (
-                            <>
-                              <span aria-hidden="true">·</span>
-                              <span
-                                className={
-                                  isOver
-                                    ? 'text-rose-600 font-semibold'
-                                    : isNear
-                                    ? 'text-amber-600 font-semibold'
-                                    : 'text-emerald-700 font-medium'
-                                }
-                              >
-                                {rawPct.toFixed(0)}% of limit
-                              </span>
-                            </>
-                          )}
-                        </div>
-                      )}
-                    </div>
-
-                    <div className="flex items-center gap-1.5">
-                      <button
-                        type="button"
-                        onClick={() => adjustCategory(category, -100)}
-                        className="h-9 px-2.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold tabular-nums transition-colors cursor-pointer"
-                        title="Decrease limit by R 100"
-                      >
-                        -100
-                      </button>
-
-                      <div className="relative w-32">
-                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400 select-none">
-                          R
-                        </span>
-                        <input
-                          ref={(el) => {
-                            inputRefs.current[category] = el;
-                          }}
-                          id={`budget-input-${category}`}
-                          type="number"
-                          min="0"
-                          step="10"
-                          value={draftValues[category] ?? ''}
-                          onChange={(e) =>
-                            setDraftValues((prev) => ({
-                              ...prev,
-                              [category]: e.target.value,
-                            }))
-                          }
-                          placeholder="0"
-                          className="w-full h-9 pl-7 pr-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm font-semibold text-slate-900 text-right tabular-nums focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                        />
-                      </div>
-
-                      <button
-                        type="button"
-                        onClick={() => adjustCategory(category, 100)}
-                        className="h-9 px-2.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold tabular-nums transition-colors cursor-pointer"
-                        title="Increase limit by R 100"
-                      >
-                        +100
-                      </button>
-                    </div>
+                <div
+                  key={category}
+                  className="flex items-center justify-between gap-4 py-2 border-b border-slate-100 dark:border-slate-800/80 last:border-0"
+                >
+                  <div className="min-w-0">
+                    <p className="text-sm font-semibold text-slate-900 dark:text-white">
+                      {category}
+                    </p>
+                    <p className="text-xs text-slate-500 dark:text-slate-400">
+                      {currentVal > 0 ? 'Tracking monthly limit' : 'No limit set'}
+                    </p>
                   </div>
 
-                  {/* Live Budget Preview Progress Bar */}
-                  {selectedMonth && (
-                    <div
-                      className="w-full h-1.5 bg-slate-100 rounded-full overflow-hidden"
-                      role="progressbar"
-                      aria-valuenow={Math.round(barPct)}
-                      aria-valuemin={0}
-                      aria-valuemax={100}
-                      aria-label={`${category} budget preview`}
+                  {isLockedOnFree ? (
+                    <button
+                      type="button"
+                      onClick={() => onOpenUpgrade('unlimited_budgets')}
+                      className="min-h-[44px] px-3.5 py-2 rounded-xl border border-emerald-200 dark:border-emerald-800/80 bg-emerald-50/70 dark:bg-emerald-950/30 text-xs font-semibold text-emerald-700 dark:text-emerald-300 flex items-center gap-1.5 whitespace-nowrap shrink-0"
                     >
-                      <div
-                        className={`h-full rounded-full transition-all duration-300 ${
-                          limitNum <= 0
-                            ? 'bg-slate-300'
-                            : isOver
-                            ? 'bg-rose-600'
-                            : isNear
-                            ? 'bg-amber-500'
-                            : 'bg-emerald-500'
-                        }`}
-                        style={{ width: `${limitNum > 0 ? barPct : 0}%` }}
+                      <Lock className="w-3.5 h-3.5" />
+                      <span>Unlock with Plus</span>
+                    </button>
+                  ) : (
+                    <div className="relative w-36 shrink-0">
+                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs font-mono text-slate-400 pointer-events-none">
+                        {symbol}
+                      </span>
+                      <input
+                        type="number"
+                        min="0"
+                        step="50"
+                        value={currentVal === 0 ? '' : currentVal}
+                        placeholder="0"
+                        onChange={(e) => handleAmountChange(category, e.target.value)}
+                        className="w-full min-h-[44px] pl-8 pr-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50/70 dark:bg-slate-800 text-right font-mono tabular-nums text-sm font-semibold text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-600"
                       />
                     </div>
                   )}
@@ -248,43 +153,28 @@ export const BudgetLimitsModal: React.FC<BudgetLimitsModalProps> = ({
             })}
           </div>
 
-          {/* Footer Summary & Actions */}
-          <div className="px-5 py-4 border-t border-slate-200 bg-slate-50 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-            <div className="flex items-center justify-between sm:justify-start gap-4">
-              <div>
-                <div className="text-[11px] text-slate-500 font-medium">
-                  Combined Monthly Cap
-                </div>
-                <div className="text-base font-black text-slate-900 tabular-nums">
-                  R {totalDraftBudget.toFixed(2)}
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={handleResetDefaults}
-                className="px-3 py-2 text-xs font-semibold text-slate-600 hover:text-slate-900 hover:bg-slate-200/70 rounded-lg flex items-center gap-1.5 transition-colors cursor-pointer"
-              >
-                <RotateCcw className="w-3.5 h-3.5" />
-                <span>Reset Defaults</span>
-              </button>
-            </div>
+          <div className="pt-2 flex items-center justify-between text-xs sm:text-sm text-slate-600 dark:text-slate-400 tabular-nums">
+            <span>Combined monthly budget</span>
+            <span className="font-mono font-bold text-slate-900 dark:text-white">
+              {formatMoney(totalMonthlyTarget, currencyCode)}
+            </span>
+          </div>
 
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={onClose}
-                className="flex-1 sm:flex-none px-4 py-2.5 bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 rounded-xl text-xs font-bold transition-colors cursor-pointer"
-              >
-                Cancel
-              </button>
-              <button
-                type="submit"
-                className="flex-1 sm:flex-none px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 shadow-xs transition-colors cursor-pointer"
-              >
-                <Check className="w-3.5 h-3.5" />
-                <span>Save Budgets</span>
-              </button>
-            </div>
+          <div className="pt-2 flex items-center justify-end gap-3">
+            <button
+              type="button"
+              onClick={onClose}
+              className="min-h-[44px] px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-sm font-medium text-slate-600 dark:text-slate-300 whitespace-nowrap"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              className="min-h-[44px] px-5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold flex items-center gap-2 whitespace-nowrap"
+            >
+              <Check className="w-4 h-4" />
+              <span>Save Budgets</span>
+            </button>
           </div>
         </form>
       </div>

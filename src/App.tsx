@@ -1,462 +1,404 @@
-import { useState, useEffect } from 'react';
-import { Navigation } from './components/Navigation';
+import React, { useState, useEffect, useMemo } from 'react';
+import type { CategoryBudgets, SavedReceipt } from './types';
+import { Navigation, type NavTab } from './components/Navigation';
 import { MobileBottomNav } from './components/MobileBottomNav';
 import { ReceiptScanner } from './components/ReceiptScanner';
 import { MonthlyReceiptsList } from './components/MonthlyReceiptsList';
 import { MonthToMonthReport } from './components/MonthToMonthReport';
 import { SettingsView } from './components/SettingsView';
-import { PrintableReportModal } from './components/PrintableReportModal';
 import { AddReceiptModal } from './components/AddReceiptModal';
 import { EditReceiptModal } from './components/EditReceiptModal';
-import { InstallModal } from './components/InstallModal';
 import { GlobalSearchModal } from './components/GlobalSearchModal';
-import { QuickMenuModal } from './components/QuickMenuModal';
+import { PrintableReportModal } from './components/PrintableReportModal';
+import { BudgetLimitsModal } from './components/BudgetLimitsModal';
 import { AndroidBackupModal } from './components/AndroidBackupModal';
-import { INITIAL_SAMPLE_RECEIPTS } from './sampleData';
-import { 
-  saveReceiptsToDevice, 
-  loadReceiptsFromDevice, 
-  createDeviceSnapshot, 
-  requestPersistentDeviceStorage 
+import { OfflineOcrQueueModal } from './components/OfflineOcrQueueModal';
+import { UpgradeProModal } from './components/UpgradeProModal';
+import {
+  loadReceiptsFromDevice,
+  saveReceiptsToDevice,
+  requestPersistentDeviceStorage,
 } from './utils/deviceStorage';
-import { checkAndRequestStartupPermissions, type AndroidStartupPermissionsResult } from './utils/nativePermissions';
-import { loadCategoryBudgets, saveCategoryBudgets } from './utils/budgetStorage';
-import type { SavedReceipt, CategoryBudgets } from './types';
+import {
+  loadCategoryBudgets,
+  saveCategoryBudgets,
+} from './utils/budgetStorage';
+import {
+  getSubscriptionState,
+  subscribeToSubscriptionChanges,
+  type SubscriptionState,
+  type UpgradeTriggerReason,
+} from './utils/subscriptionManager';
+import { getPreferredCurrency } from './utils/currencyFormat';
+import { subscribeToQueue } from './utils/offlineOcrQueue';
+import { startBackgroundQueueWorker } from './utils/failSafeOcrCoordinator';
 
-const STORAGE_KEY = 'parserpro_saved_receipts_v1';
+function getCurrentMonthIso(): string {
+  return new Date().toISOString().substring(0, 7);
+}
 
-export default function App() {
-  const currentMonthDefault = new Date().toISOString().substring(0, 7);
+function getPreviousMonthIso(monthIso: string): string {
+  const [y, m] = monthIso.split('-').map(Number);
+  const d = new Date(y, (m || 1) - 2, 1);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+}
 
+/**
+ * Strips any legacy pre-seeded demo items (`sample-*`) so published Play Store users
+ * always get a clean personal ledger while preserving all real user-scanned receipts.
+ */
+function stripLegacySampleData(items: SavedReceipt[]): SavedReceipt[] {
+  return items.filter((r) => !String(r.id || '').startsWith('sample-'));
+}
+
+export function App() {
+  const [activeTab, setActiveTab] = useState<NavTab>('scanner');
   const [receipts, setReceipts] = useState<SavedReceipt[]>(() => {
     try {
-      const saved = localStorage.getItem(STORAGE_KEY);
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          return parsed;
+      const raw = localStorage.getItem('parserpro_saved_receipts_v1');
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) {
+          return stripLegacySampleData(parsed);
         }
       }
-    } catch (e) {
-      console.error('Error loading receipts from localStorage:', e);
-    }
-    // Initialize with rich sample data so user immediately has full interactive menus
-    return INITIAL_SAMPLE_RECEIPTS;
+    } catch {}
+    return [];
   });
 
-  const [activeTab, setActiveTab] = useState<'scanner' | 'receipts' | 'report' | 'settings'>(() => {
+  const currentMonth = useMemo(() => getCurrentMonthIso(), []);
+  const [selectedMonth, setSelectedMonth] = useState<string>(currentMonth);
+  const [comparisonMonth, setComparisonMonth] = useState<string>(() =>
+    getPreviousMonthIso(currentMonth)
+  );
+
+  const [currencyCode, setCurrencyCode] = useState<string>(() => getPreferredCurrency());
+  const [subscriptionState, setSubscriptionState] = useState<SubscriptionState>(() =>
+    getSubscriptionState()
+  );
+  const [categoryBudgets, setCategoryBudgets] = useState<CategoryBudgets>(() =>
+    loadCategoryBudgets()
+  );
+  const [darkMode, setDarkMode] = useState<boolean>(() => {
     try {
-      if (typeof window !== 'undefined') {
-        const params = new URLSearchParams(window.location.search);
-        const tab = params.get('tab');
-        if (tab === 'receipts' || tab === 'report' || tab === 'settings' || tab === 'scanner') {
-          return tab;
-        }
-      }
-    } catch (e) {
-      console.warn('Error reading url params:', e);
+      return localStorage.getItem('parserpro_dark_mode') === 'true';
+    } catch {
+      return false;
     }
-    return 'scanner';
   });
-  const [selectedMonth, setSelectedMonth] = useState<string>('2026-09');
-  const [comparisonMonth, setComparisonMonth] = useState<string>('2026-08');
-  const [isPrintModalOpen, setIsPrintModalOpen] = useState(false);
-  const [isBackupModalOpen, setIsBackupModalOpen] = useState(false);
+
+  const [pendingOfflineCount, setPendingOfflineCount] = useState<number>(0);
+
+  // Modals
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [editingReceipt, setEditingReceipt] = useState<SavedReceipt | null>(null);
-  const [isInstallModalOpen, setIsInstallModalOpen] = useState(false);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
-  const [isQuickMenuOpen, setIsQuickMenuOpen] = useState(false);
-  const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
-  const [saveToast, setSaveToast] = useState<{ message: string; month?: string } | null>(null);
-  const [androidPermissions, setAndroidPermissions] = useState<AndroidStartupPermissionsResult | null>(null);
-  const [showPermissionBanner, setShowPermissionBanner] = useState(false);
-  const [categoryBudgets, setCategoryBudgets] = useState<CategoryBudgets>(() => loadCategoryBudgets());
+  const [printableMonth, setPrintableMonth] = useState<string | null>(null);
+  const [isBudgetModalOpen, setIsBudgetModalOpen] = useState(false);
+  const [isBackupModalOpen, setIsBackupModalOpen] = useState(false);
+  const [isOfflineQueueOpen, setIsOfflineQueueOpen] = useState(false);
+  const [upgradeModalState, setUpgradeModalState] = useState<{
+    open: boolean;
+    reason: UpgradeTriggerReason;
+  }>({ open: false, reason: 'general' });
 
-  const handleUpdateCategoryBudgets = (updated: CategoryBudgets) => {
-    setCategoryBudgets(updated);
-    saveCategoryBudgets(updated);
-  };
-
-  // Initialize Android IndexedDB and persistent storage guarantee, and request native permissions on startup
+  // Apply Dark Mode class on <html>
   useEffect(() => {
-    loadReceiptsFromDevice().then(loaded => {
-      if (loaded && loaded.length > 0) {
-        setReceipts(loaded);
+    const root = document.documentElement;
+    if (darkMode) {
+      root.classList.add('dark');
+    } else {
+      root.classList.remove('dark');
+    }
+    try {
+      localStorage.setItem('parserpro_dark_mode', String(darkMode));
+    } catch {}
+  }, [darkMode]);
+
+  // Hydrate persistent receipts from IndexedDB & request OS storage persistence
+  useEffect(() => {
+    requestPersistentDeviceStorage().catch(() => {});
+
+    loadReceiptsFromDevice().then((stored) => {
+      const cleaned = stripLegacySampleData(stored);
+      if (cleaned.length !== stored.length) {
+        saveReceiptsToDevice(cleaned).catch(() => {});
+      }
+      setReceipts(cleaned);
+      if (cleaned.length > 0) {
+        const months = Array.from(new Set(cleaned.map((r) => r.month_year))).sort((a, b) =>
+          b.localeCompare(a)
+        );
+        if (months[0]) {
+          setSelectedMonth(months[0]);
+          setComparisonMonth(months[1] || getPreviousMonthIso(months[0]));
+        }
       }
     });
-    requestPersistentDeviceStorage();
-
-    // Check & request Camera and Filesystem permissions explicitly on Android startup
-    checkAndRequestStartupPermissions()
-      .then(result => {
-        setAndroidPermissions(result);
-        if (result.isAndroid && (!result.cameraGranted || !result.storageGranted)) {
-          setShowPermissionBanner(true);
-        }
-      })
-      .catch(err => {
-        console.warn('[App] Startup permissions error:', err);
-      });
   }, []);
 
-  // Global keyboard shortcuts (Cmd+K / Ctrl+K / slash for search)
+  // Subscribe to subscription state & currency updates
   useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
+    const unsubSub = subscribeToSubscriptionChanges((nextState) => {
+      setSubscriptionState(nextState);
+    });
+
+    const handleCurrencyChanged = () => {
+      setCurrencyCode(getPreferredCurrency());
+    };
+    window.addEventListener('parserpro-currency-changed', handleCurrencyChanged);
+
+    return () => {
+      unsubSub();
+      window.removeEventListener('parserpro-currency-changed', handleCurrencyChanged);
+    };
+  }, []);
+
+  // Subscribe to offline queue & start background retry worker
+  useEffect(() => {
+    const unsubQueue = subscribeToQueue((jobs) => {
+      const active = jobs.filter(
+        (j) =>
+          j.status === 'pending' ||
+          j.status === 'processing' ||
+          j.status === 'fallback_extracted'
+      ).length;
+      setPendingOfflineCount(active);
+    });
+
+    const stopWorker = startBackgroundQueueWorker();
+
+    return () => {
+      unsubQueue();
+      stopWorker();
+    };
+  }, []);
+
+  // Global Cmd/Ctrl + K search shortcut
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
-        e.preventDefault();
-        setIsSearchOpen(prev => !prev);
-      }
-      if (e.key === '/' && !['INPUT', 'TEXTAREA', 'SELECT'].includes((e.target as HTMLElement)?.tagName)) {
         e.preventDefault();
         setIsSearchOpen(true);
       }
     };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
   }, []);
 
-  // Capture beforeinstallprompt for Android & Chrome PWA
-  useEffect(() => {
-    const handleBeforeInstall = (e: Event) => {
-      e.preventDefault();
-      setDeferredPrompt(e);
-    };
+  const availableMonths = useMemo(() => {
+    const set = new Set<string>([
+      currentMonth,
+      getPreviousMonthIso(currentMonth),
+      ...receipts.map((r) => r.month_year).filter(Boolean),
+    ]);
+    return Array.from(set).sort((a, b) => b.localeCompare(a));
+  }, [receipts, currentMonth]);
 
-    const handleAppInstalled = () => {
-      setDeferredPrompt(null);
-      setSaveToast({
-        message: 'ParserPro successfully installed on your Android device!',
-        month: selectedMonth
-      });
-    };
+  const persistReceipts = (updated: SavedReceipt[]) => {
+    setReceipts(updated);
+    saveReceiptsToDevice(updated).catch((err) =>
+      console.error('Failed to persist receipts:', err)
+    );
+  };
 
-    window.addEventListener('beforeinstallprompt', handleBeforeInstall);
-    window.addEventListener('appinstalled', handleAppInstalled);
+  const handleSaveBatchReceipts = (newReceipts: SavedReceipt[]) => {
+    if (!newReceipts.length) return;
+    const updated = [...newReceipts, ...receipts];
+    persistReceipts(updated);
+    const newestMonth = newReceipts[0]?.month_year;
+    if (newestMonth) {
+      setSelectedMonth(newestMonth);
+    }
+  };
 
-    return () => {
-      window.removeEventListener('beforeinstallprompt', handleBeforeInstall);
-      window.removeEventListener('appinstalled', handleAppInstalled);
-    };
-  }, [selectedMonth]);
-
-  // Sync to local storage and IndexedDB on Android device
-  useEffect(() => {
-    saveReceiptsToDevice(receipts);
-  }, [receipts]);
-
-  const handleReceiptSaved = (newReceipt: SavedReceipt) => {
-    setReceipts(prev => [newReceipt, ...prev]);
+  const handleSaveSingleManualReceipt = (newReceipt: SavedReceipt) => {
+    const updated = [newReceipt, ...receipts];
+    persistReceipts(updated);
     setSelectedMonth(newReceipt.month_year);
-    setSaveToast({
-      message: `Scanned & filed to ${newReceipt.month_year} on ${newReceipt.invoice_date}`,
-      month: newReceipt.month_year
-    });
-    setTimeout(() => setSaveToast(null), 5000);
   };
 
-  const handleMultipleReceiptsSaved = (newReceipts: SavedReceipt[]) => {
-    if (!newReceipts || newReceipts.length === 0) return;
-    setReceipts(prev => [...newReceipts, ...prev]);
-    const latestMonth = newReceipts[0].month_year;
-    setSelectedMonth(latestMonth);
-    const totalAmount = newReceipts.reduce((sum, r) => sum + (Number(r.total_amount) || 0), 0);
-    setSaveToast({
-      message: `Scanned & filed ${newReceipts.length} receipts (Total: R ${totalAmount.toFixed(2)}) into ${latestMonth}!`,
-      month: latestMonth
-    });
-    setTimeout(() => setSaveToast(null), 5000);
-  };
-
-  const handleUpdateReceipt = (updatedReceipt: SavedReceipt) => {
-    setReceipts(prev => prev.map(r => r.id === updatedReceipt.id ? updatedReceipt : r));
-    setSaveToast({
-      message: `Invoice for ${updatedReceipt.vendor_name} successfully updated!`,
-      month: updatedReceipt.month_year
-    });
-    setTimeout(() => setSaveToast(null), 4000);
+  const handleUpdateReceipt = (edited: SavedReceipt) => {
+    const updated = receipts.map((r) => (r.id === edited.id ? edited : r));
+    persistReceipts(updated);
   };
 
   const handleDeleteReceipt = (id: string) => {
-    setReceipts(prev => prev.filter(r => r.id !== id));
+    const updated = receipts.filter((r) => r.id !== id);
+    persistReceipts(updated);
   };
 
-  const handleResetAllData = () => {
-    // Save auto-rollback snapshot first
-    if (receipts.length > 0) {
-      createDeviceSnapshot(receipts, 'Auto-backup before resetting all totals');
-    }
-    setReceipts([]);
-    try {
-      localStorage.removeItem(STORAGE_KEY);
-    } catch (e) {
-      console.error('Error resetting storage:', e);
-    }
-    setSaveToast({
-      message: 'All invoices reset to 0. (Rollback snapshot created in device backup)',
-    });
-    setTimeout(() => setSaveToast(null), 4000);
+  const handleResetAllReceipts = () => {
+    persistReceipts([]);
   };
 
-  const handleResetMonthData = (monthYear: string) => {
-    if (receipts.length > 0) {
-      createDeviceSnapshot(receipts, `Auto-backup before clearing ${monthYear}`);
-    }
-    setReceipts(prev => prev.filter(r => r.month_year !== monthYear));
-    setSaveToast({
-      message: `All invoices for ${monthYear} cleared. (Rollback snapshot created)`,
-      month: monthYear
-    });
-    setTimeout(() => setSaveToast(null), 4000);
+  const handleSaveBudgets = (nextBudgets: CategoryBudgets) => {
+    setCategoryBudgets(nextBudgets);
+    saveCategoryBudgets(nextBudgets);
   };
 
-  const handleImportData = (imported: SavedReceipt[]) => {
-    setReceipts(imported);
-    if (imported.length > 0) {
-      setSelectedMonth(imported[0].month_year);
-    }
+  const openUpgradeModal = (reason: UpgradeTriggerReason = 'general') => {
+    setUpgradeModalState({ open: true, reason });
   };
 
-  const handleLoadSampleData = () => {
-    setReceipts(prev => {
-      const existingIds = new Set(prev.map(r => r.id));
-      const toAdd = INITIAL_SAMPLE_RECEIPTS.filter(r => !existingIds.has(r.id));
-      return [...toAdd, ...prev];
-    });
-    setSelectedMonth('2026-09');
-    setComparisonMonth('2026-08');
-    setSaveToast({
-      message: 'Realistic South African sample receipts loaded for Aug & Sep!',
-      month: '2026-09'
-    });
-    setTimeout(() => setSaveToast(null), 4000);
-  };
-
-  const handleGoToReport = (month: string) => {
-    setSelectedMonth(month);
-    // Find prior month if available
-    const available = Array.from(new Set<string>(receipts.map(r => r.month_year))).sort((a, b) => b.localeCompare(a));
-    const currentIndex = available.indexOf(month);
-    if (currentIndex !== -1 && currentIndex + 1 < available.length) {
-      setComparisonMonth(available[currentIndex + 1]);
-    }
-    setActiveTab('report');
-  };
-
-  const handleViewMonth = (month: string) => {
-    setSelectedMonth(month);
-    setActiveTab('receipts');
-  };
+  const isPlus = subscriptionState.tier === 'plus';
 
   return (
-    <div className="h-[100dvh] min-h-[100dvh] w-full bg-slate-50 flex flex-col font-sans text-slate-900 overflow-hidden select-none sm:select-auto">
-      {/* Sleek Top Navigation Bar */}
+    <div className="min-h-screen bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 flex flex-col">
       <Navigation
         activeTab={activeTab}
         setActiveTab={setActiveTab}
-        receiptCount={receipts.length}
-        onOpenPrintReport={() => setIsPrintModalOpen(true)}
-        onOpenInstallModal={() => setIsInstallModalOpen(true)}
-        onOpenSearch={() => setIsSearchOpen(true)}
-        onOpenQuickMenu={() => setIsQuickMenuOpen(true)}
+        isPlus={isPlus}
+        onOpenUpgrade={openUpgradeModal}
         onOpenAddManual={() => setIsAddModalOpen(true)}
-        onOpenBackupModal={() => setIsBackupModalOpen(true)}
       />
 
-      {/* Android Startup Permissions Banner (if permissions were denied or restricted on Android) */}
-      {showPermissionBanner && androidPermissions?.isAndroid && (!androidPermissions.cameraGranted || !androidPermissions.storageGranted) && (
-        <div className="bg-amber-500/10 border-b border-amber-300 text-amber-950 px-4 py-2.5 text-xs flex flex-wrap items-center justify-between gap-3 shrink-0">
-          <div className="flex items-center gap-2">
-            <span className="w-2.5 h-2.5 rounded-full bg-amber-500 animate-ping shrink-0"></span>
-            <span>
-              <strong>Android Device Permissions:</strong> Camera or Storage access is currently limited. Enable permissions to scan receipts directly with your camera and save vector PDF statements.
-            </span>
-          </div>
-          <div className="flex items-center gap-2 ml-auto">
-            <button
-              onClick={async () => {
-                const res = await checkAndRequestStartupPermissions();
-                setAndroidPermissions(res);
-                if (res.cameraGranted && res.storageGranted) {
-                  setShowPermissionBanner(false);
-                }
-              }}
-              className="px-3 py-1 bg-amber-600 hover:bg-amber-700 text-white rounded-lg font-bold text-xs cursor-pointer shadow-xs transition-colors"
-            >
-              Grant Permissions
-            </button>
-            <button
-              onClick={() => setShowPermissionBanner(false)}
-              className="px-2 py-1 text-amber-800 hover:text-amber-950 text-xs font-semibold cursor-pointer"
-            >
-              Dismiss
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* Save Notification Toast */}
-      {saveToast && (
-        <div className="fixed bottom-20 sm:bottom-6 right-4 sm:right-6 z-50 bg-slate-900 text-white px-4 py-3 rounded-2xl shadow-xl border border-slate-700 flex items-center gap-3 text-xs animate-bounce">
-          <div className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-ping"></div>
-          <div>
-            <div className="font-bold text-emerald-400">Notice</div>
-            <div className="text-slate-300">{saveToast.message}</div>
-          </div>
-          {saveToast.month && (
-            <button
-              onClick={() => {
-                if (saveToast.month) {
-                  handleGoToReport(saveToast.month);
-                }
-                setSaveToast(null);
-              }}
-              className="ml-2 px-2.5 py-1 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg font-bold cursor-pointer"
-            >
-              View
-            </button>
-          )}
-        </div>
-      )}
-
-      {/* Tab Views */}
-      <main className="flex-1 overflow-hidden pb-16 sm:pb-0 print:hidden">
+      <main className="flex-1 w-full max-w-6xl mx-auto px-4 sm:px-6 pt-5 sm:pt-8 pb-24 sm:pb-12">
         {activeTab === 'scanner' && (
           <ReceiptScanner
-            onReceiptSaved={handleReceiptSaved}
-            onMultipleReceiptsSaved={handleMultipleReceiptsSaved}
-            onViewMonth={handleViewMonth}
-            recentReceipts={receipts}
+            existingReceipts={receipts}
+            subscriptionState={subscriptionState}
+            currencyCode={currencyCode}
+            pendingOfflineCount={pendingOfflineCount}
+            onSaveReceipts={handleSaveBatchReceipts}
+            onOpenUpgrade={openUpgradeModal}
+            onOpenSearch={() => setIsSearchOpen(true)}
+            onOpenAddManual={() => setIsAddModalOpen(true)}
+            onOpenOfflineQueue={() => setIsOfflineQueueOpen(true)}
           />
         )}
 
         {activeTab === 'receipts' && (
           <MonthlyReceiptsList
             receipts={receipts}
+            selectedMonth={selectedMonth}
+            onSelectMonth={setSelectedMonth}
+            availableMonths={availableMonths}
+            currencyCode={currencyCode}
             onDeleteReceipt={handleDeleteReceipt}
             onEditReceipt={(r) => setEditingReceipt(r)}
-            onAddManualReceipt={() => setIsAddModalOpen(true)}
-            onGoToReport={handleGoToReport}
-            selectedMonth={selectedMonth}
-            setSelectedMonth={setSelectedMonth}
+            onOpenAddManual={() => setIsAddModalOpen(true)}
+            onOpenSearch={() => setIsSearchOpen(true)}
+            onGoToScanner={() => setActiveTab('scanner')}
+            onOpenPrintableReport={(m) => setPrintableMonth(m)}
           />
         )}
 
-        {activeTab === 'report' && (
+        {activeTab === 'reports' && (
           <MonthToMonthReport
             receipts={receipts}
-            initialMonthA={selectedMonth}
-            initialMonthB={comparisonMonth}
-            onOpenPrintReport={() => setIsPrintModalOpen(true)}
+            selectedMonth={selectedMonth}
+            comparisonMonth={comparisonMonth}
+            availableMonths={availableMonths}
+            onSelectMonth={setSelectedMonth}
+            onSelectComparisonMonth={setComparisonMonth}
             categoryBudgets={categoryBudgets}
-            onUpdateCategoryBudgets={handleUpdateCategoryBudgets}
+            onOpenBudgetModal={() => setIsBudgetModalOpen(true)}
+            isPlus={isPlus}
+            currencyCode={currencyCode}
+            onOpenUpgrade={openUpgradeModal}
+            onGoToScanner={() => setActiveTab('scanner')}
           />
         )}
 
         {activeTab === 'settings' && (
           <SettingsView
             receipts={receipts}
-            onResetAllData={handleResetAllData}
-            onResetMonthData={handleResetMonthData}
-            onEditReceipt={(r) => setEditingReceipt(r)}
-            onDeleteReceipt={handleDeleteReceipt}
-            onAddManualReceipt={() => setIsAddModalOpen(true)}
-            onImportData={handleImportData}
-            onLoadSampleData={handleLoadSampleData}
-            onOpenAndroidBackup={() => setIsBackupModalOpen(true)}
-            categoryBudgets={categoryBudgets}
-            onUpdateCategoryBudgets={handleUpdateCategoryBudgets}
+            subscriptionState={subscriptionState}
+            currencyCode={currencyCode}
+            onCurrencyChange={setCurrencyCode}
+            darkMode={darkMode}
+            onToggleDarkMode={setDarkMode}
+            pendingOfflineCount={pendingOfflineCount}
+            onOpenUpgrade={openUpgradeModal}
+            onOpenBudgetModal={() => setIsBudgetModalOpen(true)}
+            onOpenBackupModal={() => setIsBackupModalOpen(true)}
+            onOpenOfflineQueue={() => setIsOfflineQueueOpen(true)}
+            onResetAllReceipts={handleResetAllReceipts}
           />
         )}
       </main>
 
-      {/* Mobile Ergonomic Bottom Navigation Bar */}
       <MobileBottomNav
         activeTab={activeTab}
         setActiveTab={setActiveTab}
         receiptCount={receipts.length}
-        onOpenQuickMenu={() => setIsQuickMenuOpen(true)}
-        onOpenAddManual={() => setIsAddModalOpen(true)}
       />
 
-      {/* Universal Search Modal (Cmd+K) */}
+      {/* Modals */}
+      <AddReceiptModal
+        isOpen={isAddModalOpen}
+        onClose={() => setIsAddModalOpen(false)}
+        existingReceipts={receipts}
+        currencyCode={currencyCode}
+        onSaveReceipt={handleSaveSingleManualReceipt}
+      />
+
+      <EditReceiptModal
+        isOpen={Boolean(editingReceipt)}
+        receipt={editingReceipt}
+        currencyCode={currencyCode}
+        onClose={() => setEditingReceipt(null)}
+        onUpdateReceipt={handleUpdateReceipt}
+      />
+
       <GlobalSearchModal
         isOpen={isSearchOpen}
         onClose={() => setIsSearchOpen(false)}
         receipts={receipts}
-        onSelectReceipt={(r) => {
-          setEditingReceipt(r);
-        }}
-        onGoToMonth={(m) => {
-          handleViewMonth(m);
+        currencyCode={currencyCode}
+        onSelectReceipt={(rcpt) => {
+          setSelectedMonth(rcpt.month_year);
+          setActiveTab('receipts');
+          setEditingReceipt(rcpt);
         }}
       />
 
-      {/* Quick Menu & Feature Hub Modal */}
-      <QuickMenuModal
-        isOpen={isQuickMenuOpen}
-        onClose={() => setIsQuickMenuOpen(false)}
-        onNavigate={(tab) => setActiveTab(tab)}
-        onOpenScannerCamera={() => setActiveTab('scanner')}
-        onOpenAddManual={() => setIsAddModalOpen(true)}
-        onOpenSearch={() => setIsSearchOpen(true)}
-        onOpenPrintReport={() => setIsPrintModalOpen(true)}
-        onOpenInstallModal={() => setIsInstallModalOpen(true)}
-        onLoadSampleData={handleLoadSampleData}
-        onOpenBackupModal={() => setIsBackupModalOpen(true)}
-        receiptCount={receipts.length}
+      <PrintableReportModal
+        isOpen={Boolean(printableMonth)}
+        onClose={() => setPrintableMonth(null)}
+        monthYear={printableMonth || selectedMonth}
+        receipts={receipts}
+        currencyCode={currencyCode}
       />
 
-      {/* Android Device Storage & Backup Hub Modal */}
+      <BudgetLimitsModal
+        isOpen={isBudgetModalOpen}
+        onClose={() => setIsBudgetModalOpen(false)}
+        budgets={categoryBudgets}
+        onSaveBudgets={handleSaveBudgets}
+        isPlus={isPlus}
+        currencyCode={currencyCode}
+        onOpenUpgrade={openUpgradeModal}
+      />
+
       <AndroidBackupModal
         isOpen={isBackupModalOpen}
         onClose={() => setIsBackupModalOpen(false)}
         receipts={receipts}
-        onRestoreData={handleImportData}
+        onRestoreReceipts={(restored) => persistReceipts(restored)}
+        isPlus={isPlus}
+        currencyCode={currencyCode}
+        onOpenUpgrade={openUpgradeModal}
       />
 
-      {/* Printable Report / PDF Export Modal */}
-      {isPrintModalOpen && (
-        <PrintableReportModal
-          receipts={receipts}
-          monthA={selectedMonth}
-          monthB={comparisonMonth}
-          onClose={() => setIsPrintModalOpen(false)}
-        />
-      )}
+      <OfflineOcrQueueModal
+        isOpen={isOfflineQueueOpen}
+        onClose={() => setIsOfflineQueueOpen(false)}
+        currencyCode={currencyCode}
+        onSaveExtractedReceipts={handleSaveBatchReceipts}
+      />
 
-      {/* Add Manual Receipt Modal */}
-      {isAddModalOpen && (
-        <AddReceiptModal
-          defaultMonth={selectedMonth}
-          existingReceipts={receipts}
-          onClose={() => setIsAddModalOpen(false)}
-          onSave={handleReceiptSaved}
-        />
-      )}
-
-      {/* Edit Invoice Modal */}
-      {editingReceipt && (
-        <EditReceiptModal
-          receipt={editingReceipt}
-          onClose={() => setEditingReceipt(null)}
-          onSave={handleUpdateReceipt}
-        />
-      )}
-
-      {/* Android Install APK & PWA Modal */}
-      {isInstallModalOpen && (
-        <InstallModal
-          isOpen={isInstallModalOpen}
-          onClose={() => setIsInstallModalOpen(false)}
-          deferredPrompt={deferredPrompt}
-          onInstallSuccess={() => {
-            setIsInstallModalOpen(false);
-          }}
-        />
-      )}
+      <UpgradeProModal
+        isOpen={upgradeModalState.open}
+        onClose={() => setUpgradeModalState((prev) => ({ ...prev, open: false }))}
+        reason={upgradeModalState.reason}
+        currencyCode={currencyCode}
+        subscriptionState={subscriptionState}
+        onSubscriptionUpdated={(next) => setSubscriptionState(next)}
+      />
     </div>
   );
 }
 
-
+export default App;

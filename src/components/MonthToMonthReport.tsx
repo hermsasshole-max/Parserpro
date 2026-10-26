@@ -1,919 +1,512 @@
-import React, { useState, useMemo, useEffect } from 'react';
-import { 
-  TrendingUp, TrendingDown, ArrowUpDown, Search, Printer, 
-  Download, Calendar, CheckCircle2, ShieldCheck, Sparkles,
-  FileDown, Loader2, Share2, Check, Sliders, Edit3
+import React, { useMemo, useState } from 'react';
+import {
+  Download,
+  Share2,
+  Printer,
+  FileSpreadsheet,
+  SlidersHorizontal,
+  Lock,
+  Search,
+  BarChart3,
+  Camera,
+  Sparkles,
 } from 'lucide-react';
-import type { SavedReceipt, CategoryBudgets, ReceiptCategory } from '../types';
-import { compareMonths, exportComparisonToCSV, generateMonthReport } from '../utils/reportUtils';
-import { downloadComparisonPDF, shareOrSavePDF } from '../utils/pdfGenerator';
-import { computeCategoryBudgetProgress, loadCategoryBudgets, saveCategoryBudgets } from '../utils/budgetStorage';
-import { BudgetLimitsModal } from './BudgetLimitsModal';
+import type { CategoryBudgets, SavedReceipt } from '../types';
+import {
+  compareMonths,
+  generateMonthReport,
+  exportComparisonToCSV,
+  calculateSixMonthSpendingTrend,
+} from '../utils/reportUtils';
+import {
+  downloadComparisonPDF,
+  shareOrSavePDF,
+  printReportSafely,
+} from '../utils/pdfGenerator';
+import { computeCategoryBudgetProgress } from '../utils/budgetStorage';
+import {
+  FREE_PRICE_COMPARISON_PREVIEW_LIMIT,
+  type UpgradeTriggerReason,
+} from '../utils/subscriptionManager';
+import { formatMoney, formatMonthLabel } from '../utils/currencyFormat';
+import { SpendingTrendChart } from './SpendingTrendChart';
 
 interface MonthToMonthReportProps {
   receipts: SavedReceipt[];
-  initialMonthA?: string;
-  initialMonthB?: string;
-  onOpenPrintReport: () => void;
-  categoryBudgets?: CategoryBudgets;
-  onUpdateCategoryBudgets?: (budgets: CategoryBudgets) => void;
+  selectedMonth: string;
+  comparisonMonth: string;
+  availableMonths: string[];
+  onSelectMonth: (month: string) => void;
+  onSelectComparisonMonth: (month: string) => void;
+  categoryBudgets: CategoryBudgets;
+  onOpenBudgetModal: () => void;
+  isPlus: boolean;
+  currencyCode: string;
+  onOpenUpgrade: (reason: UpgradeTriggerReason) => void;
+  onGoToScanner: () => void;
 }
 
 export const MonthToMonthReport: React.FC<MonthToMonthReportProps> = ({
   receipts,
-  initialMonthA,
-  initialMonthB,
-  onOpenPrintReport,
-  categoryBudgets: externalBudgets,
-  onUpdateCategoryBudgets,
+  selectedMonth,
+  comparisonMonth,
+  availableMonths,
+  onSelectMonth,
+  onSelectComparisonMonth,
+  categoryBudgets,
+  onOpenBudgetModal,
+  isPlus,
+  currencyCode,
+  onOpenUpgrade,
+  onGoToScanner,
 }) => {
-  const [isDownloadingPdf, setIsDownloadingPdf] = useState(false);
-  const [isSharingPdf, setIsSharingPdf] = useState(false);
-  const [actionFeedback, setActionFeedback] = useState<string | null>(null);
-  const [localBudgets, setLocalBudgets] = useState<CategoryBudgets>(() => loadCategoryBudgets());
-  const [isBudgetModalOpen, setIsBudgetModalOpen] = useState(false);
-  const [focusBudgetCategory, setFocusBudgetCategory] = useState<ReceiptCategory | null>(null);
+  const [itemSearch, setItemSearch] = useState('');
+  const [statusFilter, setStatusFilter] = useState<
+    'all' | 'spent_more' | 'saved_more'
+  >('all');
 
-  const activeBudgets = externalBudgets || localBudgets;
-
-  const handleSaveBudgets = (updated: CategoryBudgets) => {
-    if (onUpdateCategoryBudgets) {
-      onUpdateCategoryBudgets(updated);
-    } else {
-      setLocalBudgets(updated);
-      saveCategoryBudgets(updated);
-    }
-    setActionFeedback('Monthly category spending budgets updated.');
-    setTimeout(() => setActionFeedback(null), 3500);
-  };
-  // Get all unique available months sorted descending
-  const availableMonths = useMemo(() => {
-    return Array.from(new Set<string>(receipts.map(r => r.month_year)))
-      .sort((a, b) => b.localeCompare(a));
-  }, [receipts]);
-
-  const currentMonthDefault = new Date().toISOString().substring(0, 7);
-
-  const [monthA, setMonthA] = useState<string>(
-    initialMonthA || availableMonths[0] || currentMonthDefault
-  );
-  const [monthB, setMonthB] = useState<string>(
-    initialMonthB || availableMonths[1] || availableMonths[0] || currentMonthDefault
+  const currentReport = useMemo(
+    () => generateMonthReport(selectedMonth, receipts),
+    [selectedMonth, receipts]
   );
 
-  const [searchQuery, setSearchQuery] = useState('');
-  const [statusFilter, setStatusFilter] = useState<'all' | 'saved_more' | 'spent_more' | 'new_item'>('all');
-  const [sortBy, setSortBy] = useState<'alpha' | 'diff_high' | 'diff_low' | 'totalA'>('alpha');
+  const comparison = useMemo(
+    () => compareMonths(selectedMonth, comparisonMonth, receipts),
+    [selectedMonth, comparisonMonth, receipts]
+  );
 
-  useEffect(() => {
-    if (initialMonthA && availableMonths.includes(initialMonthA)) {
-      setMonthA(initialMonthA);
-    }
-  }, [initialMonthA, availableMonths]);
+  const budgetProgress = useMemo(
+    () => computeCategoryBudgetProgress(currentReport.category_totals, categoryBudgets),
+    [currentReport.category_totals, categoryBudgets]
+  );
 
-  useEffect(() => {
-    if (initialMonthB && availableMonths.includes(initialMonthB)) {
-      setMonthB(initialMonthB);
-    }
-  }, [initialMonthB, availableMonths]);
+  const sixMonthPreview = useMemo(
+    () => calculateSixMonthSpendingTrend(receipts, selectedMonth),
+    [receipts, selectedMonth]
+  );
 
-  // Compute live comparison
-  const comparison = useMemo(() => {
-    return compareMonths(monthA, monthB, receipts);
-  }, [monthA, monthB, receipts]);
-
-  // Compute selected month report & budget progress
-  const selectedMonthReport = useMemo(() => {
-    return generateMonthReport(monthA, receipts);
-  }, [monthA, receipts]);
-
-  const budgetProgress = useMemo(() => {
-    return computeCategoryBudgetProgress(selectedMonthReport.category_totals, activeBudgets);
-  }, [selectedMonthReport, activeBudgets]);
-
-  // Filter & sort items
-  const displayedItems = useMemo(() => {
-    let list = comparison.items.filter(item => {
-      const matchesSearch = item.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                            item.category.toLowerCase().includes(searchQuery.toLowerCase());
-      
-      let matchesStatus = true;
-      if (statusFilter === 'saved_more') {
-        matchesStatus = item.status === 'saved_more' || item.status === 'not_purchased';
-      } else if (statusFilter === 'spent_more') {
-        matchesStatus = item.status === 'spent_more';
-      } else if (statusFilter === 'new_item') {
-        matchesStatus = item.status === 'new_item';
+  const filteredItems = useMemo(() => {
+    return comparison.items.filter((item) => {
+      if (statusFilter !== 'all' && item.status !== statusFilter) return false;
+      if (itemSearch.trim()) {
+        return item.name.toLowerCase().includes(itemSearch.toLowerCase());
       }
-
-      return matchesSearch && matchesStatus;
+      return true;
     });
+  }, [comparison.items, statusFilter, itemSearch]);
 
-    if (sortBy === 'alpha') {
-      list.sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));
-    } else if (sortBy === 'diff_high') {
-      // Highest spend increase first
-      list.sort((a, b) => b.amount_diff - a.amount_diff);
-    } else if (sortBy === 'diff_low') {
-      // Biggest savings first (most negative diff)
-      list.sort((a, b) => a.amount_diff - b.amount_diff);
-    } else if (sortBy === 'totalA') {
-      list.sort((a, b) => b.monthA_total - a.monthA_total);
+  const displayedItems = isPlus
+    ? filteredItems
+    : filteredItems.slice(0, FREE_PRICE_COMPARISON_PREVIEW_LIMIT);
+
+  const hiddenItemCount = Math.max(0, filteredItems.length - displayedItems.length);
+
+  const handleCsvExportClick = () => {
+    if (!isPlus) {
+      onOpenUpgrade('csv_export');
+      return;
     }
-
-    return list;
-  }, [comparison.items, searchQuery, statusFilter, sortBy]);
-
-  const handleExportCSV = () => {
-    exportComparisonToCSV(monthA, monthB, comparison.items);
+    exportComparisonToCSV(selectedMonth, comparisonMonth, comparison.items);
   };
-
-  const isNetSaving = comparison.totalDiff < 0;
 
   if (receipts.length === 0) {
     return (
-      <div className="h-full flex flex-col items-center justify-center p-6 max-w-2xl mx-auto w-full text-center">
-        <div className="bg-white p-8 sm:p-12 rounded-3xl border border-slate-200 shadow-sm w-full space-y-5">
-          <div className="w-16 h-16 rounded-2xl bg-emerald-50 text-emerald-600 flex items-center justify-center mx-auto shadow-xs">
-            <TrendingUp className="w-8 h-8" />
-          </div>
-          <div className="space-y-2">
-            <h2 className="text-xl font-bold text-slate-800">No Invoices or Receipts Recorded</h2>
-            <p className="text-sm text-slate-500 max-w-md mx-auto leading-relaxed">
-              Once you scan or add receipts, ParserPro will automatically extract line items, track spending against your monthly category budgets, and generate comparative monthly reports.
-            </p>
-          </div>
-          <div className="pt-2 flex flex-wrap items-center justify-center gap-3">
-            <button
-              type="button"
-              onClick={() => {
-                setFocusBudgetCategory(null);
-                setIsBudgetModalOpen(true);
-              }}
-              className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold flex items-center gap-2 transition-colors cursor-pointer shadow-xs"
-            >
-              <Sliders className="w-4 h-4" />
-              <span>Set Monthly Category Budgets (R {budgetProgress.overall.totalBudget.toFixed(0)} cap)</span>
-            </button>
-          </div>
+      <div className="rounded-3xl bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800 p-8 sm:p-12 text-center space-y-5">
+        <div className="w-12 h-12 rounded-2xl bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 flex items-center justify-center mx-auto">
+          <BarChart3 className="w-6 h-6" />
         </div>
-
-        <BudgetLimitsModal
-          isOpen={isBudgetModalOpen}
-          onClose={() => setIsBudgetModalOpen(false)}
-          budgets={activeBudgets}
-          onSave={handleSaveBudgets}
-          selectedMonth={monthA}
-          monthCategoryTotals={selectedMonthReport.category_totals}
-          initialFocusCategory={focusBudgetCategory}
-        />
+        <div className="max-w-md mx-auto space-y-2">
+          <h1 className="text-xl sm:text-2xl font-bold text-slate-900 dark:text-white text-balance">
+            Spending insights appear as soon as you add a receipt
+          </h1>
+          <p className="text-sm text-slate-600 dark:text-slate-400 leading-relaxed">
+            Track category budgets, spot price increases on everyday groceries, and compare months
+            automatically.
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={onGoToScanner}
+          className="min-h-[48px] px-6 py-3 rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-sm inline-flex items-center gap-2 whitespace-nowrap"
+        >
+          <Camera className="w-4 h-4" />
+          <span>Scan First Receipt</span>
+        </button>
       </div>
     );
   }
 
   return (
-    <div className="h-full flex flex-col p-4 sm:p-6 max-w-7xl mx-auto w-full gap-5 overflow-auto">
-      {/* Month Selector & Controls Header */}
-      <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-        <div className="flex flex-wrap items-center gap-3">
-          <div className="flex items-center gap-2">
-            <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">
-              Primary Month:
-            </span>
-            <select
-              value={monthA}
-              onChange={(e) => setMonthA(e.target.value)}
-              className="bg-slate-50 border border-slate-200 text-slate-900 font-bold text-xs rounded-xl px-3 py-2 focus:ring-2 focus:ring-emerald-500 focus:outline-none"
-            >
-              {availableMonths.map((m) => (
-                <option key={`a-${m}`} value={m}>
-                  {m}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div className="flex items-center gap-1 text-slate-400 font-bold text-xs">
-            <span>vs</span>
-          </div>
-
-          <div className="flex items-center gap-2">
-            <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">
-              Comparison Month:
-            </span>
-            <select
-              value={monthB}
-              onChange={(e) => setMonthB(e.target.value)}
-              className="bg-slate-50 border border-slate-200 text-slate-900 font-bold text-xs rounded-xl px-3 py-2 focus:ring-2 focus:ring-emerald-500 focus:outline-none"
-            >
-              {availableMonths.map((m) => (
-                <option key={`b-${m}`} value={m}>
-                  {m}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <button
-            onClick={() => {
-              const temp = monthA;
-              setMonthA(monthB);
-              setMonthB(temp);
-            }}
-            className="p-2 text-slate-500 hover:text-slate-800 bg-slate-100 hover:bg-slate-200 rounded-xl transition-colors text-xs font-bold flex items-center gap-1"
-            title="Swap months"
+    <div className="space-y-6">
+      {/* Header & Month Comparison Picker */}
+      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+        <div className="flex flex-wrap items-center gap-2.5">
+          <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white mr-1">
+            Insights
+          </h1>
+          <select
+            aria-label="Target month"
+            value={selectedMonth}
+            onChange={(e) => onSelectMonth(e.target.value)}
+            className="min-h-[44px] px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-sm font-semibold text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-600"
           >
-            <ArrowUpDown className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">Swap</span>
-          </button>
+            {availableMonths.map((m) => (
+              <option key={m} value={m}>
+                {formatMonthLabel(m)}
+              </option>
+            ))}
+          </select>
+          <span className="text-xs font-medium text-slate-500 dark:text-slate-400">vs</span>
+          <select
+            aria-label="Comparison baseline month"
+            value={comparisonMonth}
+            onChange={(e) => onSelectComparisonMonth(e.target.value)}
+            className="min-h-[44px] px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-sm font-semibold text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-600"
+          >
+            {availableMonths.map((m) => (
+              <option key={m} value={m}>
+                {formatMonthLabel(m)}
+              </option>
+            ))}
+          </select>
         </div>
 
-        {/* Action Buttons: Budgets, Print, Share & Export */}
-        <div className="flex items-center gap-2 self-end lg:self-auto flex-wrap">
+        {/* Report Export Actions */}
+        <div className="flex flex-wrap items-center gap-2">
           <button
             type="button"
-            onClick={() => {
-              setFocusBudgetCategory(null);
-              setIsBudgetModalOpen(true);
-            }}
-            className="px-3.5 py-2 bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs rounded-xl flex items-center gap-1.5 transition-colors shadow-2xs cursor-pointer"
-            title="Set monthly spending budget limits per category"
+            onClick={() => downloadComparisonPDF(selectedMonth, comparisonMonth, receipts)}
+            className="min-h-[44px] px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-xs sm:text-sm font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 flex items-center gap-2 whitespace-nowrap shrink-0"
           >
-            <Sliders className="w-3.5 h-3.5 text-emerald-400" />
-            <span>Set Budgets</span>
+            <Download className="w-4 h-4 text-slate-500" />
+            <span>PDF Report</span>
           </button>
 
           <button
-            onClick={async () => {
-              setIsDownloadingPdf(true);
-              setActionFeedback(null);
-              const res = await downloadComparisonPDF(monthA, monthB, receipts);
-              setIsDownloadingPdf(false);
-              if (res.success) {
-                setActionFeedback(`PDF (${res.filename}) saved to your Downloads!`);
-                setTimeout(() => setActionFeedback(null), 4000);
-              }
-            }}
-            disabled={isDownloadingPdf}
-            className="px-3.5 py-2 bg-emerald-50 hover:bg-emerald-100 disabled:opacity-50 text-emerald-800 border border-emerald-200 font-bold text-xs rounded-xl flex items-center gap-1.5 transition-colors shadow-2xs cursor-pointer"
-            title="Download vector PDF directly to your device"
+            type="button"
+            onClick={() => shareOrSavePDF(selectedMonth, comparisonMonth, receipts)}
+            className="min-h-[44px] px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-xs sm:text-sm font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 flex items-center gap-2 whitespace-nowrap shrink-0"
           >
-            {isDownloadingPdf ? (
-              <Loader2 className="w-3.5 h-3.5 animate-spin" />
-            ) : (
-              <FileDown className="w-3.5 h-3.5 text-emerald-600" />
-            )}
-            <span>{isDownloadingPdf ? 'Generating...' : 'Save PDF / Print to PDF'}</span>
-          </button>
-
-          <button
-            onClick={async () => {
-              setIsSharingPdf(true);
-              setActionFeedback(null);
-              const res = await shareOrSavePDF(monthA, monthB, receipts);
-              setIsSharingPdf(false);
-              setActionFeedback(res.message);
-              setTimeout(() => setActionFeedback(null), 4500);
-            }}
-            disabled={isSharingPdf}
-            className="px-3 py-2 bg-slate-100 hover:bg-slate-200 disabled:opacity-50 text-slate-800 font-bold text-xs rounded-xl flex items-center gap-1.5 transition-colors border border-slate-200 cursor-pointer shadow-2xs"
-            title="Share report via WhatsApp, Drive or system share sheet"
-          >
-            {isSharingPdf ? (
-              <Loader2 className="w-3.5 h-3.5 animate-spin" />
-            ) : (
-              <Share2 className="w-3.5 h-3.5 text-emerald-600" />
-            )}
+            <Share2 className="w-4 h-4 text-slate-500" />
             <span>Share</span>
           </button>
 
           <button
-            onClick={handleExportCSV}
-            className="px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl flex items-center gap-1.5 transition-colors shadow-2xs cursor-pointer"
+            type="button"
+            onClick={() => printReportSafely(selectedMonth, comparisonMonth, receipts)}
+            className="min-h-[44px] px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-xs sm:text-sm font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 flex items-center gap-2 whitespace-nowrap shrink-0"
           >
-            <Download className="w-3.5 h-3.5" />
-            <span>CSV</span>
+            <Printer className="w-4 h-4 text-slate-500" />
+            <span>Print</span>
           </button>
 
           <button
-            onClick={onOpenPrintReport}
-            className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl flex items-center gap-1.5 transition-colors shadow-sm cursor-pointer"
+            type="button"
+            onClick={handleCsvExportClick}
+            className="min-h-[44px] px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-xs sm:text-sm font-semibold text-slate-800 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 flex items-center gap-2 whitespace-nowrap shrink-0"
           >
-            <Printer className="w-3.5 h-3.5" />
-            <span>Print / PDF Preview</span>
+            {isPlus ? (
+              <FileSpreadsheet className="w-4 h-4 text-emerald-600" />
+            ) : (
+              <Lock className="w-3.5 h-3.5 text-emerald-600" />
+            )}
+            <span>Excel / CSV</span>
           </button>
         </div>
       </div>
 
-      {/* Action feedback toast */}
-      {actionFeedback && (
-        <div className="bg-emerald-950/80 border border-emerald-500/40 text-emerald-200 px-4 py-2.5 rounded-2xl text-xs flex items-center gap-2 animate-in fade-in shadow-lg">
-          <Check className="w-4 h-4 text-emerald-400 shrink-0" />
-          <span>{actionFeedback}</span>
-        </div>
-      )}
-
-      {/* Comparison Scorecards */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        {/* Total Month A */}
-        <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
-          <div className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">
-            {monthA} Total Spend
-          </div>
-          <div className="text-2xl font-black text-slate-900 mt-1">
-            R {comparison.totalA.toFixed(2)}
-          </div>
-          <div className="text-[11px] text-slate-500 mt-1 flex items-center gap-1">
-            <Calendar className="w-3 h-3 text-slate-400" />
-            <span>Primary Target Period</span>
-          </div>
+      {/* Month Comparison KPI Strip */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
+        <div className="rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800 p-5">
+          <p className="text-xs font-medium text-slate-500 dark:text-slate-400">
+            {formatMonthLabel(selectedMonth)} Total
+          </p>
+          <p className="text-2xl font-bold font-mono tabular-nums text-slate-900 dark:text-white mt-1">
+            {formatMoney(comparison.totalA, currencyCode)}
+          </p>
         </div>
 
-        {/* Total Month B */}
-        <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
-          <div className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">
-            {monthB} Total Spend
-          </div>
-          <div className="text-2xl font-black text-slate-900 mt-1">
-            R {comparison.totalB.toFixed(2)}
-          </div>
-          <div className="text-[11px] text-slate-500 mt-1 flex items-center gap-1">
-            <Calendar className="w-3 h-3 text-slate-400" />
-            <span>Baseline Comparison</span>
-          </div>
+        <div className="rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800 p-5">
+          <p className="text-xs font-medium text-slate-500 dark:text-slate-400">
+            {formatMonthLabel(comparisonMonth)} Baseline
+          </p>
+          <p className="text-2xl font-bold font-mono tabular-nums text-slate-900 dark:text-white mt-1">
+            {formatMoney(comparison.totalB, currencyCode)}
+          </p>
         </div>
 
-        {/* Net Difference */}
-        <div className={`p-4 rounded-2xl border shadow-sm ${
-          isNetSaving 
-            ? 'bg-emerald-50/80 border-emerald-200 text-emerald-950' 
-            : 'bg-rose-50/80 border-rose-200 text-rose-950'
-        }`}>
-          <div className="text-[10px] uppercase font-bold tracking-wider opacity-70">
-            Net Month-to-Month Variance
-          </div>
-          <div className="text-2xl font-black mt-1 flex items-center gap-1.5">
-            {isNetSaving ? (
-              <>
-                <TrendingDown className="w-6 h-6 text-emerald-600 shrink-0" />
-                <span>- R {Math.abs(comparison.totalDiff).toFixed(2)}</span>
-              </>
-            ) : (
-              <>
-                <TrendingUp className="w-6 h-6 text-rose-600 shrink-0" />
-                <span>+ R {Math.abs(comparison.totalDiff).toFixed(2)}</span>
-              </>
-            )}
-          </div>
-          <div className="text-[11px] font-semibold mt-1">
-            {isNetSaving ? (
-              <span className="text-emerald-700">
-                Saved {Math.abs(comparison.totalPercentChange)}% compared to {monthB}
-              </span>
-            ) : (
-              <span className="text-rose-700">
-                Spent {Math.abs(comparison.totalPercentChange)}% more than {monthB}
-              </span>
-            )}
-          </div>
-        </div>
-
-        {/* Distinct Items Tracked */}
-        <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
-          <div className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">
-            Alphabetical Items Calculated
-          </div>
-          <div className="text-2xl font-black text-slate-900 mt-1">
-            {comparison.items.length} <span className="text-xs font-normal text-slate-500">Distinct Items</span>
-          </div>
-          <div className="text-[11px] text-slate-500 mt-1 flex items-center gap-1">
-            <CheckCircle2 className="w-3 h-3 text-emerald-600" />
-            <span>Sorted A-Z & Aggregated</span>
-          </div>
+        <div className="rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800 p-5">
+          <p className="text-xs font-medium text-slate-500 dark:text-slate-400">
+            Month-to-Month Difference
+          </p>
+          <p
+            className={`text-2xl font-bold font-mono tabular-nums mt-1 ${
+              comparison.totalDiff > 0
+                ? 'text-rose-600 dark:text-rose-400'
+                : comparison.totalDiff < 0
+                ? 'text-emerald-600 dark:text-emerald-400'
+                : 'text-slate-900 dark:text-white'
+            }`}
+          >
+            {comparison.totalDiff > 0 ? '+' : ''}
+            {formatMoney(comparison.totalDiff, currencyCode)}
+          </p>
+          <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 tabular-nums">
+            {comparison.totalDiff > 0
+              ? `Spent more (${comparison.totalPercentChange}%)`
+              : comparison.totalDiff < 0
+              ? `Saved (${Math.abs(comparison.totalPercentChange)}%)`
+              : 'No change between selected months'}
+          </p>
         </div>
       </div>
 
-      {/* Highlights: Where we Spent More vs Where we Saved More */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        {/* Where We Saved More */}
-        <div className="bg-white p-4 rounded-2xl border border-emerald-200 shadow-sm">
-          <div className="flex items-center justify-between pb-3 border-b border-slate-100">
-            <h3 className="text-xs font-bold uppercase tracking-wider text-emerald-700 flex items-center gap-1.5">
-              <TrendingDown className="w-4 h-4 text-emerald-600" />
-              <span>Where We Saved More (Top Reductions)</span>
-            </h3>
-            <span className="text-[10px] font-bold px-2 py-0.5 bg-emerald-50 text-emerald-700 rounded-full">
-              Cost Reductions
-            </span>
+      {/* Category Budgets Progress Card */}
+      <section className="rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800 p-5 sm:p-6 space-y-4">
+        <div className="flex items-center justify-between gap-4">
+          <div>
+            <h2 className="text-base sm:text-lg font-bold text-slate-900 dark:text-white">
+              {formatMonthLabel(selectedMonth)} Category Budgets
+            </h2>
+            <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 tabular-nums">
+              {budgetProgress.overall.activeCategoriesCount > 0 ? (
+                <>
+                  <span>
+                    {formatMoney(budgetProgress.overall.budgetedSpend, currencyCode)} of{' '}
+                    {formatMoney(budgetProgress.overall.totalBudget, currencyCode)} budgeted
+                  </span>
+                  <span aria-hidden="true" className="mx-1.5">
+                    ·
+                  </span>
+                  <span>{budgetProgress.overall.percentUsed}% used</span>
+                </>
+              ) : (
+                <span>Set monthly category targets to track household spending pace.</span>
+              )}
+            </p>
           </div>
 
-          <div className="mt-3 space-y-2">
-            {comparison.topSavings.length === 0 ? (
-              <p className="text-xs text-slate-400 italic py-2">No item reductions found.</p>
-            ) : (
-              comparison.topSavings.map((item, idx) => (
-                <div key={idx} className="flex items-center justify-between text-xs p-2 bg-emerald-50/50 rounded-xl">
-                  <div className="font-semibold text-slate-800 truncate max-w-[220px]">
-                    {item.name}
-                  </div>
-                  <div className="text-right">
-                    <span className="font-bold text-emerald-700">
-                      - R {Math.abs(item.amount_diff).toFixed(2)}
-                    </span>
-                    <span className="text-[10px] text-slate-400 block">
-                      {monthA}: R{item.monthA_total.toFixed(0)} vs {monthB}: R{item.monthB_total.toFixed(0)}
-                    </span>
-                  </div>
-                </div>
-              ))
-            )}
-          </div>
+          <button
+            type="button"
+            onClick={onOpenBudgetModal}
+            className="min-h-[44px] px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-xs sm:text-sm font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 flex items-center gap-1.5 whitespace-nowrap shrink-0"
+          >
+            <SlidersHorizontal className="w-4 h-4" />
+            <span>Edit Budgets</span>
+          </button>
         </div>
 
-        {/* Where We Spent More */}
-        <div className="bg-white p-4 rounded-2xl border border-rose-200 shadow-sm">
-          <div className="flex items-center justify-between pb-3 border-b border-slate-100">
-            <h3 className="text-xs font-bold uppercase tracking-wider text-rose-700 flex items-center gap-1.5">
-              <TrendingUp className="w-4 h-4 text-rose-600" />
-              <span>Where We Spent More (Top Increases)</span>
-            </h3>
-            <span className="text-[10px] font-bold px-2 py-0.5 bg-rose-50 text-rose-700 rounded-full">
-              Cost Increases
-            </span>
-          </div>
+        <div className="space-y-3.5">
+          {budgetProgress.categories.map((cat) => {
+            if (cat.status === 'unset' && cat.spent === 0) return null;
 
-          <div className="mt-3 space-y-2">
-            {comparison.topIncreases.length === 0 ? (
-              <p className="text-xs text-slate-400 italic py-2">No item increases found.</p>
-            ) : (
-              comparison.topIncreases.map((item, idx) => (
-                <div key={idx} className="flex items-center justify-between text-xs p-2 bg-rose-50/50 rounded-xl">
-                  <div className="font-semibold text-slate-800 truncate max-w-[220px]">
-                    {item.name}
-                  </div>
-                  <div className="text-right">
-                    <span className="font-bold text-rose-700">
-                      + R {item.amount_diff.toFixed(2)}
-                    </span>
-                    <span className="text-[10px] text-slate-400 block">
-                      {monthA}: R{item.monthA_total.toFixed(0)} vs {monthB}: R{item.monthB_total.toFixed(0)}
-                    </span>
-                  </div>
-                </div>
-              ))
-            )}
-          </div>
-        </div>
-      </div>
+            const statusLabel =
+              cat.status === 'exceeded'
+                ? `Over by ${formatMoney(cat.overAmount, currencyCode)}`
+                : cat.status === 'near'
+                ? `${formatMoney(cat.remaining, currencyCode)} left (near limit)`
+                : cat.status === 'within'
+                ? `${formatMoney(cat.remaining, currencyCode)} remaining`
+                : 'No budget set';
 
-      {/* Monthly Budget Progress & Category Spend Breakdown for Selected Month (monthA) */}
-      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-        {/* Overall Selected Month Budget Header & Progress Bar */}
-        <div className="p-5 border-b border-slate-100 space-y-3">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-            <div>
-              <h3 className="text-sm font-bold text-slate-900">
-                Monthly Budget Progress & Category Spend ({monthA})
-              </h3>
-              <div className="text-xs text-slate-500 mt-0.5 flex flex-wrap items-center gap-1.5 tabular-nums">
-                {budgetProgress.overall.status === 'unset' ? (
-                  <span>No category budget limits configured yet</span>
-                ) : (
-                  <>
-                    <span>
-                      Spent <strong className="text-slate-800">R {budgetProgress.overall.budgetedSpend.toFixed(2)}</strong> of{' '}
-                      <strong className="text-slate-800">R {budgetProgress.overall.totalBudget.toFixed(2)}</strong> monthly budget
-                    </span>
-                    <span aria-hidden="true">·</span>
-                    <span
-                      className={
-                        budgetProgress.overall.status === 'exceeded'
-                          ? 'text-rose-600 font-semibold'
-                          : budgetProgress.overall.status === 'near'
-                          ? 'text-amber-600 font-semibold'
-                          : 'text-emerald-700 font-semibold'
-                      }
-                    >
-                      {budgetProgress.overall.percentUsed}% used
-                    </span>
-                    <span aria-hidden="true">·</span>
-                    {budgetProgress.overall.overAmount > 0 ? (
-                      <span className="text-rose-600 font-semibold">
-                        Over budget by R {budgetProgress.overall.overAmount.toFixed(2)}
-                      </span>
-                    ) : (
-                      <span className="text-slate-600">
-                        R {budgetProgress.overall.remaining.toFixed(2)} remaining
-                      </span>
-                    )}
-                  </>
-                )}
-              </div>
-            </div>
-
-            <button
-              type="button"
-              onClick={() => {
-                setFocusBudgetCategory(null);
-                setIsBudgetModalOpen(true);
-              }}
-              className="self-start sm:self-auto px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
-            >
-              <Edit3 className="w-3.5 h-3.5 text-slate-600" />
-              <span>Edit Category Limits</span>
-            </button>
-          </div>
-
-          {/* Overall Selected Month Progress Bar */}
-          <div className="space-y-1">
-            <div
-              className="w-full h-3 bg-slate-100 rounded-full overflow-hidden"
-              role="progressbar"
-              aria-valuenow={Math.round(budgetProgress.overall.barWidthPercent)}
-              aria-valuemin={0}
-              aria-valuemax={100}
-              aria-label={`Overall ${monthA} budget progress`}
-            >
-              <div
-                className={`h-full rounded-full transition-all duration-500 ${
-                  budgetProgress.overall.status === 'unset'
-                    ? 'bg-slate-300'
-                    : budgetProgress.overall.status === 'exceeded'
-                    ? 'bg-rose-600'
-                    : budgetProgress.overall.status === 'near'
-                    ? 'bg-amber-500'
-                    : 'bg-emerald-500'
-                }`}
-                style={{
-                  width: `${
-                    budgetProgress.overall.status === 'unset'
-                      ? 0
-                      : budgetProgress.overall.barWidthPercent
-                  }%`,
-                }}
-              />
-            </div>
-            {budgetProgress.overall.exceededCount > 0 && (
-              <p className="text-[11px] text-rose-600 font-medium tabular-nums">
-                {budgetProgress.overall.exceededCount}{' '}
-                {budgetProgress.overall.exceededCount === 1 ? 'category has' : 'categories have'} exceeded the monthly limit in {monthA}.
-              </p>
-            )}
-          </div>
-        </div>
-
-        {/* Per-Category Budget Progress & Month-to-Month Variance */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 divide-y sm:divide-y-0 sm:divide-x divide-slate-100">
-          {comparison.categoryComparison.map((cat) => {
-            const isCatSaving = cat.diff < 0;
-            const catProg = budgetProgress.categories.find((c) => c.category === cat.category);
-            const limit = catProg?.limit ?? 0;
-            const pctUsed = catProg?.percentUsed ?? 0;
-            const barWidth = catProg?.barWidthPercent ?? 0;
-            const status = catProg?.status ?? 'unset';
+            const barColor =
+              cat.status === 'exceeded'
+                ? 'bg-rose-600'
+                : cat.status === 'near'
+                ? 'bg-amber-500'
+                : 'bg-emerald-600';
 
             return (
-              <div key={cat.category} className="p-4 flex flex-col justify-between gap-2.5 hover:bg-slate-50/60 transition-colors">
-                <div className="space-y-1">
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="text-xs font-bold text-slate-800 truncate">
-                      {cat.category}
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setFocusBudgetCategory(cat.category);
-                        setIsBudgetModalOpen(true);
-                      }}
-                      className="text-[11px] text-emerald-700 hover:text-emerald-800 hover:underline font-medium shrink-0 cursor-pointer"
-                      title={`Edit ${cat.category} monthly budget`}
-                    >
-                      {limit > 0 ? 'Edit' : 'Set limit'}
-                    </button>
-                  </div>
-
-                  <div className="flex items-baseline justify-between gap-1 tabular-nums">
-                    <span className="text-sm font-black text-slate-900">
-                      R {cat.monthA.toFixed(2)}
-                    </span>
-                    <span className="text-[11px] text-slate-500">
-                      {limit > 0 ? `/ R ${limit.toFixed(0)}` : 'No limit'}
-                    </span>
-                  </div>
+              <div key={cat.category} className="space-y-1.5">
+                <div className="flex items-center justify-between gap-3 text-xs sm:text-sm">
+                  <span className="font-semibold text-slate-900 dark:text-white">
+                    {cat.category}
+                  </span>
+                  <span className="font-mono tabular-nums text-slate-700 dark:text-slate-300">
+                    {formatMoney(cat.spent, currencyCode)}
+                    {cat.limit > 0 ? ` / ${formatMoney(cat.limit, currencyCode)}` : ''}
+                  </span>
                 </div>
 
-                {/* Category Budget Progress Bar */}
-                <div className="space-y-1.5">
-                  <div
-                    className="w-full h-2 bg-slate-100 rounded-full overflow-hidden"
-                    role="progressbar"
-                    aria-valuenow={Math.round(barWidth)}
-                    aria-valuemin={0}
-                    aria-valuemax={100}
-                    aria-label={`${cat.category} budget progress for ${monthA}`}
-                  >
+                {cat.limit > 0 && (
+                  <div className="h-2 w-full rounded-full bg-slate-100 dark:bg-slate-800 overflow-hidden">
                     <div
-                      className={`h-full rounded-full transition-all duration-500 ${
-                        status === 'unset'
-                          ? 'bg-slate-300'
-                          : status === 'exceeded'
-                          ? 'bg-rose-600'
-                          : status === 'near'
-                          ? 'bg-amber-500'
-                          : 'bg-emerald-500'
-                      }`}
-                      style={{ width: `${limit > 0 ? barWidth : 0}%` }}
+                      className={`h-full rounded-full transition-opacity ${barColor}`}
+                      style={{ width: `${cat.barWidthPercent}%` }}
                     />
                   </div>
+                )}
 
-                  <div className="flex items-center justify-between text-[11px] tabular-nums">
-                    {limit > 0 ? (
-                      <>
-                        <span
-                          className={
-                            status === 'exceeded'
-                              ? 'text-rose-600 font-semibold'
-                              : status === 'near'
-                              ? 'text-amber-600 font-semibold'
-                              : 'text-emerald-700 font-medium'
-                          }
-                        >
-                          {pctUsed}%
-                        </span>
-                        <span className={status === 'exceeded' ? 'text-rose-600 font-semibold' : 'text-slate-500'}>
-                          {catProg && catProg.overAmount > 0
-                            ? `+R ${catProg.overAmount.toFixed(0)} over`
-                            : `R ${(catProg?.remaining ?? 0).toFixed(0)} left`}
-                        </span>
-                      </>
-                    ) : (
-                      <span className="text-slate-400">Budget not set</span>
-                    )}
-                  </div>
-                </div>
-
-                {/* Baseline Month Comparison Line */}
-                <div className="pt-2 border-t border-slate-100 flex items-center justify-between text-[10px] tabular-nums">
-                  <span className="text-slate-400">
-                    {monthB}: R {cat.monthB.toFixed(0)}
-                  </span>
-                  {cat.monthA === 0 && cat.monthB === 0 ? (
-                    <span className="text-slate-400">No spend</span>
-                  ) : isCatSaving ? (
-                    <span className="text-emerald-700 font-semibold">
-                      -R {Math.abs(cat.diff).toFixed(0)} vs {monthB}
-                    </span>
-                  ) : cat.diff > 0 ? (
-                    <span className="text-rose-600 font-semibold">
-                      +R {cat.diff.toFixed(0)} vs {monthB}
-                    </span>
-                  ) : (
-                    <span className="text-slate-500">Unchanged</span>
-                  )}
-                </div>
+                <p className="text-xs text-slate-500 dark:text-slate-400 tabular-nums">
+                  {statusLabel}
+                </p>
               </div>
             );
           })}
         </div>
-      </div>
+      </section>
 
-      {/* Alphabetical Item Table Section */}
-      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden flex flex-col">
-        {/* Table Controls */}
-        <div className="p-4 border-b border-slate-200 flex flex-col md:flex-row items-start md:items-center justify-between gap-3 bg-slate-50/50">
+      {/* 6-Month Timeline (Full Interactive Chart on Plus, Calm Unlock Preview on Free) */}
+      {isPlus ? (
+        <SpendingTrendChart
+          receipts={receipts}
+          selectedMonth={selectedMonth}
+          currencyCode={currencyCode}
+          onSelectMonth={onSelectMonth}
+        />
+      ) : (
+        <section className="rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800 p-5 sm:p-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div className="space-y-1 max-w-xl">
+            <h2 className="text-base sm:text-lg font-bold text-slate-900 dark:text-white">
+              6-Month Spending Timeline
+            </h2>
+            <p className="text-xs sm:text-sm text-slate-600 dark:text-slate-400 leading-relaxed tabular-nums">
+              Your 6-month household average is{' '}
+              <strong className="font-semibold text-slate-900 dark:text-white">
+                {formatMoney(sixMonthPreview.averageMonthlySpend, currencyCode)}/mo
+              </strong>
+              . Unlock interactive 6-month category charts and full item price history with
+              ParserPro Plus.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => onOpenUpgrade('price_history')}
+            className="min-h-[44px] px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs sm:text-sm font-semibold flex items-center gap-2 whitespace-nowrap shrink-0 self-start sm:self-auto"
+          >
+            <Sparkles className="w-4 h-4" />
+            <span>Unlock Timeline</span>
+          </button>
+        </section>
+      )}
+
+      {/* A-Z Item Price Comparison Table */}
+      <section className="rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800 p-5 sm:p-6 space-y-4">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
           <div>
-            <h3 className="text-sm font-bold text-slate-800 flex items-center gap-2">
-              <span>Item-by-Item Calculated Ledger</span>
-              <span className="text-xs font-semibold px-2 py-0.5 bg-emerald-100 text-emerald-800 rounded-full">
-                Alphabetical Order (A-Z)
-              </span>
-            </h3>
-            <p className="text-xs text-slate-500 mt-0.5">
-              Live totals calculated for every grocery, utility, and household item.
+            <h2 className="text-base sm:text-lg font-bold text-slate-900 dark:text-white">
+              Item-by-Item Price Comparison
+            </h2>
+            <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 tabular-nums">
+              Comparing {filteredItems.length} matched items between{' '}
+              {formatMonthLabel(selectedMonth)} and {formatMonthLabel(comparisonMonth)}
             </p>
           </div>
 
-          <div className="flex flex-wrap items-center gap-2 w-full md:w-auto">
-            {/* Search */}
-            <div className="relative flex-1 md:w-56">
-              <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="flex items-center gap-1 p-1 bg-slate-100 dark:bg-slate-800 rounded-xl">
+              {(
+                [
+                  { id: 'all', label: 'All' },
+                  { id: 'spent_more', label: 'Spent More' },
+                  { id: 'saved_more', label: 'Saved' },
+                ] as const
+              ).map((tab) => (
+                <button
+                  key={tab.id}
+                  type="button"
+                  onClick={() => setStatusFilter(tab.id)}
+                  className={`min-h-[36px] px-3 py-1 text-xs font-medium rounded-lg transition-colors whitespace-nowrap ${
+                    statusFilter === tab.id
+                      ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-sm font-semibold'
+                      : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                  }`}
+                >
+                  {tab.label}
+                </button>
+              ))}
+            </div>
+
+            <div className="relative w-full sm:w-52">
+              <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
               <input
                 type="text"
-                placeholder="Filter items..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full pl-8 pr-3 py-1.5 text-xs bg-white border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                value={itemSearch}
+                onChange={(e) => setItemSearch(e.target.value)}
+                placeholder="Search item..."
+                className="w-full min-h-[40px] pl-9 pr-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50/70 dark:bg-slate-800 text-xs sm:text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-600"
               />
             </div>
-
-            {/* Filter */}
-            <div className="flex items-center gap-1 bg-slate-200/70 p-0.5 rounded-xl">
-              <button
-                onClick={() => setStatusFilter('all')}
-                className={`px-2.5 py-1 text-[11px] font-bold rounded-lg transition-all ${
-                  statusFilter === 'all' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600'
-                }`}
-              >
-                All
-              </button>
-              <button
-                onClick={() => setStatusFilter('saved_more')}
-                className={`px-2.5 py-1 text-[11px] font-bold rounded-lg transition-all ${
-                  statusFilter === 'saved_more' ? 'bg-emerald-600 text-white shadow-xs' : 'text-slate-600'
-                }`}
-              >
-                Saved More
-              </button>
-              <button
-                onClick={() => setStatusFilter('spent_more')}
-                className={`px-2.5 py-1 text-[11px] font-bold rounded-lg transition-all ${
-                  statusFilter === 'spent_more' ? 'bg-rose-600 text-white shadow-xs' : 'text-slate-600'
-                }`}
-              >
-                Spent More
-              </button>
-            </div>
-
-            {/* Sort order */}
-            <select
-              value={sortBy}
-              onChange={(e: any) => setSortBy(e.target.value)}
-              className="bg-white border border-slate-200 text-slate-700 font-bold text-xs rounded-xl px-2.5 py-1.5 focus:outline-none"
-            >
-              <option value="alpha">A-Z Alphabetical</option>
-              <option value="diff_low">Biggest Savings First</option>
-              <option value="diff_high">Biggest Increases First</option>
-              <option value="totalA">Highest Total Spend ({monthA})</option>
-            </select>
           </div>
         </div>
 
-        {/* Table Body */}
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-xs">
-            <thead className="bg-slate-100/80 text-slate-600 font-bold border-b border-slate-200 uppercase tracking-wider text-[10px]">
-              <tr>
-                <th className="py-3 px-4">Item Name (A to Z)</th>
-                <th className="py-3 px-3">Category</th>
-                <th className="py-3 px-3 text-center">{monthA} Qty</th>
-                <th className="py-3 px-4 text-right">{monthA} Total (ZAR)</th>
-                <th className="py-3 px-3 text-center">{monthB} Qty</th>
-                <th className="py-3 px-4 text-right">{monthB} Total (ZAR)</th>
-                <th className="py-3 px-4 text-right">Variance (Diff)</th>
-                <th className="py-3 px-4 text-center">Status / Trend</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100 text-slate-700">
-              {displayedItems.length === 0 ? (
-                <tr>
-                  <td colSpan={8} className="py-8 text-center text-slate-400">
-                    No items match the selected filter.
-                  </td>
+        {displayedItems.length === 0 ? (
+          <p className="text-sm text-slate-500 dark:text-slate-400 py-6 text-center">
+            No matching items found for this filter.
+          </p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-left border-collapse">
+              <thead>
+                <tr className="border-b border-slate-200 dark:border-slate-800 text-xs font-semibold text-slate-500 dark:text-slate-400">
+                  <th className="py-2.5 pr-4">Item</th>
+                  <th className="py-2.5 px-3 text-right whitespace-nowrap">
+                    {formatMonthLabel(comparisonMonth)}
+                  </th>
+                  <th className="py-2.5 px-3 text-right whitespace-nowrap">
+                    {formatMonthLabel(selectedMonth)}
+                  </th>
+                  <th className="py-2.5 pl-3 text-right whitespace-nowrap">Difference</th>
                 </tr>
-              ) : (
-                displayedItems.map((item, idx) => {
-                  const isSaving = item.status === 'saved_more' || item.status === 'not_purchased';
-                  const isIncrease = item.status === 'spent_more';
-                  return (
-                    <tr key={idx} className="hover:bg-slate-50/80 transition-colors">
-                      {/* Name */}
-                      <td className="py-3 px-4 font-bold text-slate-900 flex items-center gap-2">
-                        <span>{item.name}</span>
-                      </td>
-
-                      {/* Category */}
-                      <td className="py-3 px-3">
-                        <span className="text-[10px] font-semibold px-2 py-0.5 bg-slate-100 text-slate-600 rounded-md">
-                          {item.category}
+              </thead>
+              <tbody className="divide-y divide-slate-100 dark:divide-slate-800/80 text-xs sm:text-sm">
+                {displayedItems.map((item, idx) => (
+                  <tr key={`${item.name}_${idx}`}>
+                    <td className="py-3 pr-4">
+                      <p className="font-semibold text-slate-900 dark:text-white">{item.name}</p>
+                      <p className="text-xs text-slate-500 dark:text-slate-400">
+                        <span>{item.category}</span>
+                        <span aria-hidden="true" className="mx-1.5">
+                          ·
                         </span>
-                      </td>
+                        <span className="tabular-nums">Qty {item.monthA_quantity}</span>
+                      </p>
+                    </td>
+                    <td className="py-3 px-3 text-right font-mono tabular-nums text-slate-600 dark:text-slate-400 whitespace-nowrap">
+                      {formatMoney(item.monthB_total, currencyCode)}
+                    </td>
+                    <td className="py-3 px-3 text-right font-mono tabular-nums font-semibold text-slate-900 dark:text-white whitespace-nowrap">
+                      {formatMoney(item.monthA_total, currencyCode)}
+                    </td>
+                    <td
+                      className={`py-3 pl-3 text-right font-mono tabular-nums font-semibold whitespace-nowrap ${
+                        item.amount_diff > 0
+                          ? 'text-rose-600 dark:text-rose-400'
+                          : item.amount_diff < 0
+                          ? 'text-emerald-600 dark:text-emerald-400'
+                          : 'text-slate-500'
+                      }`}
+                    >
+                      {item.amount_diff > 0 ? '+' : ''}
+                      {formatMoney(item.amount_diff, currencyCode)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
 
-                      {/* Month A Qty */}
-                      <td className="py-3 px-3 text-center font-mono font-semibold">
-                        {item.monthA_quantity > 0 ? item.monthA_quantity : <span className="text-slate-300">0</span>}
-                      </td>
-
-                      {/* Month A Total */}
-                      <td className="py-3 px-4 text-right font-bold text-slate-900 font-mono">
-                        {item.monthA_total > 0 ? (
-                          `R ${item.monthA_total.toFixed(2)}`
-                        ) : (
-                          <span className="text-slate-300">R 0.00</span>
-                        )}
-                      </td>
-
-                      {/* Month B Qty */}
-                      <td className="py-3 px-3 text-center font-mono font-semibold text-slate-500">
-                        {item.monthB_quantity > 0 ? item.monthB_quantity : <span className="text-slate-300">0</span>}
-                      </td>
-
-                      {/* Month B Total */}
-                      <td className="py-3 px-4 text-right font-mono text-slate-500">
-                        {item.monthB_total > 0 ? (
-                          `R ${item.monthB_total.toFixed(2)}`
-                        ) : (
-                          <span className="text-slate-300">R 0.00</span>
-                        )}
-                      </td>
-
-                      {/* Diff */}
-                      <td className="py-3 px-4 text-right font-mono font-bold">
-                        {item.amount_diff === 0 ? (
-                          <span className="text-slate-400">R 0.00</span>
-                        ) : isSaving ? (
-                          <span className="text-emerald-600">
-                            - R {Math.abs(item.amount_diff).toFixed(2)}
-                          </span>
-                        ) : (
-                          <span className="text-rose-600">
-                            + R {Math.abs(item.amount_diff).toFixed(2)}
-                          </span>
-                        )}
-                      </td>
-
-                      {/* Status */}
-                      <td className="py-3 px-4 text-center">
-                        {item.status === 'saved_more' && (
-                          <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-full font-bold text-[10px]">
-                            <TrendingDown className="w-3 h-3 text-emerald-600" />
-                            Saved ({Math.abs(item.percent_change)}%)
-                          </span>
-                        )}
-
-                        {item.status === 'not_purchased' && (
-                          <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-full font-bold text-[10px]">
-                            <ShieldCheck className="w-3 h-3 text-emerald-600" />
-                            Not Bought (Saved 100%)
-                          </span>
-                        )}
-
-                        {item.status === 'spent_more' && (
-                          <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-rose-50 text-rose-700 border border-rose-200 rounded-full font-bold text-[10px]">
-                            <TrendingUp className="w-3 h-3 text-rose-600" />
-                            Spent More (+{item.percent_change}%)
-                          </span>
-                        )}
-
-                        {item.status === 'new_item' && (
-                          <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-blue-50 text-blue-700 border border-blue-200 rounded-full font-bold text-[10px]">
-                            <Sparkles className="w-3 h-3 text-blue-600" />
-                            New Item
-                          </span>
-                        )}
-
-                        {item.status === 'unchanged' && (
-                          <span className="inline-block px-2 py-0.5 bg-slate-100 text-slate-600 rounded text-[10px]">
-                            Equal
-                          </span>
-                        )}
-                      </td>
-                    </tr>
-                  );
-                })
-              )}
-            </tbody>
-            <tfoot className="bg-slate-100 font-bold text-slate-800 border-t border-slate-300">
-              <tr>
-                <td colSpan={3} className="py-3 px-4 text-slate-600">
-                  Total Month Spend & Variance:
-                </td>
-                <td className="py-3 px-4 text-right text-emerald-700 text-sm font-black">
-                  R {comparison.totalA.toFixed(2)}
-                </td>
-                <td className="py-3 px-3"></td>
-                <td className="py-3 px-4 text-right text-slate-600 text-sm">
-                  R {comparison.totalB.toFixed(2)}
-                </td>
-                <td className="py-3 px-4 text-right text-sm font-black">
-                  {isNetSaving ? (
-                    <span className="text-emerald-700">- R {Math.abs(comparison.totalDiff).toFixed(2)}</span>
-                  ) : (
-                    <span className="text-rose-700">+ R {comparison.totalDiff.toFixed(2)}</span>
-                  )}
-                </td>
-                <td className="py-3 px-4 text-center text-xs">
-                  {isNetSaving ? (
-                    <span className="text-emerald-700 font-bold">Net Savings</span>
-                  ) : (
-                    <span className="text-rose-700 font-bold">Net Increase</span>
-                  )}
-                </td>
-              </tr>
-            </tfoot>
-          </table>
-        </div>
-      </div>
-
-      {/* Category Budget Configuration Modal */}
-      <BudgetLimitsModal
-        isOpen={isBudgetModalOpen}
-        onClose={() => setIsBudgetModalOpen(false)}
-        budgets={activeBudgets}
-        onSave={handleSaveBudgets}
-        selectedMonth={monthA}
-        monthCategoryTotals={selectedMonthReport.category_totals}
-        initialFocusCategory={focusBudgetCategory}
-      />
+        {/* Free Starter Preview Unlock Card */}
+        {!isPlus && hiddenItemCount > 0 && (
+          <div className="pt-3 border-t border-slate-100 dark:border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <p className="text-xs sm:text-sm text-slate-600 dark:text-slate-400">
+              Showing top {FREE_PRICE_COMPARISON_PREVIEW_LIMIT} items. Unlock{' '}
+              <strong className="font-semibold text-slate-900 dark:text-white">
+                {hiddenItemCount} more item comparisons
+              </strong>{' '}
+              and Excel exports with ParserPro Plus.
+            </p>
+            <button
+              type="button"
+              onClick={() => onOpenUpgrade('price_history')}
+              className="min-h-[44px] px-4 py-2 rounded-xl bg-slate-900 dark:bg-emerald-600 hover:bg-slate-800 dark:hover:bg-emerald-500 text-white text-xs sm:text-sm font-semibold whitespace-nowrap self-start sm:self-auto"
+            >
+              See All {filteredItems.length} Items
+            </button>
+          </div>
+        )}
+      </section>
     </div>
   );
 };

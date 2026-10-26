@@ -1,486 +1,471 @@
-import React, { useState } from 'react';
-import { Calendar, Store, Tag, Plus, Search, ChevronDown, ChevronUp, Trash2, TrendingUp, Receipt, ShoppingCart, RotateCcw, Edit3, FileDown, Share2, Printer, Loader2, Check } from 'lucide-react';
-import type { SavedReceipt, ReceiptCategory } from '../types';
-import { downloadSingleMonthPDF, shareOrSaveSingleMonthPDF, downloadSingleReceiptPDF, triggerSystemPrint, printSingleReceiptSafely } from '../utils/pdfGenerator';
+import React, { useState, useMemo } from 'react';
+import {
+  ChevronDown,
+  ChevronRight,
+  Download,
+  Share2,
+  Printer,
+  Pencil,
+  Trash2,
+  Search,
+  Plus,
+  Camera,
+  FileText,
+} from 'lucide-react';
+import type { ReceiptCategory, SavedReceipt } from '../types';
+import {
+  downloadSingleReceiptPDF,
+  printSingleReceiptSafely,
+  downloadSingleMonthPDF,
+  shareOrSaveSingleMonthPDF,
+} from '../utils/pdfGenerator';
+import {
+  formatMoney,
+  formatMonthLabel,
+  formatShortDate,
+} from '../utils/currencyFormat';
 
 interface MonthlyReceiptsListProps {
   receipts: SavedReceipt[];
+  selectedMonth: string;
+  onSelectMonth: (month: string) => void;
+  availableMonths: string[];
+  currencyCode: string;
   onDeleteReceipt: (id: string) => void;
   onEditReceipt: (receipt: SavedReceipt) => void;
-  onAddManualReceipt: () => void;
-  onGoToReport: (month: string) => void;
-  selectedMonth: string;
-  setSelectedMonth: (month: string) => void;
+  onOpenAddManual: () => void;
+  onOpenSearch: () => void;
+  onGoToScanner: () => void;
+  onOpenPrintableReport: (month: string) => void;
 }
+
+const FILTER_CATEGORIES: ('All' | ReceiptCategory)[] = [
+  'All',
+  'Food & Groceries',
+  'Electricity & Utilities',
+  'Home Maintenance',
+  'Transport',
+  'Other',
+];
 
 export const MonthlyReceiptsList: React.FC<MonthlyReceiptsListProps> = ({
   receipts,
+  selectedMonth,
+  onSelectMonth,
+  availableMonths,
+  currencyCode,
   onDeleteReceipt,
   onEditReceipt,
-  onAddManualReceipt,
-  onGoToReport,
-  selectedMonth,
-  setSelectedMonth
+  onOpenAddManual,
+  onOpenSearch,
+  onGoToScanner,
+  onOpenPrintableReport,
 }) => {
-  const [searchQuery, setSearchQuery] = useState('');
-  const [selectedCategory, setSelectedCategory] = useState<string>('all');
-  const [expandedReceiptId, setExpandedReceiptId] = useState<string | null>(null);
-  const [isDownloadingPdf, setIsDownloadingPdf] = useState(false);
-  const [downloadingInvoiceId, setDownloadingInvoiceId] = useState<string | null>(null);
-  const [isSharingPdf, setIsSharingPdf] = useState(false);
-  const [feedbackToast, setFeedbackToast] = useState<string | null>(null);
+  const [categoryFilter, setCategoryFilter] = useState<'All' | ReceiptCategory>('All');
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [localQuery, setLocalQuery] = useState('');
 
-  const currentMonthDefault = new Date().toISOString().substring(0, 7);
+  const monthReceipts = useMemo(() => {
+    return receipts
+      .filter((r) => r.month_year === selectedMonth)
+      .filter((r) => (categoryFilter === 'All' ? true : r.category === categoryFilter))
+      .filter((r) => {
+        if (!localQuery.trim()) return true;
+        const q = localQuery.toLowerCase();
+        const inVendor = r.vendor_name.toLowerCase().includes(q);
+        const inNotes = (r.notes || '').toLowerCase().includes(q);
+        const inItems = (r.line_items || []).some((li) =>
+          li.description.toLowerCase().includes(q)
+        );
+        return inVendor || inNotes || inItems;
+      })
+      .sort((a, b) => b.invoice_date.localeCompare(a.invoice_date));
+  }, [receipts, selectedMonth, categoryFilter, localQuery]);
 
-  // Extract all distinct months available in descending order
-  const availableMonths = Array.from(new Set<string>(receipts.map(r => r.month_year)))
-    .sort((a, b) => b.localeCompare(a));
+  const monthTotalSpend = useMemo(
+    () => monthReceipts.reduce((acc, r) => acc + (Number(r.total_amount) || 0), 0),
+    [monthReceipts]
+  );
 
-  // If selectedMonth not in available, default to latest or current
-  const activeMonth = availableMonths.includes(selectedMonth)
-    ? selectedMonth
-    : availableMonths[0] || currentMonthDefault;
+  const monthItemCount = useMemo(
+    () => monthReceipts.reduce((acc, r) => acc + (r.line_items?.length || 0), 0),
+    [monthReceipts]
+  );
 
-  // Filter receipts by active month, search query, and category
-  const monthReceipts = receipts.filter(r => r.month_year === activeMonth);
-
-  // Sort strictly chronologically by invoice_date (descending)
-  const sortedReceipts = [...monthReceipts].sort((a, b) => {
-    return b.invoice_date.localeCompare(a.invoice_date);
-  });
-
-  const filteredReceipts = sortedReceipts.filter(r => {
-    const matchesCategory = selectedCategory === 'all' || r.category === selectedCategory;
-    const matchesSearch =
-      r.vendor_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      r.notes.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      r.line_items.some(item => item.description.toLowerCase().includes(searchQuery.toLowerCase()));
-    return matchesCategory && matchesSearch;
-  });
-
-  // Calculate monthly stats
-  const totalMonthlySpend = monthReceipts.reduce((acc, r) => acc + (Number(r.total_amount) || 0), 0);
-  const totalMonthlyItems = monthReceipts.reduce((acc, r) => acc + r.line_items.length, 0);
-
-  const getCategoryColor = (cat: ReceiptCategory) => {
-    switch (cat) {
-      case 'Food & Groceries':
-        return 'bg-emerald-50 text-emerald-700 border-emerald-200';
-      case 'Electricity & Utilities':
-        return 'bg-amber-50 text-amber-700 border-amber-200';
-      case 'Home Maintenance':
-        return 'bg-blue-50 text-blue-700 border-blue-200';
-      case 'Transport':
-        return 'bg-purple-50 text-purple-700 border-purple-200';
-      default:
-        return 'bg-slate-50 text-slate-700 border-slate-200';
-    }
-  };
+  if (receipts.length === 0) {
+    return (
+      <div className="rounded-3xl bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800 p-8 sm:p-12 text-center space-y-5">
+        <div className="w-12 h-12 rounded-2xl bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 flex items-center justify-center mx-auto">
+          <FileText className="w-6 h-6" />
+        </div>
+        <div className="max-w-md mx-auto space-y-2">
+          <h1 className="text-xl sm:text-2xl font-bold text-slate-900 dark:text-white text-balance">
+            Your receipt ledger is clean and ready
+          </h1>
+          <p className="text-sm text-slate-600 dark:text-slate-400 leading-relaxed">
+            Every slip you scan or add is organized automatically by month, store, and category —
+            ready for PDF statements anytime.
+          </p>
+        </div>
+        <div className="flex flex-wrap items-center justify-center gap-3 pt-1">
+          <button
+            type="button"
+            onClick={onGoToScanner}
+            className="min-h-[48px] px-6 py-3 rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-sm flex items-center gap-2 whitespace-nowrap"
+          >
+            <Camera className="w-4 h-4" />
+            <span>Scan First Receipt</span>
+          </button>
+          <button
+            type="button"
+            onClick={onOpenAddManual}
+            className="min-h-[48px] px-5 py-3 rounded-2xl border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 font-semibold text-sm flex items-center gap-2 whitespace-nowrap"
+          >
+            <Plus className="w-4 h-4" />
+            <span>Add Manually</span>
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
-    <div className="h-full flex flex-col p-4 sm:p-6 max-w-7xl mx-auto w-full gap-5 overflow-auto">
-      {/* Month Tabs Bar */}
-      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
-        <div className="flex items-center gap-2 overflow-x-auto w-full sm:w-auto pb-1 sm:pb-0">
-          <span className="text-xs font-bold uppercase tracking-wider text-slate-400 mr-2 flex items-center gap-1">
-            <Calendar className="w-3.5 h-3.5" /> Months:
-          </span>
-          {availableMonths.length === 0 ? (
-            <span className="text-xs text-slate-400">No months recorded</span>
-          ) : (
-            availableMonths.map((m) => {
-              const count = receipts.filter(r => r.month_year === m).length;
-              return (
-                <button
-                  key={m}
-                  onClick={() => setSelectedMonth(m)}
-                  className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 shrink-0 ${
-                    activeMonth === m
-                      ? 'bg-slate-900 text-white shadow-sm'
-                      : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                  }`}
-                >
-                  <span>{m}</span>
-                  <span className={`px-1.5 py-0.2 rounded-full text-[10px] ${
-                    activeMonth === m ? 'bg-slate-700 text-white' : 'bg-slate-200 text-slate-700'
-                  }`}>
-                    {count}
-                  </span>
-                </button>
-              );
-            })
+    <div className="space-y-6">
+      {/* Top Month & Statement Toolbar */}
+      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+        <div className="flex flex-wrap items-center gap-3">
+          <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white">
+            Receipts
+          </h1>
+          <select
+            aria-label="Select month"
+            value={selectedMonth}
+            onChange={(e) => onSelectMonth(e.target.value)}
+            className="min-h-[44px] px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-sm font-semibold text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-600"
+          >
+            {availableMonths.map((m) => (
+              <option key={m} value={m}>
+                {formatMonthLabel(m)}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        {/* Free Single-Month PDF & Entry Actions */}
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={onOpenSearch}
+            className="min-h-[44px] px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-xs sm:text-sm font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 flex items-center gap-2 whitespace-nowrap shrink-0"
+          >
+            <Search className="w-4 h-4 text-slate-400" />
+            <span>Search All</span>
+          </button>
+
+          {monthReceipts.length > 0 && (
+            <>
+              <button
+                type="button"
+                onClick={() => downloadSingleMonthPDF(selectedMonth, receipts)}
+                className="min-h-[44px] px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-xs sm:text-sm font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 flex items-center gap-2 whitespace-nowrap shrink-0"
+              >
+                <Download className="w-4 h-4 text-slate-500" />
+                <span>Month PDF</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => shareOrSaveSingleMonthPDF(selectedMonth, receipts)}
+                className="min-h-[44px] px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-xs sm:text-sm font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 flex items-center gap-2 whitespace-nowrap shrink-0"
+              >
+                <Share2 className="w-4 h-4 text-slate-500" />
+                <span>Share</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => onOpenPrintableReport(selectedMonth)}
+                className="min-h-[44px] px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-xs sm:text-sm font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 flex items-center gap-2 whitespace-nowrap shrink-0"
+              >
+                <Printer className="w-4 h-4 text-slate-500" />
+                <span>Statement</span>
+              </button>
+            </>
           )}
-        </div>
-
-        <div className="flex items-center gap-1.5 sm:gap-2 self-end sm:self-auto flex-wrap">
-          {/* Direct Download Statement PDF */}
-          <button
-            onClick={async () => {
-              setIsDownloadingPdf(true);
-              setFeedbackToast(null);
-              const res = await downloadSingleMonthPDF(activeMonth, receipts);
-              setIsDownloadingPdf(false);
-              if (res.success) {
-                setFeedbackToast(`Statement PDF (${res.filename}) downloaded to device!`);
-                setTimeout(() => setFeedbackToast(null), 4000);
-              }
-            }}
-            disabled={isDownloadingPdf}
-            className="px-3 py-1.5 bg-emerald-50 hover:bg-emerald-100 disabled:opacity-50 text-emerald-800 border border-emerald-200 rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-2xs transition-colors cursor-pointer"
-            title={`Download ${activeMonth} statement as vector PDF`}
-          >
-            {isDownloadingPdf ? (
-              <Loader2 className="w-3.5 h-3.5 animate-spin" />
-            ) : (
-              <FileDown className="w-3.5 h-3.5 text-emerald-600" />
-            )}
-            <span className="hidden sm:inline">Export PDF</span>
-            <span className="sm:hidden">PDF</span>
-          </button>
-
-          {/* Share Statement */}
-          <button
-            onClick={async () => {
-              setIsSharingPdf(true);
-              setFeedbackToast(null);
-              const res = await shareOrSaveSingleMonthPDF(activeMonth, receipts);
-              setIsSharingPdf(false);
-              setFeedbackToast(res.message);
-              setTimeout(() => setFeedbackToast(null), 4500);
-            }}
-            disabled={isSharingPdf}
-            className="px-2.5 sm:px-3 py-1.5 bg-slate-100 hover:bg-slate-200 disabled:opacity-50 text-slate-800 border border-slate-200 rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-2xs transition-colors cursor-pointer"
-            title={`Share ${activeMonth} PDF via WhatsApp, Drive or Gmail`}
-          >
-            {isSharingPdf ? (
-              <Loader2 className="w-3.5 h-3.5 animate-spin" />
-            ) : (
-              <Share2 className="w-3.5 h-3.5 text-emerald-600" />
-            )}
-            <span>Share</span>
-          </button>
 
           <button
-            onClick={() => onGoToReport(activeMonth)}
-            className="px-3.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-200 rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-sm transition-colors cursor-pointer"
+            type="button"
+            onClick={onOpenAddManual}
+            className="min-h-[44px] px-4 py-2 rounded-xl bg-slate-900 dark:bg-emerald-600 hover:bg-slate-800 dark:hover:bg-emerald-500 text-white text-xs sm:text-sm font-semibold flex items-center gap-1.5 whitespace-nowrap shrink-0"
           >
-            <TrendingUp className="w-3.5 h-3.5 text-slate-600" />
-            <span className="hidden md:inline">Analyze {activeMonth}</span>
-            <span className="md:hidden">Report</span>
-          </button>
-
-          <button
-            onClick={onAddManualReceipt}
-            className="px-3.5 py-1.5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-sm transition-colors cursor-pointer"
-          >
-            <Plus className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">Add Receipt</span>
-            <span className="sm:hidden">Add</span>
+            <Plus className="w-4 h-4" />
+            <span>Add Receipt</span>
           </button>
         </div>
       </div>
 
-      {/* Feedback Toast */}
-      {feedbackToast && (
-        <div className="bg-emerald-950/80 border border-emerald-500/40 text-emerald-200 px-4 py-2.5 rounded-2xl text-xs flex items-center gap-2 animate-in fade-in shadow-lg">
-          <Check className="w-4 h-4 text-emerald-400 shrink-0" />
-          <span>{feedbackToast}</span>
-        </div>
-      )}
-
-      {/* Monthly Overview Card */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm flex items-center justify-between">
-          <div>
-            <div className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">
-              {activeMonth} Total Spend
-            </div>
-            <div className="text-2xl font-black text-slate-800 mt-0.5">
-              R {totalMonthlySpend.toFixed(2)}
-            </div>
-          </div>
-          <div className="w-10 h-10 rounded-xl bg-emerald-50 flex items-center justify-center text-emerald-600">
-            <Receipt className="w-5 h-5" />
-          </div>
+      {/* Summary KPI Strip */}
+      <div className="grid grid-cols-3 gap-3 sm:gap-4">
+        <div className="rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800 p-4 sm:p-5">
+          <p className="text-xs font-medium text-slate-500 dark:text-slate-400">
+            {formatMonthLabel(selectedMonth)} Spend
+          </p>
+          <p className="text-lg sm:text-2xl font-bold font-mono tabular-nums text-slate-900 dark:text-white mt-1 truncate">
+            {formatMoney(monthTotalSpend, currencyCode)}
+          </p>
         </div>
 
-        <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm flex items-center justify-between">
-          <div>
-            <div className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">
-              Receipts in {activeMonth}
-            </div>
-            <div className="text-2xl font-black text-slate-800 mt-0.5">
-              {monthReceipts.length} <span className="text-xs font-normal text-slate-500">Invoices</span>
-            </div>
-          </div>
-          <div className="w-10 h-10 rounded-xl bg-blue-50 flex items-center justify-center text-blue-600">
-            <Calendar className="w-5 h-5" />
-          </div>
+        <div className="rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800 p-4 sm:p-5">
+          <p className="text-xs font-medium text-slate-500 dark:text-slate-400">Saved Slips</p>
+          <p className="text-lg sm:text-2xl font-bold font-mono tabular-nums text-slate-900 dark:text-white mt-1">
+            {monthReceipts.length}
+          </p>
         </div>
 
-        <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm flex items-center justify-between">
-          <div>
-            <div className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">
-              Unique Line Items
-            </div>
-            <div className="text-2xl font-black text-slate-800 mt-0.5">
-              {totalMonthlyItems} <span className="text-xs font-normal text-slate-500">Items recorded</span>
-            </div>
-          </div>
-          <div className="w-10 h-10 rounded-xl bg-amber-50 flex items-center justify-center text-amber-600">
-            <ShoppingCart className="w-5 h-5" />
-          </div>
+        <div className="rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800 p-4 sm:p-5">
+          <p className="text-xs font-medium text-slate-500 dark:text-slate-400">Items Tracked</p>
+          <p className="text-lg sm:text-2xl font-bold font-mono tabular-nums text-slate-900 dark:text-white mt-1">
+            {monthItemCount}
+          </p>
         </div>
       </div>
 
-      {/* Filters & Search */}
-      <div className="flex flex-col sm:flex-row items-center justify-between gap-3 bg-white p-3.5 rounded-2xl border border-slate-200 shadow-sm">
-        <div className="relative w-full sm:w-80">
-          <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+      {/* Filter & Quick Filter Input */}
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+        <div className="flex items-center gap-1 p-1 bg-slate-100 dark:bg-slate-900 border border-slate-200/70 dark:border-slate-800 rounded-xl overflow-x-auto">
+          {FILTER_CATEGORIES.map((cat) => {
+            const active = categoryFilter === cat;
+            return (
+              <button
+                key={cat}
+                type="button"
+                onClick={() => setCategoryFilter(cat)}
+                className={`min-h-[38px] px-3 py-1.5 text-xs font-medium rounded-lg transition-colors whitespace-nowrap shrink-0 ${
+                  active
+                    ? 'bg-white dark:bg-slate-800 text-slate-900 dark:text-white shadow-sm font-semibold'
+                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                }`}
+              >
+                {cat === 'Electricity & Utilities'
+                  ? 'Utilities'
+                  : cat === 'Food & Groceries'
+                  ? 'Groceries'
+                  : cat === 'Home Maintenance'
+                  ? 'Home'
+                  : cat}
+              </button>
+            );
+          })}
+        </div>
+
+        <div className="relative w-full md:w-64">
+          <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
           <input
             type="text"
-            placeholder="Search vendor, item name or notes..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full pl-9 pr-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:bg-white"
+            value={localQuery}
+            onChange={(e) => setLocalQuery(e.target.value)}
+            placeholder="Filter store or item..."
+            className="w-full min-h-[42px] pl-9 pr-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-600"
           />
-        </div>
-
-        <div className="flex items-center gap-1.5 overflow-x-auto w-full sm:w-auto pb-1 sm:pb-0">
-          {['all', 'Food & Groceries', 'Electricity & Utilities', 'Home Maintenance', 'Transport', 'Other'].map((cat) => (
-            <button
-              key={cat}
-              onClick={() => setSelectedCategory(cat)}
-              className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all shrink-0 ${
-                selectedCategory === cat
-                  ? 'bg-emerald-600 text-white'
-                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-              }`}
-            >
-              {cat === 'all' ? 'All Categories' : cat}
-            </button>
-          ))}
         </div>
       </div>
 
-      {/* Receipts Chronological List */}
-      <div className="space-y-3">
-        <div className="flex items-center justify-between text-xs font-bold text-slate-400 uppercase tracking-widest px-1">
-          <span>Receipts Ordered Chronologically by Date</span>
-          <span>{filteredReceipts.length} Matching</span>
-        </div>
-
-        {filteredReceipts.length === 0 ? (
-          <div className="bg-white p-12 rounded-2xl border border-slate-200 text-center space-y-3">
-            <div className="w-12 h-12 rounded-2xl bg-slate-100 text-slate-400 mx-auto flex items-center justify-center">
-              <Receipt className="w-6 h-6" />
-            </div>
-            <p className="text-slate-700 text-sm font-bold">No receipts found for {activeMonth}</p>
-            <p className="text-xs text-slate-400 max-w-sm mx-auto">
-              Scan a receipt photo or add an invoice manually to track itemized spend for this month.
-            </p>
-            <div className="pt-2 flex items-center justify-center gap-2">
+      {/* Month Ledger List */}
+      {monthReceipts.length === 0 ? (
+        <div className="rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800 p-8 text-center space-y-3">
+          <p className="text-sm font-medium text-slate-700 dark:text-slate-300">
+            No receipts found for {formatMonthLabel(selectedMonth)}
+            {categoryFilter !== 'All' ? ` in ${categoryFilter}` : ''}.
+          </p>
+          <div className="flex items-center justify-center gap-3">
+            <button
+              type="button"
+              onClick={onGoToScanner}
+              className="min-h-[44px] px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs sm:text-sm font-semibold whitespace-nowrap"
+            >
+              Scan a Receipt
+            </button>
+            {categoryFilter !== 'All' && (
               <button
-                onClick={onAddManualReceipt}
-                className="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold inline-flex items-center gap-1.5 transition-colors shadow-sm"
+                type="button"
+                onClick={() => setCategoryFilter('All')}
+                className="min-h-[44px] px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-800 text-xs sm:text-sm font-medium text-slate-600 dark:text-slate-400 whitespace-nowrap"
               >
-                <Plus className="w-3.5 h-3.5" />
-                <span>Add Invoice Manually</span>
+                Show All Categories
               </button>
-            </div>
+            )}
           </div>
-        ) : (
-          filteredReceipts.map((receipt) => {
-            const isExpanded = expandedReceiptId === receipt.id;
+        </div>
+      ) : (
+        <div className="rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800 divide-y divide-slate-100 dark:divide-slate-800 overflow-hidden">
+          {monthReceipts.map((rcpt) => {
+            const isExpanded = expandedId === rcpt.id;
+            const isConfirmingDelete = confirmDeleteId === rcpt.id;
+
             return (
-              <div
-                key={receipt.id}
-                className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden transition-all hover:border-slate-300"
-              >
-                {/* Header Row */}
-                <div
-                  onClick={() => setExpandedReceiptId(isExpanded ? null : receipt.id)}
-                  className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 cursor-pointer hover:bg-slate-50/70"
+              <div key={rcpt.id} className="transition-colors">
+                <button
+                  type="button"
+                  onClick={() => setExpandedId(isExpanded ? null : rcpt.id)}
+                  className="w-full min-h-[64px] px-4 sm:px-6 py-4 flex items-center justify-between gap-4 text-left hover:bg-slate-50/80 dark:hover:bg-slate-800/40 transition-colors"
                 >
-                  <div className="flex items-start sm:items-center gap-3">
-                    <div className="w-10 h-10 rounded-xl bg-slate-100 flex items-center justify-center text-slate-700 shrink-0 font-black text-xs">
-                      {receipt.invoice_date.split('-')[2] || '—'}
-                      <span className="text-[9px] block text-slate-400 font-normal">
-                        {new Date(receipt.invoice_date).toLocaleString('default', { month: 'short' })}
-                      </span>
-                    </div>
-
-                    <div>
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span className="font-bold text-slate-800 text-sm">{receipt.vendor_name}</span>
-                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${getCategoryColor(receipt.category)}`}>
-                          {receipt.category}
+                  <div className="flex items-center gap-3 min-w-0">
+                    {isExpanded ? (
+                      <ChevronDown className="w-4 h-4 text-slate-400 shrink-0" />
+                    ) : (
+                      <ChevronRight className="w-4 h-4 text-slate-400 shrink-0" />
+                    )}
+                    <div className="min-w-0">
+                      <p className="text-sm sm:text-base font-semibold text-slate-900 dark:text-white truncate">
+                        {rcpt.vendor_name}
+                      </p>
+                      <p className="text-xs text-slate-500 dark:text-slate-400 truncate mt-0.5">
+                        <span>{formatShortDate(rcpt.invoice_date)}</span>
+                        <span aria-hidden="true" className="mx-1.5">
+                          ·
                         </span>
-                      </div>
-                      <div className="text-xs text-slate-400 flex items-center gap-3 mt-0.5">
-                        <span className="flex items-center gap-1">
-                          <Calendar className="w-3 h-3" /> {receipt.invoice_date}
+                        <span>{rcpt.category}</span>
+                        <span aria-hidden="true" className="mx-1.5">
+                          ·
                         </span>
-                        <span>•</span>
-                        <span>{receipt.line_items.length} line items</span>
-                        {receipt.notes && (
-                          <>
-                            <span>•</span>
-                            <span className="truncate max-w-[200px] italic">{receipt.notes}</span>
-                          </>
-                        )}
-                      </div>
+                        <span className="tabular-nums">
+                          {rcpt.line_items?.length || 0}{' '}
+                          {(rcpt.line_items?.length || 0) === 1 ? 'item' : 'items'}
+                        </span>
+                      </p>
                     </div>
                   </div>
 
-                  <div className="flex items-center justify-between sm:justify-end gap-4">
-                    <div className="text-right">
-                      <div className="text-sm font-black text-slate-900">
-                        {receipt.currency} {Number(receipt.total_amount).toFixed(2)}
-                      </div>
-                      <div className="text-[10px] text-slate-400">
-                        Tax: {receipt.currency} {Number(receipt.tax || 0).toFixed(2)}
-                      </div>
-                    </div>
+                  <span className="text-sm sm:text-base font-mono tabular-nums font-bold text-slate-900 dark:text-white shrink-0">
+                    {formatMoney(rcpt.total_amount, currencyCode)}
+                  </span>
+                </button>
 
-                    <div className="flex items-center gap-1">
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          onEditReceipt(receipt);
-                        }}
-                        className="p-1.5 text-slate-400 hover:text-emerald-600 rounded-lg hover:bg-emerald-50 transition-colors"
-                        title="Edit invoice details"
-                      >
-                        <Edit3 className="w-4 h-4" />
-                      </button>
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          if (confirm(`Delete receipt for ${receipt.vendor_name}?`)) {
-                            onDeleteReceipt(receipt.id);
-                          }
-                        }}
-                        className="p-1.5 text-slate-400 hover:text-red-600 rounded-lg hover:bg-red-50 transition-colors"
-                        title="Delete receipt"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                      <button className="p-1.5 text-slate-400">
-                        {isExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
-                      </button>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Expanded Line Items Table */}
+                {/* Expanded Line-Item Detail & Actions */}
                 {isExpanded && (
-                  <div className="border-t border-slate-100 bg-slate-50/60 p-4 sm:p-5">
-                    <div className="flex items-center justify-between mb-3">
-                      <h4 className="text-xs font-bold uppercase tracking-wider text-slate-500">
-                        Itemized Breakdown
-                      </h4>
-                      <span className="text-xs text-slate-400">
-                        Filed Under: <strong className="text-slate-700">{receipt.month_year}</strong> ({receipt.invoice_date})
-                      </span>
-                    </div>
-
-                    <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-2xs">
-                      <table className="w-full text-left text-xs">
-                        <thead className="bg-slate-100 text-slate-600 font-bold border-b border-slate-200">
-                          <tr>
-                            <th className="py-2.5 px-3">#</th>
-                            <th className="py-2.5 px-3">Description</th>
-                            <th className="py-2.5 px-3 text-center">Qty</th>
-                            <th className="py-2.5 px-3 text-right">Unit Price</th>
-                            <th className="py-2.5 px-3 text-right">Total</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-slate-100 text-slate-700">
-                          {receipt.line_items.map((item, idx) => (
-                            <tr key={idx} className="hover:bg-slate-50/80">
-                              <td className="py-2 px-3 text-slate-400 font-mono text-[10px]">{idx + 1}</td>
-                              <td className="py-2 px-3 font-medium text-slate-800">{item.description}</td>
-                              <td className="py-2 px-3 text-center font-mono">{item.quantity}</td>
-                              <td className="py-2 px-3 text-right text-slate-500">
-                                {receipt.currency} {Number(item.unit_price).toFixed(2)}
-                              </td>
-                              <td className="py-2 px-3 text-right font-bold text-slate-900">
-                                {receipt.currency} {Number(item.total_price).toFixed(2)}
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                        <tfoot className="bg-slate-50 font-bold text-slate-800 border-t border-slate-200">
-                          <tr>
-                            <td colSpan={3} className="py-2 px-3 text-slate-500 font-normal">
-                              Subtotal: {receipt.currency} {Number(receipt.subtotal).toFixed(2)} | Tax: {receipt.currency} {Number(receipt.tax).toFixed(2)}
-                            </td>
-                            <td className="py-2 px-3 text-right">Total Paid:</td>
-                            <td className="py-2 px-3 text-right text-emerald-700">
-                              {receipt.currency} {Number(receipt.total_amount).toFixed(2)}
-                            </td>
-                          </tr>
-                        </tfoot>
-                      </table>
-                    </div>
-
-                    {receipt.notes && (
-                      <div className="mt-3 text-xs text-slate-600 bg-amber-50/70 border border-amber-100 p-2.5 rounded-lg">
-                        <strong>Notes:</strong> {receipt.notes}
-                      </div>
+                  <div className="px-4 sm:px-6 pb-5 pt-2 bg-slate-50/60 dark:bg-slate-950/40 border-t border-slate-100 dark:border-slate-800/80 space-y-4">
+                    {rcpt.notes && (
+                      <p className="text-xs text-slate-600 dark:text-slate-400">
+                        Note: {rcpt.notes}
+                      </p>
                     )}
 
-                    {/* Individual Invoice Print / Save PDF Actions */}
-                    <div className="mt-3.5 pt-3 border-t border-slate-200/80 flex items-center justify-between flex-wrap gap-2">
-                      <div className="text-[11px] text-slate-400">
-                        Official Invoice PDF generated using client-side vector pipeline.
+                    {/* Line Items Table */}
+                    {rcpt.line_items && rcpt.line_items.length > 0 ? (
+                      <div className="divide-y divide-slate-200/70 dark:divide-slate-800">
+                        {rcpt.line_items.map((item, idx) => (
+                          <div
+                            key={idx}
+                            className="py-2 flex items-center justify-between gap-4 text-xs sm:text-sm"
+                          >
+                            <div className="min-w-0">
+                              <span className="text-slate-800 dark:text-slate-200">
+                                {item.description}
+                              </span>
+                              <span className="text-xs text-slate-500 dark:text-slate-400 ml-2 tabular-nums">
+                                {item.quantity} × {formatMoney(item.unit_price, currencyCode)}
+                              </span>
+                            </div>
+                            <span className="font-mono tabular-nums font-medium text-slate-900 dark:text-white shrink-0">
+                              {formatMoney(item.total_price, currencyCode)}
+                            </span>
+                          </div>
+                        ))}
                       </div>
-                      <div className="flex items-center gap-2">
+                    ) : (
+                      <p className="text-xs text-slate-500 dark:text-slate-400">
+                        No individual items listed on this receipt.
+                      </p>
+                    )}
+
+                    {/* Subtotal / Tax / Total Breakdown */}
+                    <div className="pt-2 border-t border-slate-200/80 dark:border-slate-800 flex flex-wrap items-center justify-between gap-3 text-xs text-slate-500 dark:text-slate-400 tabular-nums">
+                      <div>
+                        <span>Subtotal: {formatMoney(rcpt.subtotal, currencyCode)}</span>
+                        <span aria-hidden="true" className="mx-2">
+                          ·
+                        </span>
+                        <span>Tax: {formatMoney(rcpt.tax, currencyCode)}</span>
+                      </div>
+                      <div className="font-mono font-bold text-slate-900 dark:text-white text-sm">
+                        Total: {formatMoney(rcpt.total_amount, currencyCode)}
+                      </div>
+                    </div>
+
+                    {/* Receipt Actions (100% Free Single-Receipt PDF, Print, Edit, Inline Delete) */}
+                    <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
+                      <div className="flex flex-wrap items-center gap-2">
                         <button
-                          onClick={async (e) => {
-                            e.stopPropagation();
-                            setDownloadingInvoiceId(receipt.id);
-                            setFeedbackToast(null);
-                            const res = await downloadSingleReceiptPDF(receipt);
-                            setDownloadingInvoiceId(null);
-                            if (res.success) {
-                              setFeedbackToast(`Invoice PDF (${res.filename}) saved to your device Downloads!`);
-                              setTimeout(() => setFeedbackToast(null), 4000);
-                            }
-                          }}
-                          disabled={downloadingInvoiceId === receipt.id}
-                          className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-2xs transition-colors cursor-pointer"
-                          title="Save single invoice PDF directly to device"
+                          type="button"
+                          onClick={() => onEditReceipt(rcpt)}
+                          className="min-h-[44px] px-3.5 py-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-xs font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center gap-1.5 whitespace-nowrap"
                         >
-                          {downloadingInvoiceId === receipt.id ? (
-                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                          ) : (
-                            <FileDown className="w-3.5 h-3.5" />
-                          )}
-                          <span>Save PDF / Print to PDF</span>
+                          <Pencil className="w-3.5 h-3.5" />
+                          <span>Edit</span>
                         </button>
 
                         <button
-                          onClick={async (e) => {
-                            e.stopPropagation();
-                            await printSingleReceiptSafely(receipt);
-                          }}
-                          className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-2xs transition-colors cursor-pointer"
-                          title="Print this invoice"
+                          type="button"
+                          onClick={() => downloadSingleReceiptPDF(rcpt)}
+                          className="min-h-[44px] px-3.5 py-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-xs font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center gap-1.5 whitespace-nowrap"
                         >
-                          <Printer className="w-3.5 h-3.5 text-slate-500" />
+                          <Download className="w-3.5 h-3.5" />
+                          <span>PDF</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => printSingleReceiptSafely(rcpt)}
+                          className="min-h-[44px] px-3.5 py-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-xs font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center gap-1.5 whitespace-nowrap"
+                        >
+                          <Printer className="w-3.5 h-3.5" />
                           <span>Print</span>
                         </button>
                       </div>
+
+                      {isConfirmingDelete ? (
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs font-medium text-rose-600 dark:text-rose-400">
+                            Delete this receipt?
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              onDeleteReceipt(rcpt.id);
+                              setConfirmDeleteId(null);
+                              setExpandedId(null);
+                            }}
+                            className="min-h-[40px] px-3 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-semibold whitespace-nowrap"
+                          >
+                            Confirm
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setConfirmDeleteId(null)}
+                            className="min-h-[40px] px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-medium text-slate-600 dark:text-slate-300 whitespace-nowrap"
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => setConfirmDeleteId(rcpt.id)}
+                          className="min-h-[44px] px-3.5 py-2 rounded-xl text-xs font-medium text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/30 flex items-center gap-1.5 whitespace-nowrap"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                          <span>Delete</span>
+                        </button>
+                      )}
                     </div>
                   </div>
                 )}
               </div>
             );
-          })
-        )}
-      </div>
+          })}
+        </div>
+      )}
     </div>
   );
 };

@@ -1,283 +1,308 @@
 import React, { useState, useEffect } from 'react';
-import { X, Plus, Trash2, Save, AlertCircle } from 'lucide-react';
-import type { SavedReceipt, ReceiptCategory, LineItem } from '../types';
+import { X, Plus, Trash2, Check } from 'lucide-react';
+import type { LineItem, ReceiptCategory, SavedReceipt } from '../types';
+import { getCurrencySymbol } from '../utils/currencyFormat';
 
 interface EditReceiptModalProps {
-  receipt: SavedReceipt;
+  isOpen: boolean;
+  receipt: SavedReceipt | null;
+  currencyCode: string;
   onClose: () => void;
-  onSave: (updatedReceipt: SavedReceipt) => void;
+  onUpdateReceipt: (updated: SavedReceipt) => void;
 }
 
+const CATEGORIES: ReceiptCategory[] = [
+  'Food & Groceries',
+  'Electricity & Utilities',
+  'Home Maintenance',
+  'Transport',
+  'Other',
+];
+
 export const EditReceiptModal: React.FC<EditReceiptModalProps> = ({
+  isOpen,
   receipt,
+  currencyCode,
   onClose,
-  onSave,
+  onUpdateReceipt,
 }) => {
-  const [vendorName, setVendorName] = useState(receipt.vendor_name || '');
-  const [invoiceDate, setInvoiceDate] = useState(receipt.invoice_date || '');
-  const [category, setCategory] = useState<ReceiptCategory>(receipt.category || 'Food & Groceries');
-  const [currency, setCurrency] = useState(receipt.currency || 'ZAR');
-  const [notes, setNotes] = useState(receipt.notes || '');
-  const [items, setItems] = useState<LineItem[]>(
-    receipt.line_items && receipt.line_items.length > 0
-      ? receipt.line_items.map(item => ({ ...item }))
-      : [{ description: '', quantity: 1, unit_price: 0, total_price: 0 }]
-  );
-  const [taxRate, setTaxRate] = useState<number>(() => {
-    if (receipt.subtotal && receipt.tax) {
-      const calcRate = Math.round((receipt.tax / receipt.subtotal) * 100);
-      return calcRate > 0 && calcRate <= 30 ? calcRate : 15;
+  const [vendorName, setVendorName] = useState('');
+  const [invoiceDate, setInvoiceDate] = useState('');
+  const [category, setCategory] = useState<ReceiptCategory>('Food & Groceries');
+  const [totalAmount, setTotalAmount] = useState('');
+  const [taxAmount, setTaxAmount] = useState('');
+  const [notes, setNotes] = useState('');
+  const [lineItems, setLineItems] = useState<LineItem[]>([]);
+  const [validationError, setValidationError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (isOpen && receipt) {
+      setVendorName(receipt.vendor_name);
+      setInvoiceDate(receipt.invoice_date);
+      setCategory(receipt.category);
+      setTotalAmount(String(receipt.total_amount ?? 0));
+      setTaxAmount(String(receipt.tax ?? 0));
+      setNotes(receipt.notes || '');
+      setLineItems(receipt.line_items ? receipt.line_items.map((li) => ({ ...li })) : []);
+      setValidationError(null);
     }
-    return 15;
-  });
+  }, [isOpen, receipt]);
 
-  const handleItemChange = (index: number, field: keyof LineItem, value: any) => {
-    const updated = [...items];
-    updated[index] = { ...updated[index], [field]: value };
+  if (!isOpen || !receipt) return null;
 
-    // Auto calculate total_price when quantity or unit_price changes
-    if (field === 'quantity' || field === 'unit_price') {
-      const q = field === 'quantity' ? Number(value) : Number(updated[index].quantity);
-      const u = field === 'unit_price' ? Number(value) : Number(updated[index].unit_price);
-      updated[index].total_price = Number((q * u).toFixed(2));
-    }
+  const symbol = getCurrencySymbol(currencyCode);
 
-    setItems(updated);
+  const addItem = () => {
+    setLineItems((prev) => [
+      ...prev,
+      { description: '', quantity: 1, unit_price: 0, total_price: 0 },
+    ]);
   };
 
-  const addItemRow = () => {
-    setItems([...items, { description: '', quantity: 1, unit_price: 0, total_price: 0 }]);
+  const updateItem = (idx: number, patch: Partial<LineItem>) => {
+    setLineItems((prev) => {
+      const updated = prev.map((item, i) => {
+        if (i !== idx) return item;
+        const next = { ...item, ...patch };
+        if ('quantity' in patch || 'unit_price' in patch) {
+          next.total_price = Number(((next.quantity || 1) * (next.unit_price || 0)).toFixed(2));
+        }
+        return next;
+      });
+      const sum = updated.reduce((s, li) => s + (Number(li.total_price) || 0), 0);
+      if (sum > 0) {
+        setTotalAmount(sum.toFixed(2));
+      }
+      return updated;
+    });
   };
 
-  const removeItemRow = (index: number) => {
-    if (items.length > 1) {
-      setItems(items.filter((_, i) => i !== index));
-    }
+  const removeItem = (idx: number) => {
+    setLineItems((prev) => prev.filter((_, i) => i !== idx));
   };
-
-  const subtotal = Number(items.reduce((acc, i) => acc + (Number(i.total_price) || 0), 0).toFixed(2));
-  const tax = Number((subtotal * (taxRate / 100)).toFixed(2));
-  const totalAmount = Number((subtotal + tax).toFixed(2));
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    setValidationError(null);
+
+    const numericTotal = parseFloat(totalAmount) || 0;
+    const numericTax = parseFloat(taxAmount) || 0;
+
     if (!vendorName.trim()) {
-      alert('Please enter a vendor / store name.');
+      setValidationError('Please enter a store or provider name.');
+      return;
+    }
+    if (numericTotal <= 0) {
+      setValidationError('Please enter a receipt total greater than zero.');
       return;
     }
 
-    const monthYear = invoiceDate.substring(0, 7) || receipt.month_year;
-    const validItems = items.filter(i => i.description.trim() !== '');
+    const cleanedItems = lineItems.filter((li) => li.description.trim().length > 0);
 
-    if (validItems.length === 0) {
-      alert('Please have at least one valid line item with a description.');
-      return;
-    }
-
-    const updatedReceipt: SavedReceipt = {
+    onUpdateReceipt({
       ...receipt,
       vendor_name: vendorName.trim(),
       invoice_date: invoiceDate,
-      month_year: monthYear,
+      month_year: invoiceDate.substring(0, 7),
       category,
-      currency,
-      line_items: validItems,
-      subtotal,
-      tax,
-      total_amount: totalAmount,
+      currency: receipt.currency || currencyCode,
+      line_items: cleanedItems,
+      subtotal: Number(Math.max(0, numericTotal - numericTax).toFixed(2)),
+      tax: Number(numericTax.toFixed(2)),
+      total_amount: Number(numericTotal.toFixed(2)),
       notes: notes.trim(),
-    };
-
-    onSave(updatedReceipt);
+    });
     onClose();
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto no-print">
-      <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-2xl w-full p-6 space-y-5 my-8">
-        <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-          <div>
-            <h3 className="text-base font-bold text-slate-800">Edit Invoice & Details</h3>
-            <p className="text-xs text-slate-400">Modify vendor, line items, pricing, or change filing month</p>
-          </div>
+    <div
+      className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="edit-receipt-title"
+    >
+      <div className="w-full sm:max-w-lg bg-white dark:bg-slate-900 rounded-t-3xl sm:rounded-3xl border border-slate-200 dark:border-slate-800 shadow-xl overflow-hidden max-h-[90vh] flex flex-col">
+        <div className="sm:hidden w-10 h-1.5 bg-slate-300 dark:bg-slate-700 rounded-full mx-auto mt-3" />
+
+        <div className="px-6 py-4 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between gap-4">
+          <h2
+            id="edit-receipt-title"
+            className="text-lg font-bold text-slate-900 dark:text-white"
+          >
+            Edit Receipt
+          </h2>
           <button
+            type="button"
             onClick={onClose}
-            className="p-1 text-slate-400 hover:text-slate-700 rounded-lg"
-            title="Close"
+            aria-label="Close editor"
+            className="min-h-[44px] min-w-[44px] flex items-center justify-center rounded-xl text-slate-400 hover:text-slate-700 dark:hover:text-white"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
-        <form onSubmit={handleSubmit} className="space-y-4">
-          {/* Main Info */}
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            <div>
-              <label className="text-[11px] font-bold uppercase text-slate-500 block mb-1">
-                Vendor / Store Name
-              </label>
-              <input
-                type="text"
-                required
-                value={vendorName}
-                onChange={(e) => setVendorName(e.target.value)}
-                placeholder="e.g. Checkers, Shell, Woolworths"
-                className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:outline-none font-medium"
-              />
+        <form onSubmit={handleSubmit} className="p-6 overflow-y-auto space-y-4 flex-1">
+          {validationError && (
+            <div className="rounded-xl bg-rose-50 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-800/70 px-4 py-3 text-xs sm:text-sm text-rose-900 dark:text-rose-200">
+              {validationError}
             </div>
+          )}
 
+          <div>
+            <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">
+              Store or Provider
+            </label>
+            <input
+              type="text"
+              value={vendorName}
+              onChange={(e) => setVendorName(e.target.value)}
+              className="w-full min-h-[44px] px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50/70 dark:bg-slate-800 text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-600"
+            />
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
-              <label className="text-[11px] font-bold uppercase text-slate-500 block mb-1">
-                Invoice Date
+              <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">
+                Date
               </label>
               <input
                 type="date"
-                required
                 value={invoiceDate}
                 onChange={(e) => setInvoiceDate(e.target.value)}
-                className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:outline-none"
+                className="w-full min-h-[44px] px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50/70 dark:bg-slate-800 text-sm text-slate-900 dark:text-white tabular-nums focus:outline-none focus:ring-2 focus:ring-emerald-600"
               />
             </div>
 
             <div>
-              <label className="text-[11px] font-bold uppercase text-slate-500 block mb-1">
+              <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">
                 Category
               </label>
               <select
                 value={category}
                 onChange={(e) => setCategory(e.target.value as ReceiptCategory)}
-                className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:outline-none"
+                className="w-full min-h-[44px] px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50/70 dark:bg-slate-800 text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-600"
               >
-                <option value="Food & Groceries">Food & Groceries</option>
-                <option value="Electricity & Utilities">Electricity & Utilities</option>
-                <option value="Home Maintenance">Home Maintenance</option>
-                <option value="Transport">Transport</option>
-                <option value="Other">Other</option>
+                {CATEGORIES.map((cat) => (
+                  <option key={cat} value={cat}>
+                    {cat}
+                  </option>
+                ))}
               </select>
             </div>
           </div>
 
-          {/* Line Items Section */}
-          <div className="space-y-2">
-            <div className="flex items-center justify-between">
-              <label className="text-[11px] font-bold uppercase text-slate-500">
-                Itemized Line Items ({items.length})
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">
+                Total Amount ({symbol})
               </label>
+              <input
+                type="number"
+                step="0.01"
+                min="0"
+                value={totalAmount}
+                onChange={(e) => setTotalAmount(e.target.value)}
+                className="w-full min-h-[44px] px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50/70 dark:bg-slate-800 text-sm font-mono tabular-nums font-semibold text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-600"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">
+                Tax / VAT ({symbol})
+              </label>
+              <input
+                type="number"
+                step="0.01"
+                min="0"
+                value={taxAmount}
+                onChange={(e) => setTaxAmount(e.target.value)}
+                className="w-full min-h-[44px] px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50/70 dark:bg-slate-800 text-sm font-mono tabular-nums text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-600"
+              />
+            </div>
+          </div>
+
+          <div className="pt-2 border-t border-slate-100 dark:border-slate-800 space-y-2.5">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+                Line Items ({lineItems.length})
+              </span>
               <button
                 type="button"
-                onClick={addItemRow}
-                className="text-xs text-emerald-600 hover:text-emerald-700 font-bold flex items-center gap-1"
+                onClick={addItem}
+                className="min-h-[36px] px-2.5 py-1 text-xs font-semibold text-emerald-700 dark:text-emerald-400 hover:underline flex items-center gap-1"
               >
                 <Plus className="w-3.5 h-3.5" />
                 <span>Add Item</span>
               </button>
             </div>
 
-            <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
-              {items.map((item, idx) => (
-                <div key={idx} className="flex items-center gap-2">
-                  <input
-                    type="text"
-                    placeholder="Description (e.g. Milk 2L, Bread)"
-                    required
-                    value={item.description}
-                    onChange={(e) => handleItemChange(idx, 'description', e.target.value)}
-                    className="flex-1 px-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:outline-none"
-                  />
-                  <input
-                    type="number"
-                    min="0.01"
-                    step="any"
-                    placeholder="Qty"
-                    value={item.quantity}
-                    onChange={(e) => handleItemChange(idx, 'quantity', parseFloat(e.target.value) || 1)}
-                    className="w-16 px-2 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-xl text-center focus:outline-none"
-                  />
-                  <input
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    placeholder="Price"
-                    value={item.unit_price}
-                    onChange={(e) => handleItemChange(idx, 'unit_price', parseFloat(e.target.value) || 0)}
-                    className="w-24 px-2 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-xl text-right focus:outline-none font-mono"
-                  />
-                  <span className="text-xs font-bold text-slate-700 w-24 text-right font-mono">
-                    {currency} {Number(item.total_price).toFixed(2)}
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => removeItemRow(idx)}
-                    disabled={items.length <= 1}
-                    className="p-1.5 text-slate-400 hover:text-red-500 disabled:opacity-30 transition-colors"
-                    title="Remove Item"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </button>
-                </div>
-              ))}
-            </div>
+            {lineItems.map((item, idx) => (
+              <div key={idx} className="grid grid-cols-12 gap-2 items-center">
+                <input
+                  type="text"
+                  placeholder="Item name"
+                  value={item.description}
+                  onChange={(e) => updateItem(idx, { description: e.target.value })}
+                  className="col-span-6 min-h-[40px] px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50/70 dark:bg-slate-800 text-xs sm:text-sm text-slate-900 dark:text-white"
+                />
+                <input
+                  type="number"
+                  min="1"
+                  step="1"
+                  value={item.quantity}
+                  onChange={(e) =>
+                    updateItem(idx, { quantity: Math.max(1, parseFloat(e.target.value) || 1) })
+                  }
+                  className="col-span-2 min-h-[40px] px-2 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50/70 dark:bg-slate-800 text-center font-mono tabular-nums text-xs sm:text-sm text-slate-900 dark:text-white"
+                />
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={item.unit_price}
+                  onChange={(e) =>
+                    updateItem(idx, { unit_price: parseFloat(e.target.value) || 0 })
+                  }
+                  className="col-span-3 min-h-[40px] px-2.5 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50/70 dark:bg-slate-800 text-right font-mono tabular-nums text-xs sm:text-sm text-slate-900 dark:text-white"
+                />
+                <button
+                  type="button"
+                  onClick={() => removeItem(idx)}
+                  aria-label="Remove item"
+                  className="col-span-1 min-h-[40px] flex items-center justify-center text-slate-400 hover:text-rose-600"
+                >
+                  <Trash2 className="w-4 h-4" />
+                </button>
+              </div>
+            ))}
           </div>
 
-          {/* Notes & Extra settings */}
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            <div className="sm:col-span-2">
-              <label className="text-[11px] font-bold uppercase text-slate-500 block mb-1">
-                Notes / Reference / Account / Meter #
-              </label>
-              <input
-                type="text"
-                placeholder="Optional invoice notes or account reference"
-                value={notes}
-                onChange={(e) => setNotes(e.target.value)}
-                className="w-full px-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:outline-none"
-              />
-            </div>
-
-            <div>
-              <label className="text-[11px] font-bold uppercase text-slate-500 block mb-1">
-                Tax / VAT Rate (%)
-              </label>
-              <input
-                type="number"
-                min="0"
-                max="100"
-                step="1"
-                value={taxRate}
-                onChange={(e) => setTaxRate(Number(e.target.value) || 0)}
-                className="w-full px-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:outline-none text-center"
-              />
-            </div>
+          <div>
+            <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">
+              Note
+            </label>
+            <input
+              type="text"
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              className="w-full min-h-[44px] px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50/70 dark:bg-slate-800 text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-600"
+            />
           </div>
 
-          {/* Total calculation banner */}
-          <div className="bg-slate-50 p-3.5 rounded-xl flex items-center justify-between text-xs font-bold text-slate-800 border border-slate-200">
-            <div>
-              <span className="text-slate-500 font-normal">Subtotal:</span>{' '}
-              <span className="font-mono">{currency} {subtotal.toFixed(2)}</span>
-              <span className="mx-2 text-slate-300">|</span>
-              <span className="text-slate-500 font-normal">Tax ({taxRate}%):</span>{' '}
-              <span className="font-mono">{currency} {tax.toFixed(2)}</span>
-            </div>
-            <div className="text-emerald-700 text-sm font-black font-mono">
-              Total: {currency} {totalAmount.toFixed(2)}
-            </div>
-          </div>
-
-          {/* Actions */}
-          <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
+          <div className="pt-2 flex items-center justify-end gap-3">
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl transition-colors"
+              className="min-h-[44px] px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-sm font-medium text-slate-600 dark:text-slate-300"
             >
               Cancel
             </button>
             <button
               type="submit"
-              className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl shadow-sm flex items-center gap-1.5 transition-colors"
+              className="min-h-[44px] px-5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold flex items-center gap-2"
             >
-              <Save className="w-3.5 h-3.5" />
+              <Check className="w-4 h-4" />
               <span>Save Changes</span>
             </button>
           </div>

@@ -13,9 +13,9 @@ export const ALL_RECEIPT_CATEGORIES: ReceiptCategory[] = [
 export const DEFAULT_CATEGORY_BUDGETS: CategoryBudgets = {
   'Food & Groceries': 2500,
   'Electricity & Utilities': 1000,
-  'Home Maintenance': 600,
+  'Home Maintenance': 0,
   'Transport': 1200,
-  'Other': 500,
+  'Other': 0,
 };
 
 /**

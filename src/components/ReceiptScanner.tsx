@@ -1,1658 +1,963 @@
 import React, { useState, useRef } from 'react';
-import { 
-  UploadCloud, 
-  FileType, 
-  CheckCircle2, 
-  AlertCircle, 
-  Loader2, 
-  Calendar, 
-  Store, 
-  ArrowRight, 
-  RefreshCw, 
-  Camera, 
-  Edit3, 
-  X, 
-  Plus, 
-  Trash2, 
-  Sparkles, 
-  Layers, 
-  Check, 
-  ChevronDown, 
-  ChevronUp, 
-  FileSpreadsheet,
-  Coins,
-  Key,
-  FileDown,
-  Printer,
+import {
+  Camera,
+  Image as ImageIcon,
+  Check,
+  Plus,
+  Trash2,
+  Search,
   AlertTriangle,
-  ShieldAlert,
-  Copy,
-  Cpu,
-  Cloud,
-  Wifi,
+  Clock,
+  Loader2,
+  X,
+  Sparkles,
   WifiOff,
-  Sliders,
-  Eye,
-  EyeOff,
-  ExternalLink
+  FilePlus2,
 } from 'lucide-react';
-import type { ReceiptData, SavedReceipt, LineItem, ReceiptCategory } from '../types';
+import type { ReceiptCategory, ReceiptData, SavedReceipt } from '../types';
 import { compressAndPrepareImage } from '../utils/imageUtils';
-import { 
-  parseMultipleReceiptsWithGemini, 
-  getActiveGeminiApiKey, 
-  setClientGeminiApiKey,
-  testGeminiApiKey
-} from '../utils/geminiVision';
-import { 
-  executeFailSafeOcr, 
-  getStoredOcrMode, 
-  getStoredApiTimeoutMs, 
-  startBackgroundQueueWorker 
-} from '../utils/failSafeOcrCoordinator';
-import { subscribeToQueue } from '../utils/offlineOcrQueue';
-import { OfflineOcrQueueModal } from './OfflineOcrQueueModal';
-import { captureReceiptWithNativeCamera, isCapacitorPlatform } from '../utils/nativeCamera';
-import { downloadSingleReceiptPDF, printSingleReceiptSafely } from '../utils/pdfGenerator';
-import { 
-  identifyBatchDuplicates, 
-  findDuplicateForReceipt, 
-  isDuplicateQueuedFile, 
-  type DuplicateMatch 
+import {
+  isCapacitorPlatform,
+  captureReceiptWithNativeCamera,
+  pickReceiptFromGallery,
+} from '../utils/nativeCamera';
+import { executeFailSafeOcr } from '../utils/failSafeOcrCoordinator';
+import {
+  identifyBatchDuplicates,
+  type DuplicateMatch,
 } from '../utils/duplicateDetection';
+import {
+  recordSmartScanUsed,
+  FREE_MONTHLY_SMART_SCANS,
+  type SubscriptionState,
+  type UpgradeTriggerReason,
+} from '../utils/subscriptionManager';
+import { formatMoney, formatShortDate } from '../utils/currencyFormat';
 
-interface ReceiptScannerProps {
-  onReceiptSaved: (receipt: SavedReceipt) => void;
-  onMultipleReceiptsSaved?: (receipts: SavedReceipt[]) => void;
-  onViewMonth: (month: string) => void;
-  recentReceipts: SavedReceipt[];
-}
-
-interface QueuedFile {
+interface QueuedPhoto {
   id: string;
   file: File;
-  previewUrl: string | null;
+  previewUrl: string;
+  base64Data: string;
+  mimeType: string;
 }
 
+interface ExtractedDraft extends ReceiptData {
+  draftId: string;
+  sourceFileName: string;
+  previewUrl?: string;
+  selected: boolean;
+}
+
+interface ReceiptScannerProps {
+  existingReceipts: SavedReceipt[];
+  subscriptionState: SubscriptionState;
+  currencyCode: string;
+  pendingOfflineCount: number;
+  onSaveReceipts: (newReceipts: SavedReceipt[]) => void;
+  onOpenUpgrade: (reason: UpgradeTriggerReason) => void;
+  onOpenSearch: () => void;
+  onOpenAddManual: () => void;
+  onOpenOfflineQueue: () => void;
+}
+
+const CATEGORIES: ReceiptCategory[] = [
+  'Food & Groceries',
+  'Electricity & Utilities',
+  'Home Maintenance',
+  'Transport',
+  'Other',
+];
+
 export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
-  onReceiptSaved,
-  onMultipleReceiptsSaved,
-  onViewMonth,
-  recentReceipts
+  existingReceipts,
+  subscriptionState,
+  currencyCode,
+  pendingOfflineCount,
+  onSaveReceipts,
+  onOpenUpgrade,
+  onOpenSearch,
+  onOpenAddManual,
+  onOpenOfflineQueue,
 }) => {
-  const [queuedFiles, setQueuedFiles] = useState<QueuedFile[]>([]);
-  const [activePreviewIndex, setActivePreviewIndex] = useState(0);
-  const [isLoading, setIsLoading] = useState(false);
-  const [loadingStage, setLoadingStage] = useState<string>('Analyzing Receipts & Line Items...');
-  const [error, setError] = useState<string | null>(null);
-  
-  // API Key management modal state for offline/APK/standalone environments
-  const [showApiKeyModal, setShowApiKeyModal] = useState(false);
-  const [apiKeyInput, setApiKeyInput] = useState(() => getActiveGeminiApiKey());
-  const [hasApiKey, setHasApiKey] = useState(() => !!getActiveGeminiApiKey());
-  const [showApiKeyTextInModal, setShowApiKeyTextInModal] = useState(false);
-  const [isTestingKeyInModal, setIsTestingKeyInModal] = useState(false);
-  const [testKeyFeedbackInModal, setTestKeyFeedbackInModal] = useState<{ success: boolean; message: string } | null>(null);
-  const [apiKeySavedSuccess, setApiKeySavedSuccess] = useState(false);
+  const [queuedPhotos, setQueuedPhotos] = useState<QueuedPhoto[]>([]);
+  const [isPreparingPhoto, setIsPreparingPhoto] = useState(false);
+  const [isScanning, setIsScanning] = useState(false);
+  const [scanStage, setScanStage] = useState('');
+  const [scanNotice, setScanNotice] = useState<string | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [showLimitFallbackPrompt, setShowLimitFallbackPrompt] = useState(false);
 
-  // Multi-receipt review and filing state
-  const [detectedReceipts, setDetectedReceipts] = useState<SavedReceipt[]>([]);
-  const [expandedReceiptIds, setExpandedReceiptIds] = useState<Set<string>>(new Set());
-  const [filedReceipts, setFiledReceipts] = useState<SavedReceipt[]>([]);
-  const [isCopied, setIsCopied] = useState(false);
+  const [drafts, setDrafts] = useState<ExtractedDraft[]>([]);
+  const [duplicateMap, setDuplicateMap] = useState<Map<string, DuplicateMatch>>(new Map());
+  const [savedBannerCount, setSavedBannerCount] = useState<number | null>(null);
+  const [isDragging, setIsDragging] = useState(false);
 
-  // Duplicate Scan Safety Engine State
-  const [duplicatesMap, setDuplicatesMap] = useState<Map<string, DuplicateMatch>>(new Map());
-  const [dismissedDuplicateIds, setDismissedDuplicateIds] = useState<Set<string>>(new Set());
-  const [showDuplicateSafetyModal, setShowDuplicateSafetyModal] = useState(false);
-  const [duplicateNotice, setDuplicateNotice] = useState<string | null>(null);
-  const [manualDuplicateWarning, setManualDuplicateWarning] = useState<DuplicateMatch | null>(null);
-
-  // Fail-Safe OCR & Offline Queue State
-  const [showQueueModal, setShowQueueModal] = useState(false);
-  const [pendingQueueCount, setPendingQueueCount] = useState(0);
-  const [failSafeNotice, setFailSafeNotice] = useState<string | null>(null);
-  const [isOnline, setIsOnline] = useState(() => (typeof navigator !== 'undefined' ? navigator.onLine : true));
-
-  // Listen to network status and background queue
-  React.useEffect(() => {
-    const handleOnline = () => setIsOnline(true);
-    const handleOffline = () => setIsOnline(false);
-    window.addEventListener('online', handleOnline);
-    window.addEventListener('offline', handleOffline);
-
-    const unsubscribeQueue = subscribeToQueue((jobs) => {
-      const activePending = jobs.filter(j => j.status === 'pending' || j.status === 'processing' || j.status === 'fallback_extracted').length;
-      setPendingQueueCount(activePending);
-    });
-
-    const stopWorker = startBackgroundQueueWorker();
-
-    return () => {
-      window.removeEventListener('online', handleOnline);
-      window.removeEventListener('offline', handleOffline);
-      unsubscribeQueue();
-      stopWorker();
-    };
-  }, []);
-
-  // Manual Entry Form State
-  const [showManualModal, setShowManualModal] = useState(false);
-  const [manualVendor, setManualVendor] = useState('Pick n Pay');
-  const [manualDate, setManualDate] = useState(() => new Date().toISOString().split('T')[0]);
-  const [manualCategory, setManualCategory] = useState<ReceiptCategory>('Food & Groceries');
-  const [manualCurrency, setManualCurrency] = useState('ZAR');
-  const [manualTotal, setManualTotal] = useState('241.71');
-  const [manualItems, setManualItems] = useState<LineItem[]>([
-    { description: 'Carrier Bag 24L', quantity: 2, unit_price: 1.40, total_price: 2.80 },
-    { description: 'Household & Grocery Items', quantity: 8, unit_price: 29.86, total_price: 238.91 }
-  ]);
-
-  const fileInputRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
+  const galleryInputRef = useRef<HTMLInputElement>(null);
 
-  const handleSaveApiKey = () => {
-    setClientGeminiApiKey(apiKeyInput.trim());
-    setHasApiKey(!!apiKeyInput.trim());
-    setApiKeySavedSuccess(true);
-    setTimeout(() => {
-      setApiKeySavedSuccess(false);
-      setShowApiKeyModal(false);
-      if (queuedFiles.length > 0) {
-        parseReceipts();
+  const isPlus = subscriptionState.tier === 'plus';
+
+  const processSelectedFiles = async (files: File[]) => {
+    if (!files.length) return;
+    setErrorMessage(null);
+    setSavedBannerCount(null);
+
+    let allowedFiles = files;
+
+    // Gate multi-photo batch scanning on Free Starter while keeping the first photo queued!
+    if (!isPlus) {
+      if (queuedPhotos.length >= 1) {
+        onOpenUpgrade('batch_multi_photo');
+        setScanNotice(
+          'Free Starter scans one photo at a time. Upgrade to ParserPro Plus to queue multiple photos at once.'
+        );
+        return;
       }
-    }, 900);
-  };
-
-  const handleFilesSelected = (fileList: FileList | File[]) => {
-    const filesArray = Array.from(fileList);
-    if (filesArray.length === 0) return;
-
-    // Safety feature: eliminate duplicate queued files
-    const uniqueFiles: File[] = [];
-    let duplicateCount = 0;
-    filesArray.forEach((f) => {
-      if (isDuplicateQueuedFile(f, queuedFiles)) {
-        duplicateCount++;
-      } else {
-        uniqueFiles.push(f);
+      if (files.length > 1) {
+        allowedFiles = [files[0]];
+        onOpenUpgrade('batch_multi_photo');
+        setScanNotice(
+          'Your first photo is ready below. Upgrade to ParserPro Plus to scan multiple photos in one batch.'
+        );
       }
-    });
-
-    if (duplicateCount > 0) {
-      setDuplicateNotice(`Safety Feature: ${duplicateCount} duplicate photo(s) already in queue were skipped.`);
-      setTimeout(() => setDuplicateNotice(null), 5000);
     }
 
-    if (uniqueFiles.length === 0) return;
-
-    const newQueued: QueuedFile[] = uniqueFiles.map((f) => ({
-      id: `file_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
-      file: f,
-      previewUrl: f.type.startsWith('image/') ? URL.createObjectURL(f) : null
-    }));
-
-    setQueuedFiles(prev => [...prev, ...newQueued]);
-    setError(null);
-    setDetectedReceipts([]);
-    setFiledReceipts([]);
-    setDuplicatesMap(new Map());
-    setDismissedDuplicateIds(new Set());
-  };
-
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files) {
-      handleFilesSelected(e.target.files);
-      e.target.value = '';
+    setIsPreparingPhoto(true);
+    try {
+      const preparedItems: QueuedPhoto[] = [];
+      for (const file of allowedFiles) {
+        const compressed = await compressAndPrepareImage(file, 1800, 0.84);
+        const previewUrl = URL.createObjectURL(compressed.file);
+        preparedItems.push({
+          id: `photo_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+          file: compressed.file,
+          previewUrl,
+          base64Data: compressed.base64Data,
+          mimeType: compressed.mimeType,
+        });
+      }
+      setQueuedPhotos((prev) => [...prev, ...preparedItems]);
+    } catch (err: any) {
+      setErrorMessage(
+        err?.message || 'Could not load that image. Please try another photo.'
+      );
+    } finally {
+      setIsPreparingPhoto(false);
     }
   };
 
-  const handleDragOver = (e: React.DragEvent) => {
-    e.preventDefault();
-  };
-
-  const handleDrop = (e: React.DragEvent) => {
-    e.preventDefault();
-    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
-      handleFilesSelected(e.dataTransfer.files);
+  const handleTakePhotoClick = async () => {
+    setErrorMessage(null);
+    if (!isPlus && queuedPhotos.length >= 1) {
+      onOpenUpgrade('batch_multi_photo');
+      return;
     }
-  };
 
-  const removeQueuedFile = (id: string) => {
-    setQueuedFiles(prev => {
-      const removed = prev.find(f => f.id === id);
-      if (removed?.previewUrl) {
-        URL.revokeObjectURL(removed.previewUrl);
-      }
-      const updated = prev.filter(f => f.id !== id);
-      if (activePreviewIndex >= updated.length) {
-        setActivePreviewIndex(Math.max(0, updated.length - 1));
-      }
-      return updated;
-    });
-  };
-
-  const clearAllQueued = () => {
-    queuedFiles.forEach(f => {
-      if (f.previewUrl) URL.revokeObjectURL(f.previewUrl);
-    });
-    setQueuedFiles([]);
-    setActivePreviewIndex(0);
-    setDetectedReceipts([]);
-    setFiledReceipts([]);
-    setError(null);
-  };
-
-  const triggerFileInput = () => {
-    fileInputRef.current?.click();
-  };
-
-  const triggerCameraInput = async () => {
     if (isCapacitorPlatform()) {
       try {
-        const photo = await captureReceiptWithNativeCamera();
-        if (photo) {
-          handleFilesSelected([photo.file]);
-          return;
+        const captured = await captureReceiptWithNativeCamera();
+        if (captured) {
+          await processSelectedFiles([captured.file]);
         }
-      } catch (err) {
-        console.warn('[ReceiptScanner] Native camera notice:', err);
+        return;
+      } catch {
+        // Fallback to standard file input if permission dialog was dismissed or webview fallback needed
       }
     }
     cameraInputRef.current?.click();
   };
 
-  /**
-   * Main Batch & Multi-Slip Scanning Engine
-   */
-  const parseReceipts = async () => {
-    if (queuedFiles.length === 0) return;
-
-    setIsLoading(true);
-    setError(null);
-    setDetectedReceipts([]);
-    setFiledReceipts([]);
-
-    const allDiscoveredReceipts: SavedReceipt[] = [];
-    const todayStr = new Date().toISOString().split('T')[0];
-    const todayMonth = todayStr.substring(0, 7);
-
-    try {
-      for (let i = 0; i < queuedFiles.length; i++) {
-        const qFile = queuedFiles[i];
-        setLoadingStage(`Optimizing image ${i + 1} of ${queuedFiles.length}...`);
-        
-        // High quality 1800px compression for crisp reading and fast network transport
-        const prepared = await compressAndPrepareImage(qFile.file, 1800, 0.80);
-        console.log(`[ReceiptScanner] Image ${i + 1} optimized (${prepared.processedSizeKb} KB). Requesting AI OCR...`);
-
-        setLoadingStage(
-          queuedFiles.length > 1
-            ? `Scanning photo ${i + 1} of ${queuedFiles.length} for multiple receipts...`
-            : 'Scanning image for all receipts & slips...'
-        );
-
-        let fileExtracted: ReceiptData[] = [];
-
-        // Fail-Safe OCR: Attempts Cloud API, automatically fails over to local Tesseract on timeout/network drops,
-        // and persists to local cache with exponential backoff retry.
-        const failSafeResult = await executeFailSafeOcr({
-          base64Data: prepared.base64Data,
-          mimeType: prepared.mimeType,
-          fileName: qFile.file.name,
-          fileSize: qFile.file.size,
-          previewUrl: qFile.previewUrl || undefined,
-          options: {
-            timeoutMs: getStoredApiTimeoutMs(),
-            mode: getStoredOcrMode(),
-            onStage: (stage) => setLoadingStage(stage),
-            onEngineSwitched: (engine, reason) => {
-              setFailSafeNotice(`⚡ ${reason}`);
-            }
-          }
-        });
-
-        fileExtracted = failSafeResult.receipts;
-        if (failSafeResult.fallbackTriggered) {
-          setFailSafeNotice(failSafeResult.warning || 'Switched to on-device Tesseract OCR engine.');
-        }
-
-        // 3. Map into SavedReceipt objects
-        fileExtracted.forEach((rec, slipIdx) => {
-          let invDate = rec.invoice_date || todayStr;
-          let mYear = rec.month_year || invDate.substring(0, 7) || todayMonth;
-          const newId = `rec_${Date.now()}_${i}_${slipIdx}_${Math.random().toString(36).substring(2, 6)}`;
-
-          allDiscoveredReceipts.push({
-            ...rec,
-            id: newId,
-            vendor_name: rec.vendor_name || `Store Purchase ${allDiscoveredReceipts.length + 1}`,
-            invoice_date: invDate,
-            month_year: mYear,
-            category: rec.category || 'Food & Groceries',
-            currency: rec.currency || 'ZAR',
-            line_items: Array.isArray(rec.line_items) ? rec.line_items : [],
-            total_amount: typeof rec.total_amount === 'number' ? rec.total_amount : parseFloat(rec.total_amount as any) || 0,
-            subtotal: typeof rec.subtotal === 'number' ? rec.subtotal : (rec.total_amount || 0),
-            tax: typeof rec.tax === 'number' ? rec.tax : 0,
-            notes: rec.notes || (fileExtracted.length > 1 ? `Slip ${slipIdx + 1} of ${fileExtracted.length} in photo` : ''),
-            engine_used: rec.engine_used || failSafeResult.engineUsed,
-            created_at: new Date().toISOString(),
-            file_name: qFile.file.name,
-            image_preview: qFile.previewUrl || undefined
-          });
-        });
-      }
-
-      if (allDiscoveredReceipts.length === 0) {
-        throw new Error('No receipt records could be clearly detected. Please verify lighting and clarity.');
-      }
-
-      console.log(`[ReceiptScanner] Successfully extracted ${allDiscoveredReceipts.length} receipt(s) in batch!`, allDiscoveredReceipts);
-      setDetectedReceipts(allDiscoveredReceipts);
-
-      // Duplicate Scan Safety Analysis
-      const dups = identifyBatchDuplicates(allDiscoveredReceipts, recentReceipts);
-      setDuplicatesMap(dups);
-      setDismissedDuplicateIds(new Set());
-      if (dups.size > 0) {
-        setDuplicateNotice(`Safety Feature: ${dups.size} potential duplicate scan(s) identified. You can review and skip duplicates before filing.`);
-      }
-    } catch (err: any) {
-      console.error('[ReceiptScanner] Error during batch receipt scanning:', err);
-      const rawMsg = err?.message || 'Failed to scan receipt';
-      
-      // Clean and sanitize any raw HTML / doctype / HTTP format messages
-      let cleanMsg = rawMsg;
-      if (
-        rawMsg === 'STANDALONE_APK_NEEDS_KEY' || 
-        rawMsg.includes('STATIC_HOST') || 
-        rawMsg.includes('unexpected format') ||
-        rawMsg.includes('unexpected response') ||
-        rawMsg.includes('<!doctype') ||
-        rawMsg.includes('HTTP 200') ||
-        rawMsg.includes('status 200')
-      ) {
-        cleanMsg = 'No OCR backend server detected. If you are using ParserPro as a standalone mobile app or offline PWA, please connect your free Google Gemini API Key below to scan receipts directly on your device.';
-      } else if (rawMsg.includes('Unexpected token') || rawMsg.includes('invalid JSON')) {
-        cleanMsg = 'OCR response processing was interrupted. Please tap Retry or enter slip details manually.';
-      } else if (rawMsg.includes('Failed to fetch') || rawMsg.includes('NetworkError')) {
-        cleanMsg = 'Network connection interrupted. Please check your internet connection and retry.';
-      } else if (rawMsg.includes('503') || rawMsg.includes('UNAVAILABLE') || rawMsg.includes('high traffic') || rawMsg.includes('high demand')) {
-        cleanMsg = 'AI OCR service is temporarily experiencing high traffic. Please tap Retry in a moment.';
-      }
-
-      setError(cleanMsg);
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  /**
-   * File all detected receipts with Duplicate Safety Interception
-   */
-  const handleFileAllDetected = () => {
-    if (detectedReceipts.length === 0) return;
-
-    // Check if any receipts have an active duplicate flag that hasn't been explicitly dismissed
-    const activeDuplicates = detectedReceipts.filter(
-      r => duplicatesMap.has(r.id) && !dismissedDuplicateIds.has(r.id)
-    );
-
-    if (activeDuplicates.length > 0) {
-      // Intercept with the Duplicate Safety Modal
-      setShowDuplicateSafetyModal(true);
+  const handleChoosePhotoClick = async () => {
+    setErrorMessage(null);
+    if (!isPlus && queuedPhotos.length >= 1) {
+      onOpenUpgrade('batch_multi_photo');
       return;
     }
 
-    executeFileReceipts(detectedReceipts);
-  };
-
-  const executeFileReceipts = (receiptsToFile: SavedReceipt[]) => {
-    if (receiptsToFile.length === 0) return;
-
-    if (onMultipleReceiptsSaved) {
-      onMultipleReceiptsSaved(receiptsToFile);
-    } else {
-      receiptsToFile.forEach(r => onReceiptSaved(r));
-    }
-
-    setFiledReceipts(receiptsToFile);
-    setDetectedReceipts([]);
-    setDuplicatesMap(new Map());
-    setDismissedDuplicateIds(new Set());
-    setShowDuplicateSafetyModal(false);
-  };
-
-  /**
-   * Safely skip duplicate slips and file only unique/new slips
-   */
-  const handleSkipDuplicatesAndFileNew = () => {
-    const nonDuplicates = detectedReceipts.filter(
-      r => !duplicatesMap.has(r.id) || dismissedDuplicateIds.has(r.id)
-    );
-
-    if (nonDuplicates.length === 0) {
-      setDuplicateNotice('All detected slips were duplicates and have been safely dismissed.');
-      setDetectedReceipts([]);
-      setShowDuplicateSafetyModal(false);
-      return;
-    }
-
-    executeFileReceipts(nonDuplicates);
-  };
-
-  const handleDismissDuplicate = (id: string) => {
-    setDismissedDuplicateIds(prev => new Set(prev).add(id));
-  };
-
-  const updateDetectedReceipt = (id: string, updates: Partial<SavedReceipt>) => {
-    setDetectedReceipts(prev => prev.map(r => {
-      if (r.id === id) {
-        const updated = { ...r, ...updates };
-        if (updates.invoice_date && !updates.month_year) {
-          updated.month_year = updates.invoice_date.substring(0, 7);
+    if (isCapacitorPlatform() && !isPlus) {
+      try {
+        const picked = await pickReceiptFromGallery();
+        if (picked) {
+          await processSelectedFiles([picked.file]);
         }
-        return updated;
+        return;
+      } catch {
+        // Fallback to standard file input
       }
-      return r;
-    }));
+    }
+    galleryInputRef.current?.click();
   };
 
-  const removeDetectedReceipt = (id: string) => {
-    setDetectedReceipts(prev => prev.filter(r => r.id !== id));
-  };
-
-  const toggleExpand = (id: string) => {
-    setExpandedReceiptIds(prev => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
+  const removeQueuedPhoto = (id: string) => {
+    setQueuedPhotos((prev) => {
+      const target = prev.find((p) => p.id === id);
+      if (target?.previewUrl?.startsWith('blob:')) {
+        URL.revokeObjectURL(target.previewUrl);
+      }
+      return prev.filter((p) => p.id !== id);
     });
+    setShowLimitFallbackPrompt(false);
   };
 
-  // Manual Entry Submission with Duplicate Check
-  const handleSaveManual = (e?: React.FormEvent, forceSave: boolean = false) => {
-    if (e) e.preventDefault();
-    const total = parseFloat(manualTotal) || 0;
-    const invDate = manualDate || new Date().toISOString().split('T')[0];
-    const mYear = invDate.substring(0, 7);
+  const runScan = async (forceOffline = false) => {
+    if (queuedPhotos.length === 0 || isScanning) return;
 
-    const manualReceipt: SavedReceipt = {
-      id: `rec_${Date.now()}`,
-      vendor_name: manualVendor || 'Household Expense',
-      invoice_date: invDate,
-      month_year: mYear,
-      category: manualCategory,
-      currency: manualCurrency || 'ZAR',
-      line_items: manualItems.length > 0 ? manualItems : [
-        { description: 'General Store Purchase', quantity: 1, unit_price: total, total_price: total }
-      ],
-      total_amount: total,
-      subtotal: total,
-      tax: 0,
-      notes: 'Manually logged receipt',
-      created_at: new Date().toISOString(),
-      file_name: 'manual-entry.jpg'
-    };
+    const isOnline = typeof navigator !== 'undefined' ? navigator.onLine : true;
 
-    // Duplicate check for manual submission
-    if (!forceSave && !manualDuplicateWarning) {
-      const dup = findDuplicateForReceipt(manualReceipt, recentReceipts);
-      if (dup) {
-        setManualDuplicateWarning(dup);
+    // Check monthly smart scan allowance on Free Starter (offline scans are always free!)
+    if (!isPlus && !forceOffline && isOnline) {
+      if (subscriptionState.smartScansRemaining <= 0) {
+        setShowLimitFallbackPrompt(true);
+        onOpenUpgrade('scan_limit_reached');
         return;
       }
     }
 
-    onReceiptSaved(manualReceipt);
-    setFiledReceipts([manualReceipt]);
-    setShowManualModal(false);
-    setManualDuplicateWarning(null);
-    setError(null);
-  };
+    setIsScanning(true);
+    setShowLimitFallbackPrompt(false);
+    setErrorMessage(null);
+    setScanNotice(null);
 
-  const addManualItem = () => {
-    setManualItems([...manualItems, { description: 'Item', quantity: 1, unit_price: 0, total_price: 0 }]);
-  };
+    const extractedList: ExtractedDraft[] = [];
+    const warnings: string[] = [];
+    let cloudPhotosScanned = 0;
 
-  const updateManualItem = (index: number, field: keyof LineItem, val: any) => {
-    const updated = [...manualItems];
-    updated[index] = { ...updated[index], [field]: val };
-    if (field === 'quantity' || field === 'unit_price') {
-      const q = field === 'quantity' ? Number(val) : updated[index].quantity;
-      const u = field === 'unit_price' ? Number(val) : updated[index].unit_price;
-      updated[index].total_price = parseFloat((q * u).toFixed(2));
+    try {
+      for (let i = 0; i < queuedPhotos.length; i++) {
+        const photo = queuedPhotos[i];
+        const prefix =
+          queuedPhotos.length > 1 ? `Photo ${i + 1} of ${queuedPhotos.length}: ` : '';
+
+        setScanStage(`${prefix}Reading store, date & items...`);
+
+        const result = await executeFailSafeOcr({
+          base64Data: photo.base64Data,
+          mimeType: photo.mimeType,
+          fileName: photo.file.name,
+          fileSize: photo.file.size,
+          previewUrl: `data:${photo.mimeType};base64,${photo.base64Data}`,
+          options: {
+            mode: forceOffline ? 'local_tesseract_only' : 'auto_fallback',
+            preferredCurrency: currencyCode,
+            onStage: (stage) => setScanStage(`${prefix}${stage}`),
+          },
+        });
+
+        if (result.engineUsed === 'cloud_api') {
+          cloudPhotosScanned += 1;
+        }
+        if (result.warning) {
+          warnings.push(result.warning);
+        }
+
+        result.receipts.forEach((slip, idx) => {
+          const todayIso = new Date().toISOString().substring(0, 10);
+          const safeDate =
+            slip.invoice_date && /^\d{4}-\d{2}-\d{2}$/.test(slip.invoice_date)
+              ? slip.invoice_date
+              : todayIso;
+          const safeMonth = safeDate.substring(0, 7);
+
+          extractedList.push({
+            ...slip,
+            invoice_date: safeDate,
+            month_year: safeMonth,
+            currency: slip.currency || currencyCode,
+            draftId: `draft_${Date.now()}_${i}_${idx}_${Math.random()
+              .toString(36)
+              .substring(2, 6)}`,
+            sourceFileName: photo.file.name,
+            previewUrl: `data:${photo.mimeType};base64,${photo.base64Data}`,
+            selected: true,
+          });
+        });
+      }
+
+      // Deduct smart scan credits ONLY when cloud smart scan succeeded (never for offline scans)
+      if (!isPlus && cloudPhotosScanned > 0) {
+        recordSmartScanUsed(cloudPhotosScanned);
+      }
+
+      // Run duplicate detection against existing saved receipts
+      const asSavedForCheck: SavedReceipt[] = extractedList.map((d) => ({
+        ...d,
+        id: d.draftId,
+        created_at: new Date().toISOString(),
+      }));
+      const dupes = identifyBatchDuplicates(asSavedForCheck, existingReceipts);
+
+      // Automatically uncheck high-confidence duplicates so users don't double-count by accident,
+      // while still letting them check the box if it really was a second purchase!
+      const finalDrafts = extractedList.map((d) => ({
+        ...d,
+        selected: !dupes.has(d.draftId),
+      }));
+
+      setDuplicateMap(dupes);
+      setDrafts(finalDrafts);
+      setQueuedPhotos([]);
+
+      if (warnings.length > 0) {
+        setScanNotice(warnings[0]);
+      } else if (extractedList.length > 1) {
+        setScanNotice(
+          `Found ${extractedList.length} separate receipts. Review below and tap Save.`
+        );
+      }
+    } catch (err: any) {
+      setErrorMessage(
+        err?.message ||
+          'Could not read this photo right now. You can try again or enter the total manually.'
+      );
+    } finally {
+      setIsScanning(false);
+      setScanStage('');
     }
-    setManualItems(updated);
   };
 
-  const removeManualItem = (index: number) => {
-    setManualItems(manualItems.filter((_, i) => i !== index));
+  const updateDraftField = <K extends keyof ExtractedDraft>(
+    draftId: string,
+    field: K,
+    value: ExtractedDraft[K]
+  ) => {
+    setDrafts((prev) =>
+      prev.map((d) => {
+        if (d.draftId !== draftId) return d;
+        const next = { ...d, [field]: value };
+        if (field === 'invoice_date' && typeof value === 'string' && value.length >= 7) {
+          next.month_year = value.substring(0, 7);
+        }
+        return next;
+      })
+    );
   };
 
-  const totalDetectedAmount = detectedReceipts.reduce((sum, r) => sum + (Number(r.total_amount) || 0), 0);
-  const activeQueued = queuedFiles[activePreviewIndex] || queuedFiles[0];
+  const handleSaveSelectedDrafts = () => {
+    const chosen = drafts.filter((d) => d.selected);
+    if (chosen.length === 0) {
+      setErrorMessage('Select at least one receipt below to save.');
+      return;
+    }
+
+    const toSave: SavedReceipt[] = chosen.map((d) => ({
+      id: `rcpt_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`,
+      created_at: new Date().toISOString(),
+      vendor_name: d.vendor_name.trim() || 'Store Receipt',
+      invoice_date: d.invoice_date,
+      month_year: d.invoice_date.substring(0, 7),
+      category: d.category,
+      currency: d.currency || currencyCode,
+      line_items: d.line_items || [],
+      subtotal: Number(d.subtotal) || Number(d.total_amount) || 0,
+      tax: Number(d.tax) || 0,
+      total_amount: Number(d.total_amount) || 0,
+      notes: d.notes || '',
+      engine_used: d.engine_used,
+      file_name: d.sourceFileName,
+      image_preview: d.previewUrl,
+    }));
+
+    onSaveReceipts(toSave);
+    setDrafts([]);
+    setDuplicateMap(new Map());
+    setScanNotice(null);
+    setSavedBannerCount(toSave.length);
+  };
+
+  const selectedDraftCount = drafts.filter((d) => d.selected).length;
+  const selectedTotalSpend = drafts
+    .filter((d) => d.selected)
+    .reduce((sum, d) => sum + (Number(d.total_amount) || 0), 0);
 
   return (
-    <div className="h-full flex flex-col lg:flex-row gap-6 p-4 sm:p-6 max-w-7xl mx-auto w-full overflow-auto">
-      {/* Left Sidebar / Recent Scans */}
-      <aside className="w-full lg:w-72 bg-white rounded-2xl border border-slate-200 p-5 flex flex-col gap-4 shadow-sm shrink-0">
-        <div className="flex items-center justify-between">
-          <div className="text-xs font-bold text-slate-400 uppercase tracking-widest">
-            Recent Scans
-          </div>
-          <span className="text-xs text-emerald-600 font-semibold">
-            {recentReceipts.length} Total
-          </span>
-        </div>
-
-        <div className="flex flex-col gap-2 overflow-y-auto max-h-[380px] pr-1">
-          {recentReceipts.length === 0 ? (
-            <div className="p-4 text-center text-xs text-slate-400 border border-dashed border-slate-200 rounded-xl">
-              No receipts scanned yet. Upload single or multiple receipts!
-            </div>
+    <div className="space-y-6">
+      {/* Workspace Utility Strip */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-2 border-b border-slate-200/80 dark:border-slate-800">
+        <div className="flex flex-wrap items-center gap-2 text-xs sm:text-sm text-slate-600 dark:text-slate-400">
+          {isPlus ? (
+            <span className="font-medium text-emerald-700 dark:text-emerald-400">
+              ParserPro Plus · Unlimited smart & batch scans
+            </span>
           ) : (
-            recentReceipts.slice(0, 6).map((rec) => (
-              <div
-                key={rec.id}
-                onClick={() => onViewMonth(rec.month_year)}
-                className="p-3 bg-slate-50 hover:bg-emerald-50/60 border border-slate-100 hover:border-emerald-200 rounded-xl transition-all cursor-pointer group text-left"
+            <span className="tabular-nums">
+              <strong className="font-semibold text-slate-900 dark:text-white">
+                {subscriptionState.smartScansRemaining} of {FREE_MONTHLY_SMART_SCANS}
+              </strong>{' '}
+              free smart scans left this month
+            </span>
+          )}
+          {!isPlus && (
+            <>
+              <span aria-hidden="true">·</span>
+              <button
+                type="button"
+                onClick={() => onOpenUpgrade('general')}
+                className="font-semibold text-emerald-700 dark:text-emerald-400 hover:underline whitespace-nowrap"
               >
-                <div className="flex items-center justify-between mb-1">
-                  <div className="text-xs font-bold text-slate-800 group-hover:text-emerald-700 truncate max-w-[140px]">
-                    {rec.vendor_name}
-                  </div>
-                  <span className="text-[10px] font-bold px-1.5 py-0.5 bg-white rounded text-slate-600 border border-slate-200">
-                    {rec.month_year}
-                  </span>
-                </div>
-                <div className="flex items-center justify-between text-[11px] text-slate-500">
-                  <span>{rec.invoice_date}</span>
-                  <span className="font-bold text-slate-700 font-mono">
-                    R {Number(rec.total_amount).toFixed(2)}
-                  </span>
-                </div>
-              </div>
-            ))
+                Get unlimited
+              </button>
+            </>
+          )}
+          {pendingOfflineCount > 0 && (
+            <>
+              <span aria-hidden="true">·</span>
+              <button
+                type="button"
+                onClick={onOpenOfflineQueue}
+                className="inline-flex items-center gap-1 font-medium text-amber-700 dark:text-amber-400 hover:underline whitespace-nowrap"
+              >
+                <Clock className="w-3.5 h-3.5" />
+                {pendingOfflineCount} pending offline
+              </button>
+            </>
           )}
         </div>
 
-        <div className="mt-auto p-4 bg-slate-900 rounded-2xl text-white shadow-sm space-y-2">
-          <div className="flex items-center justify-between">
-            <span className="text-[10px] uppercase tracking-wider font-bold text-emerald-400">
-              Multi-Receipt Support
-            </span>
-            <span className="px-1.5 py-0.5 bg-emerald-500/20 text-emerald-300 text-[9px] font-bold rounded">
-              Batch OCR
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={onOpenSearch}
+            className="min-h-[44px] px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-xs sm:text-sm font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800/80 transition-colors flex items-center gap-2 whitespace-nowrap shrink-0"
+          >
+            <Search className="w-4 h-4 text-slate-400" />
+            <span>Search</span>
+            <kbd className="hidden md:inline text-[11px] font-mono text-slate-400">⌘K</kbd>
+          </button>
+
+          <button
+            type="button"
+            onClick={onOpenAddManual}
+            className="min-h-[44px] px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-xs sm:text-sm font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800/80 transition-colors flex items-center gap-2 whitespace-nowrap shrink-0"
+          >
+            <FilePlus2 className="w-4 h-4 text-slate-500" />
+            <span>Add Manually</span>
+          </button>
+        </div>
+      </div>
+
+      {/* Saved Confirmation Banner */}
+      {savedBannerCount !== null && (
+        <div className="rounded-2xl bg-emerald-50/90 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800/60 px-4 py-3.5 flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2.5 text-sm font-medium text-emerald-900 dark:text-emerald-200">
+            <Check className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
+            <span>
+              Saved {savedBannerCount} {savedBannerCount === 1 ? 'receipt' : 'receipts'} to your
+              monthly ledger.
             </span>
           </div>
-          <p className="text-xs text-slate-300 leading-relaxed">
-            Photograph multiple slips side-by-side or select multiple files at once. Every receipt is automatically identified, separated, and filed.
-          </p>
+          <button
+            type="button"
+            onClick={() => setSavedBannerCount(null)}
+            className="min-h-[36px] min-w-[36px] flex items-center justify-center text-emerald-700 dark:text-emerald-300 hover:opacity-80"
+            aria-label="Dismiss notification"
+          >
+            <X className="w-4 h-4" />
+          </button>
         </div>
-      </aside>
+      )}
 
-      {/* Main Scanner Section */}
-      <section className="flex-1 flex flex-col gap-6">
-        {/* Upload & Document Queue Panel */}
-        <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-5 flex flex-col gap-4">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <h2 className="text-base font-bold text-slate-800 flex items-center gap-2">
-                <span>Receipt Capture & Batch Queue</span>
-                {queuedFiles.length > 0 && (
-                  <span className="px-2 py-0.5 bg-emerald-50 text-emerald-700 rounded-full text-xs font-bold border border-emerald-200">
-                    {queuedFiles.length} photo{queuedFiles.length > 1 ? 's' : ''} queued
-                  </span>
-                )}
-              </h2>
-              <p className="text-xs text-slate-400 mt-0.5">
-                Upload single or multiple receipt photos, or capture slips side-by-side
+      {/* Primary Capture Card */}
+      {drafts.length === 0 && (
+        <section
+          onDragOver={(e) => {
+            e.preventDefault();
+            setIsDragging(true);
+          }}
+          onDragLeave={() => setIsDragging(false)}
+          onDrop={(e) => {
+            e.preventDefault();
+            setIsDragging(false);
+            const dropped = Array.from(e.dataTransfer.files).filter((f) =>
+              f.type.startsWith('image/')
+            );
+            if (dropped.length > 0) {
+              processSelectedFiles(dropped);
+            }
+          }}
+          className={`rounded-3xl bg-white dark:bg-slate-900 border transition-colors p-6 sm:p-10 ${
+            isDragging
+              ? 'border-emerald-500 bg-emerald-50/40 dark:bg-emerald-950/20'
+              : 'border-slate-200/90 dark:border-slate-800'
+          }`}
+        >
+          <div className="max-w-xl mx-auto text-center space-y-5">
+            <div className="space-y-2">
+              <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-slate-900 dark:text-white text-balance">
+                Snap a receipt and let ParserPro do the typing
+              </h1>
+              <p className="text-sm sm:text-base text-slate-600 dark:text-slate-400 leading-relaxed">
+                Point your camera at a grocery slip, utility bill, or fuel receipt. Even multiple
+                slips in a single photo are separated automatically.
               </p>
             </div>
 
-            {duplicateNotice && (
-              <div className="w-full p-3 bg-amber-50 border border-amber-300 rounded-xl text-xs text-amber-950 flex items-center justify-between gap-2 animate-in fade-in">
-                <div className="flex items-center gap-2">
-                  <ShieldAlert className="w-4 h-4 text-amber-600 shrink-0" />
-                  <span>{duplicateNotice}</span>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setDuplicateNotice(null)}
-                  className="text-amber-700 hover:text-amber-900 text-xs font-bold cursor-pointer"
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              </div>
-            )}
+            {/* Hidden Native/Web File Inputs */}
+            <input
+              ref={cameraInputRef}
+              type="file"
+              accept="image/*"
+              capture="environment"
+              className="hidden"
+              onChange={(e) => {
+                const files = e.target.files ? Array.from(e.target.files) : [];
+                processSelectedFiles(files);
+                e.target.value = '';
+              }}
+            />
+            <input
+              ref={galleryInputRef}
+              type="file"
+              accept="image/*"
+              multiple={isPlus}
+              className="hidden"
+              onChange={(e) => {
+                const files = e.target.files ? Array.from(e.target.files) : [];
+                processSelectedFiles(files);
+                e.target.value = '';
+              }}
+            />
 
-            {failSafeNotice && (
-              <div className="w-full p-3 bg-emerald-50 border border-emerald-300 rounded-xl text-xs text-emerald-950 flex items-center justify-between gap-2 animate-in fade-in">
-                <div className="flex items-center gap-2">
-                  <Cpu className="w-4 h-4 text-emerald-600 shrink-0" />
-                  <span className="font-medium">{failSafeNotice}</span>
-                </div>
-                <div className="flex items-center gap-1.5">
-                  <button
-                    type="button"
-                    onClick={() => setShowQueueModal(true)}
-                    className="text-emerald-800 underline text-xs font-bold cursor-pointer"
-                  >
-                    View Queue
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setFailSafeNotice(null)}
-                    className="text-emerald-700 hover:text-emerald-900 text-xs font-bold cursor-pointer p-1"
-                  >
-                    <X className="w-3.5 h-3.5" />
-                  </button>
-                </div>
-              </div>
-            )}
-
-            <div className="flex items-center gap-2 flex-wrap">
+            {/* Primary Capture Actions */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
               <button
-                onClick={() => setShowQueueModal(true)}
-                className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer border ${
-                  pendingQueueCount > 0
-                    ? 'bg-amber-50 text-amber-900 border-amber-300 hover:bg-amber-100'
-                    : 'bg-slate-100 hover:bg-slate-200 text-slate-800 border-slate-200'
-                }`}
-                title="Manage Fail-Safe OCR Engine & Offline Retry Queue"
+                type="button"
+                disabled={isScanning || isPreparingPhoto}
+                onClick={handleTakePhotoClick}
+                className="min-h-[52px] px-6 py-3.5 rounded-2xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 text-white font-semibold text-sm sm:text-base flex items-center justify-center gap-2.5 shadow-sm active:scale-[0.99] transition-all whitespace-nowrap"
               >
-                <Cpu className="w-3.5 h-3.5 text-emerald-600" />
-                <span>Fail-Safe OCR</span>
-                {pendingQueueCount > 0 ? (
-                  <span className="px-1.5 py-0.2 rounded-full text-[10px] font-black bg-amber-500 text-white animate-pulse">
-                    {pendingQueueCount}
-                  </span>
-                ) : (
-                  <span className="text-[10px] px-1 py-0.2 rounded bg-emerald-100 text-emerald-800">
-                    Tesseract Ready
-                  </span>
-                )}
+                <Camera className="w-5 h-5 shrink-0" />
+                <span>Take Photo</span>
               </button>
 
               <button
-                onClick={() => {
-                  setApiKeyInput(getActiveGeminiApiKey());
-                  setTestKeyFeedbackInModal(null);
-                  setShowApiKeyModal(true);
-                }}
-                className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer border ${
-                  hasApiKey
-                    ? 'bg-emerald-50 hover:bg-emerald-100 text-emerald-900 border-emerald-300'
-                    : 'bg-amber-50 hover:bg-amber-100 text-amber-900 border-amber-300'
-                }`}
-                title="Configure Google Gemini Vision API Key"
+                type="button"
+                disabled={isScanning || isPreparingPhoto}
+                onClick={handleChoosePhotoClick}
+                className="min-h-[52px] px-6 py-3.5 rounded-2xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200/80 dark:hover:bg-slate-700 disabled:opacity-60 text-slate-900 dark:text-white font-semibold text-sm sm:text-base flex items-center justify-center gap-2.5 active:scale-[0.99] transition-all whitespace-nowrap"
               >
-                <Key className="w-3.5 h-3.5 text-emerald-600" />
-                <span>API Key</span>
-                <span className={`w-2 h-2 rounded-full ${hasApiKey ? 'bg-emerald-500' : 'bg-amber-500'}`} />
+                <ImageIcon className="w-5 h-5 shrink-0 text-slate-600 dark:text-slate-300" />
+                <span>{isPlus ? 'Choose Photos' : 'Choose Photo'}</span>
               </button>
-
-              <button
-                onClick={triggerCameraInput}
-                className="px-3 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer"
-                title="Capture receipt with device camera"
-              >
-                <Camera className="w-3.5 h-3.5 text-emerald-600" />
-                <span>Camera</span>
-              </button>
-
-              <button
-                onClick={triggerFileInput}
-                className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer border border-slate-200"
-                title="Select multiple receipt images from device gallery"
-              >
-                <UploadCloud className="w-3.5 h-3.5 text-slate-600" />
-                <span>Choose Files</span>
-              </button>
-
-              <button
-                onClick={() => setShowManualModal(true)}
-                className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer"
-                title="Manually record a store purchase"
-              >
-                <Edit3 className="w-3.5 h-3.5 text-slate-600" />
-                <span>Manual</span>
-              </button>
-
-              {queuedFiles.length > 0 && (
-                <button
-                  onClick={clearAllQueued}
-                  className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition-colors cursor-pointer"
-                  title="Clear all selected photos"
-                >
-                  <Trash2 className="w-4 h-4" />
-                </button>
-              )}
             </div>
+
+            <p className="text-xs text-slate-500 dark:text-slate-400">
+              Works offline too — if you lose signal in a shop, your receipt is read right on your
+              phone at no credit cost.
+            </p>
           </div>
 
-          {/* Hidden inputs supporting multiple files and direct camera */}
-          <input
-            type="file"
-            multiple
-            className="hidden"
-            accept="image/*,application/pdf"
-            ref={fileInputRef}
-            onChange={handleFileChange}
-          />
-          <input
-            type="file"
-            className="hidden"
-            accept="image/*"
-            capture="environment"
-            ref={cameraInputRef}
-            onChange={handleFileChange}
-          />
+          {/* Queued Photos Tray */}
+          {(queuedPhotos.length > 0 || isPreparingPhoto) && (
+            <div className="mt-8 pt-6 border-t border-slate-200 dark:border-slate-800 space-y-4">
+              <div className="flex items-center justify-between">
+                <p className="text-sm font-semibold text-slate-900 dark:text-white">
+                  Ready to scan ({queuedPhotos.length}{' '}
+                  {queuedPhotos.length === 1 ? 'photo' : 'photos'})
+                </p>
+                {isPlus && !isScanning && (
+                  <button
+                    type="button"
+                    onClick={handleChoosePhotoClick}
+                    className="min-h-[40px] px-3 py-1.5 text-xs font-semibold text-emerald-700 dark:text-emerald-400 hover:underline flex items-center gap-1 whitespace-nowrap"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    Add more photos
+                  </button>
+                )}
+              </div>
 
-          {/* Drop & Preview Area */}
-          <div
-            className={`border-2 border-dashed rounded-2xl p-5 transition-all flex flex-col items-center justify-center text-center relative overflow-hidden min-h-[260px]
-              ${queuedFiles.length > 0 ? 'border-emerald-200 bg-slate-50/40' : 'border-slate-300 bg-slate-50 hover:bg-slate-100 hover:border-slate-400 cursor-pointer'}`}
-            onDragOver={handleDragOver}
-            onDrop={handleDrop}
-            onClick={queuedFiles.length === 0 ? triggerFileInput : undefined}
-          >
-            {queuedFiles.length > 0 ? (
-              <div className="w-full space-y-4">
-                {/* Active Photo Preview */}
-                <div className="relative max-h-[300px] flex items-center justify-center rounded-xl overflow-hidden bg-white border border-slate-200 shadow-xs">
-                  {activeQueued?.previewUrl ? (
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                {queuedPhotos.map((photo) => (
+                  <div
+                    key={photo.id}
+                    className="relative group rounded-2xl overflow-hidden border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/50 aspect-[4/3]"
+                  >
                     <img
-                      src={activeQueued.previewUrl}
-                      alt="Receipt Preview"
-                      className="max-h-[300px] object-contain rounded-xl"
+                      src={photo.previewUrl}
+                      alt={photo.file.name || 'Receipt photo preview'}
+                      referrerPolicy="no-referrer"
+                      className="w-full h-full object-cover"
                     />
-                  ) : (
-                    <div className="p-8 text-center text-slate-500">
-                      <FileType className="w-12 h-12 text-emerald-600 mx-auto mb-2" />
-                      <span className="font-bold text-xs">{activeQueued?.file.name}</span>
-                    </div>
-                  )}
-
-                  {/* Scanning Laser Animation */}
-                  {isLoading && (
-                    <div className="absolute inset-0 pointer-events-none overflow-hidden rounded-xl bg-emerald-500/10 backdrop-contrast-125">
-                      <div className="absolute left-0 right-0 h-1.5 bg-gradient-to-r from-emerald-400 via-teal-300 to-emerald-400 shadow-[0_0_16px_3px_rgba(16,185,129,0.9)] animate-scan-laser" />
-                      <div className="absolute inset-0 bg-gradient-to-b from-transparent via-emerald-500/15 to-transparent animate-pulse" />
-                    </div>
-                  )}
-                </div>
-
-                {/* Queue Thumbnails Bar (When multiple files are selected) */}
-                {queuedFiles.length > 1 && (
-                  <div className="flex items-center gap-2 overflow-x-auto pb-1 pt-1 justify-center">
-                    {queuedFiles.map((qf, idx) => (
-                      <div
-                        key={qf.id}
-                        onClick={() => setActivePreviewIndex(idx)}
-                        className={`relative w-14 h-14 rounded-xl border-2 overflow-hidden shrink-0 cursor-pointer transition-all ${
-                          idx === activePreviewIndex
-                            ? 'border-emerald-600 scale-105 shadow-sm'
-                            : 'border-slate-200 opacity-70 hover:opacity-100'
-                        }`}
+                    {!isScanning && (
+                      <button
+                        type="button"
+                        onClick={() => removeQueuedPhoto(photo.id)}
+                        aria-label="Remove photo"
+                        className="absolute top-2 right-2 min-h-[36px] min-w-[36px] rounded-xl bg-black/70 text-white flex items-center justify-center hover:bg-black/85 transition-colors"
                       >
-                        {qf.previewUrl ? (
-                          <img src={qf.previewUrl} alt="Thumbnail" className="w-full h-full object-cover" />
-                        ) : (
-                          <div className="w-full h-full bg-slate-100 flex items-center justify-center text-[10px] font-bold">
-                            PDF
-                          </div>
-                        )}
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            removeQueuedFile(qf.id);
-                          }}
-                          className="absolute -top-1 -right-1 bg-slate-900 text-white rounded-full p-0.5 hover:bg-rose-600"
-                        >
-                          <X className="w-3 h-3" />
-                        </button>
-                      </div>
-                    ))}
+                        <X className="w-4 h-4" />
+                      </button>
+                    )}
+                  </div>
+                ))}
+              </div>
+
+              {/* Free Limit Reached Friendly Alternatives */}
+              {showLimitFallbackPrompt && !isPlus && (
+                <div className="rounded-2xl bg-amber-50/90 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800/70 p-4 space-y-3">
+                  <div className="space-y-1">
+                    <p className="text-sm font-semibold text-amber-950 dark:text-amber-200">
+                      You have used all {FREE_MONTHLY_SMART_SCANS} free smart scans for this month
+                    </p>
+                    <p className="text-xs text-amber-800 dark:text-amber-300/90">
+                      Unlock unlimited smart scans with ParserPro Plus, or keep tracking right now
+                      for free using on-device offline reading or manual entry:
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2.5">
                     <button
-                      onClick={triggerFileInput}
-                      className="w-14 h-14 rounded-xl border-2 border-dashed border-slate-300 hover:border-emerald-500 bg-white flex flex-col items-center justify-center text-slate-400 hover:text-emerald-600 shrink-0 transition-colors"
-                      title="Add more receipts to batch"
+                      type="button"
+                      onClick={() => onOpenUpgrade('scan_limit_reached')}
+                      className="min-h-[44px] px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs sm:text-sm font-semibold flex items-center gap-2 whitespace-nowrap"
                     >
-                      <Plus className="w-4 h-4" />
-                      <span className="text-[9px] font-bold mt-0.5">Add</span>
+                      <Sparkles className="w-4 h-4" />
+                      Upgrade to Plus
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => runScan(true)}
+                      className="min-h-[44px] px-4 py-2 rounded-xl bg-white dark:bg-slate-900 border border-amber-300 dark:border-amber-700 text-slate-800 dark:text-slate-200 text-xs sm:text-sm font-semibold flex items-center gap-2 whitespace-nowrap"
+                    >
+                      <WifiOff className="w-4 h-4" />
+                      Scan Offline on Phone (Free)
+                    </button>
+                    <button
+                      type="button"
+                      onClick={onOpenAddManual}
+                      className="min-h-[44px] px-4 py-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 text-xs sm:text-sm font-medium whitespace-nowrap"
+                    >
+                      Enter Manually (Free)
                     </button>
                   </div>
-                )}
+                </div>
+              )}
 
-                {/* Status Indicator */}
-                {isLoading && (
-                  <div className="px-4 py-2 bg-slate-900 text-white rounded-full shadow-lg border border-slate-700 inline-flex items-center gap-2 text-xs font-semibold animate-pulse mx-auto">
-                    <Sparkles className="w-4 h-4 text-emerald-400 animate-spin" />
-                    <span className="text-emerald-300">{loadingStage}</span>
+              {/* Scan Action Bar */}
+              <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-end gap-3 pt-1">
+                {isScanning ? (
+                  <div className="w-full py-3 px-4 rounded-2xl bg-slate-100 dark:bg-slate-800 flex items-center justify-center gap-3 text-sm font-medium text-slate-800 dark:text-slate-200">
+                    <Loader2 className="w-4 h-4 animate-spin text-emerald-600 shrink-0" />
+                    <span>{scanStage || 'Reading receipt...'}</span>
                   </div>
-                )}
-              </div>
-            ) : (
-              <div className="space-y-3 flex flex-col items-center justify-center text-slate-500 py-6">
-                <div className="w-16 h-16 rounded-3xl bg-emerald-50 text-emerald-600 flex items-center justify-center mb-1 shadow-inner">
-                  <UploadCloud className="w-8 h-8" />
-                </div>
-                <div>
-                  <p className="font-bold text-slate-800 text-sm">
-                    Tap to upload or take a photo of one or multiple receipts
-                  </p>
-                  <p className="text-xs text-slate-400 mt-1">
-                    Supports multiple files or multiple slips laid side-by-side in a single photo
-                  </p>
-                </div>
-                <div className="flex flex-wrap justify-center gap-2 pt-1">
-                  <span className="text-[10px] font-bold bg-slate-200/80 text-slate-700 px-2 py-0.5 rounded-lg">
-                    Multiple Slips in 1 Photo
-                  </span>
-                  <span className="text-[10px] font-bold bg-slate-200/80 text-slate-700 px-2 py-0.5 rounded-lg">
-                    Batch File Upload
-                  </span>
-                  <span className="text-[10px] font-bold bg-slate-200/80 text-slate-700 px-2 py-0.5 rounded-lg">
-                    PNG, JPG, PDF
-                  </span>
-                </div>
-              </div>
-            )}
-          </div>
-
-          {/* Action Button */}
-          <button
-            onClick={parseReceipts}
-            disabled={queuedFiles.length === 0 || isLoading}
-            className="w-full py-3.5 px-6 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white font-bold rounded-xl transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center space-x-2 shadow-sm cursor-pointer"
-          >
-            {isLoading ? (
-              <>
-                <Loader2 className="w-4 h-4 animate-spin" />
-                <span>{loadingStage}</span>
-              </>
-            ) : (
-              <div className="flex items-center gap-2">
-                <Sparkles className="w-4 h-4" />
-                <span>
-                  {queuedFiles.length > 1
-                    ? `Extract All Receipts from ${queuedFiles.length} Photos`
-                    : 'Extract & File Receipts'}
-                </span>
-              </div>
-            )}
-          </button>
-
-          {/* Sanitized Error Alert */}
-          {error && (
-            <div className="p-4 bg-rose-50 text-rose-900 border border-rose-200 rounded-xl flex flex-col sm:flex-row items-start justify-between gap-3 text-xs animate-in fade-in">
-              <div className="flex items-start gap-2.5">
-                <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 text-rose-600" />
-                <div>
-                  <p className="font-bold text-rose-900">{error}</p>
-                  <p className="text-[11px] text-rose-700 mt-0.5">
-                    You can retry scanning, adjust photo lighting, or log receipt details manually.
-                  </p>
-                </div>
-              </div>
-              <div className="flex items-center gap-2 self-end sm:self-auto shrink-0 flex-wrap">
-                {(error.includes('Gemini API Key') || error.includes('Standalone') || error.includes('server')) && (
+                ) : (
                   <button
-                    onClick={() => setShowApiKeyModal(true)}
-                    className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-lg transition-colors cursor-pointer flex items-center gap-1.5 shadow-xs"
+                    type="button"
+                    onClick={() => runScan(false)}
+                    className="min-h-[48px] px-6 py-3 rounded-2xl bg-slate-900 dark:bg-emerald-600 hover:bg-slate-800 dark:hover:bg-emerald-500 text-white font-semibold text-sm sm:text-base flex items-center justify-center gap-2 whitespace-nowrap"
                   >
-                    <Key className="w-3.5 h-3.5" />
-                    <span>Connect Free Key</span>
+                    <Sparkles className="w-4 h-4" />
+                    <span>
+                      {queuedPhotos.length > 1
+                        ? `Scan ${queuedPhotos.length} Photos Now`
+                        : 'Read Receipt Now'}
+                    </span>
                   </button>
                 )}
-                <button
-                  onClick={() => setShowManualModal(true)}
-                  className="px-3 py-1.5 bg-white hover:bg-slate-50 text-slate-800 border border-slate-200 font-bold text-xs rounded-lg transition-colors cursor-pointer"
-                >
-                  <Edit3 className="w-3.5 h-3.5 text-emerald-600 inline mr-1" />
-                  <span>Manual Entry</span>
-                </button>
-                <button
-                  onClick={parseReceipts}
-                  disabled={isLoading}
-                  className="px-3 py-1.5 bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs rounded-lg transition-colors cursor-pointer"
-                >
-                  <RefreshCw className="w-3.5 h-3.5 inline mr-1" />
-                  <span>Retry</span>
-                </button>
               </div>
             </div>
           )}
-        </div>
+        </section>
+      )}
 
-        {/* Successfully Filed Confirmation */}
-        {filedReceipts.length > 0 && (
-          <div className="p-5 bg-emerald-50 border-2 border-emerald-500 rounded-2xl shadow-sm space-y-4 animate-in fade-in">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-emerald-600 text-white flex items-center justify-center shadow-xs">
-                  <CheckCircle2 className="w-6 h-6" />
-                </div>
-                <div>
-                  <h3 className="font-black text-slate-900 text-base">
-                    🎉 Successfully Filed {filedReceipts.length} Receipt{filedReceipts.length > 1 ? 's' : ''}!
-                  </h3>
-                  <p className="text-xs text-emerald-800 font-medium">
-                    All slips, prices, and line items have been saved to your Android device storage.
-                  </p>
-                </div>
-              </div>
-
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={() => onViewMonth(filedReceipts[0]?.month_year || '2026-09')}
-                  className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-xs flex items-center gap-1.5 transition-colors shadow-xs cursor-pointer"
-                >
-                  <span>View in {filedReceipts[0]?.month_year}</span>
-                  <ArrowRight className="w-3.5 h-3.5" />
-                </button>
-                <button
-                  onClick={clearAllQueued}
-                  className="px-3.5 py-2 bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 font-bold rounded-xl text-xs transition-colors cursor-pointer"
-                >
-                  Scan More
-                </button>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5 pt-1">
-              {filedReceipts.map((r, i) => (
-                <div key={r.id} className="p-3 bg-white rounded-xl border border-emerald-200 shadow-2xs text-xs space-y-1">
-                  <div className="flex items-center justify-between">
-                    <span className="font-bold text-slate-800 truncate">{r.vendor_name}</span>
-                    <span className="font-mono font-bold text-emerald-700">R {Number(r.total_amount).toFixed(2)}</span>
-                  </div>
-                  <div className="flex items-center justify-between text-[11px] text-slate-500">
-                    <span>{r.invoice_date}</span>
-                    <span>{r.category}</span>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* Detected Receipts Review List (Before Final Filing) */}
-        {detectedReceipts.length > 0 && (() => {
-          const totalDetectedAmount = detectedReceipts.reduce((acc, r) => acc + (r.total_amount || 0), 0);
-          const activeDuplicateCount = detectedReceipts.filter(r => duplicatesMap.has(r.id) && !dismissedDuplicateIds.has(r.id)).length;
-
-          return (
-            <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-5 space-y-4 animate-in fade-in">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 pb-4">
-                <div>
-                  <div className="flex items-center gap-2">
-                    <span className="px-2.5 py-1 bg-emerald-100 text-emerald-800 text-xs font-black rounded-lg">
-                      {detectedReceipts.length} Receipt{detectedReceipts.length > 1 ? 's' : ''} Detected
-                    </span>
-                    <span className="text-xs font-bold text-slate-500">
-                      Combined Spend: <strong className="text-slate-800 font-mono">R {totalDetectedAmount.toFixed(2)}</strong>
-                    </span>
-                  </div>
-                  <p className="text-xs text-slate-400 mt-1">
-                    Review and adjust stores, amounts, or categories before filing to your monthly ledger
-                  </p>
-                </div>
-
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={handleFileAllDetected}
-                    className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white font-black rounded-xl text-xs flex items-center justify-center gap-2 shadow-md transition-all cursor-pointer"
-                  >
-                    <Check className="w-4 h-4" />
-                    <span>File All {detectedReceipts.length} Receipts to Ledger</span>
-                  </button>
-                </div>
-              </div>
-
-              {/* Duplicate Safety Alert Banner */}
-              {activeDuplicateCount > 0 && (
-                <div className="bg-amber-500/10 border border-amber-300 rounded-2xl p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs text-amber-950">
-                  <div className="flex items-center gap-3">
-                    <div className="w-9 h-9 rounded-xl bg-amber-500/20 text-amber-800 flex items-center justify-center shrink-0">
-                      <ShieldAlert className="w-5 h-5 text-amber-700" />
-                    </div>
-                    <div>
-                      <div className="font-bold text-amber-900 text-sm">
-                        Duplicate Protection Active: {activeDuplicateCount} potential duplicate slip{activeDuplicateCount > 1 ? 's' : ''} detected
-                      </div>
-                      <div className="text-amber-800 text-xs">
-                        We detected matching purchases in your ledger. You can skip duplicates or file only new receipts.
-                      </div>
-                    </div>
-                  </div>
-                  <button
-                    onClick={handleSkipDuplicatesAndFileNew}
-                    className="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white font-bold rounded-xl text-xs shrink-0 cursor-pointer shadow-xs transition-colors self-end sm:self-auto flex items-center gap-1.5"
-                  >
-                    <Check className="w-3.5 h-3.5" />
-                    <span>Skip Duplicates & File New ({detectedReceipts.length - activeDuplicateCount})</span>
-                  </button>
-                </div>
-              )}
-
-              {/* List of Detected Slips */}
-              <div className="space-y-3">
-                {detectedReceipts.map((rec, idx) => {
-                  const isExpanded = expandedReceiptIds.has(rec.id);
-                  const dup = duplicatesMap.get(rec.id);
-                  const isDuplicate = Boolean(dup && !dismissedDuplicateIds.has(rec.id));
-
-                  return (
-                    <div
-                      key={rec.id}
-                      className={`p-4 rounded-xl border transition-all space-y-3 ${
-                        isDuplicate
-                          ? 'border-amber-300 bg-amber-50/40 shadow-xs ring-1 ring-amber-300/60'
-                          : 'border-slate-200 bg-slate-50/60 hover:bg-slate-50'
-                      }`}
-                    >
-                      {/* Per-Slip Duplicate Warning Banner */}
-                      {isDuplicate && dup && (
-                        <div className="bg-amber-100/90 border border-amber-300 rounded-xl p-3 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2.5 text-xs text-amber-950">
-                          <div className="flex items-center gap-2">
-                            <AlertTriangle className="w-4 h-4 text-amber-700 shrink-0" />
-                            <div>
-                              <span className="font-bold text-amber-900">Duplicate Scan Warning: </span>
-                              <span className="text-amber-800">{dup.matchReason}</span>
-                              {!dup.isBatchDuplicate && (
-                                <div className="text-[11px] text-amber-700 mt-0.5">
-                                  Matches existing ledger entry from <strong>{dup.matchedReceipt.month_year}</strong> ({dup.matchedReceipt.invoice_date})
-                                </div>
-                              )}
-                            </div>
-                          </div>
-                          <div className="flex items-center gap-2 shrink-0 self-end sm:self-auto">
-                            <button
-                              type="button"
-                              onClick={() => removeDetectedReceipt(rec.id)}
-                              className="px-2.5 py-1 bg-rose-600 hover:bg-rose-700 text-white rounded-lg text-xs font-bold transition-colors cursor-pointer shadow-2xs"
-                              title="Discard this duplicate slip"
-                            >
-                              Skip Duplicate
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => handleDismissDuplicate(rec.id)}
-                              className="px-2.5 py-1 bg-white hover:bg-slate-100 text-slate-700 border border-slate-300 rounded-lg text-xs font-semibold transition-colors cursor-pointer"
-                              title="Keep as legitimate separate purchase"
-                            >
-                              Keep Anyway
-                            </button>
-                          </div>
-                        </div>
-                      )}
-
-                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                      <div className="flex items-center gap-2.5 flex-1">
-                        <span className="w-6 h-6 rounded-full bg-slate-900 text-white text-[11px] font-bold flex items-center justify-center shrink-0">
-                          {idx + 1}
-                        </span>
-                        <div className="flex-1">
-                          <div className="flex items-center gap-1.5">
-                            <input
-                              type="text"
-                              value={rec.vendor_name}
-                              onChange={(e) => updateDetectedReceipt(rec.id, { vendor_name: e.target.value })}
-                              className="font-bold text-slate-900 text-sm bg-transparent border-b border-transparent hover:border-slate-300 focus:border-emerald-500 focus:bg-white px-1 py-0.5 rounded transition-all w-full max-w-xs focus:outline-none"
-                              placeholder="Store Name"
-                            />
-                            {rec.engine_used === 'local_tesseract' ? (
-                              <span className="inline-flex items-center gap-1 text-[10px] font-bold px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800 border border-emerald-300 shrink-0" title="Extracted offline using on-device Tesseract OCR">
-                                <Cpu className="w-3 h-3 text-emerald-600" />
-                                <span>Tesseract</span>
-                              </span>
-                            ) : (
-                              <span className="inline-flex items-center gap-1 text-[10px] font-bold px-1.5 py-0.5 rounded bg-blue-50 text-blue-700 border border-blue-200 shrink-0" title="Extracted using Cloud AI Vision">
-                                <Cloud className="w-3 h-3 text-blue-600" />
-                                <span>Cloud AI</span>
-                              </span>
-                            )}
-                          </div>
-                          {rec.notes && (
-                            <div className="text-[10px] text-slate-400 px-1">{rec.notes}</div>
-                          )}
-                        </div>
-                      </div>
-
-                      <div className="flex items-center gap-2 flex-wrap self-end sm:self-auto">
-                        <input
-                          type="date"
-                          value={rec.invoice_date}
-                          onChange={(e) => updateDetectedReceipt(rec.id, { invoice_date: e.target.value })}
-                          className="px-2.5 py-1 bg-white border border-slate-200 rounded-lg text-xs font-semibold text-slate-700 focus:outline-none focus:ring-1 focus:ring-emerald-500"
-                        />
-
-                        <select
-                          value={rec.category}
-                          onChange={(e) => updateDetectedReceipt(rec.id, { category: e.target.value as any })}
-                          className="px-2.5 py-1 bg-white border border-slate-200 rounded-lg text-xs font-bold text-slate-700 focus:outline-none focus:ring-1 focus:ring-emerald-500 cursor-pointer"
-                        >
-                          <option value="Food & Groceries">Food & Groceries</option>
-                          <option value="Electricity & Utilities">Electricity & Utilities</option>
-                          <option value="Home Maintenance">Home Maintenance</option>
-                          <option value="Transport">Transport</option>
-                          <option value="Other">Other</option>
-                        </select>
-
-                        <div className="flex items-center gap-1 bg-white px-2.5 py-1 rounded-lg border border-slate-200">
-                          <span className="text-xs font-bold text-slate-400">R</span>
-                          <input
-                            type="number"
-                            step="0.01"
-                            value={rec.total_amount}
-                            onChange={(e) => updateDetectedReceipt(rec.id, { total_amount: parseFloat(e.target.value) || 0 })}
-                            className="font-black text-slate-900 text-sm w-20 focus:outline-none font-mono"
-                          />
-                        </div>
-
-                        <button
-                          onClick={() => toggleExpand(rec.id)}
-                          className="p-1.5 text-slate-500 hover:text-slate-800 bg-white border border-slate-200 rounded-lg transition-colors cursor-pointer"
-                          title="View line items"
-                        >
-                          {isExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
-                        </button>
-
-                        <button
-                          onClick={() => removeDetectedReceipt(rec.id)}
-                          className="p-1.5 text-slate-400 hover:text-rose-600 rounded-lg transition-colors cursor-pointer"
-                          title="Delete slip"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      </div>
-                    </div>
-
-                    {/* Expandable Line Items */}
-                    {isExpanded && (
-                      <div className="pt-2 border-t border-slate-200/80 text-xs space-y-2">
-                        <div className="flex items-center justify-between text-slate-400 text-[11px] font-bold uppercase tracking-wider">
-                          <span>Extracted Line Items ({rec.line_items.length})</span>
-                          <span>Unit & Total</span>
-                        </div>
-                        {rec.line_items.length === 0 ? (
-                          <div className="text-slate-400 italic text-[11px]">No individual items itemized for this slip.</div>
-                        ) : (
-                          <div className="space-y-1 max-h-36 overflow-y-auto pr-1">
-                            {rec.line_items.map((item, itemIdx) => (
-                              <div key={itemIdx} className="flex items-center justify-between py-1 px-2 bg-white rounded-lg border border-slate-100 text-slate-700">
-                                <div>
-                                  <span className="font-semibold">{item.description}</span>
-                                  {item.quantity > 1 && (
-                                    <span className="text-[10px] text-slate-400 ml-1.5">(x{item.quantity})</span>
-                                  )}
-                                </div>
-                                <span className="font-mono font-bold text-slate-800">
-                                  R {Number(item.total_price).toFixed(2)}
-                                </span>
-                              </div>
-                            ))}
-                          </div>
-                        )}
-
-                        <div className="pt-2 flex items-center justify-end gap-2">
-                          <button
-                            type="button"
-                            onClick={() => downloadSingleReceiptPDF(rec)}
-                            className="px-2.5 py-1 bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 rounded-lg text-[11px] font-bold flex items-center gap-1.5 shadow-2xs transition-colors cursor-pointer"
-                            title="Save slip as vector PDF"
-                          >
-                            <FileDown className="w-3.5 h-3.5 text-emerald-600" />
-                            <span>Save PDF / Print to PDF</span>
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => printSingleReceiptSafely(rec)}
-                            className="px-2.5 py-1 bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 rounded-lg text-[11px] font-bold flex items-center gap-1.5 shadow-2xs transition-colors cursor-pointer"
-                            title="Print slip"
-                          >
-                            <Printer className="w-3.5 h-3.5 text-slate-500" />
-                            <span>Print</span>
-                          </button>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-
-            {/* Bottom Filing Bar */}
-            <div className="pt-3 border-t border-slate-100 flex items-center justify-between">
-              <span className="text-xs text-slate-500">
-                All {detectedReceipts.length} slips will be filed chronologically into their respective months.
-              </span>
-              <button
-                onClick={handleFileAllDetected}
-                className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-xs flex items-center gap-2 shadow-xs transition-colors cursor-pointer"
-              >
-                <span>Confirm & File {detectedReceipts.length} Receipts</span>
-                <ArrowRight className="w-4 h-4" />
-              </button>
-            </div>
-          </div>
-        );
-      })()}
-
-      {/* Duplicate Scan Safety Interceptor Modal */}
-      {showDuplicateSafetyModal && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-in fade-in">
-          <div className="bg-white rounded-3xl max-w-lg w-full flex flex-col shadow-2xl border border-slate-200 overflow-hidden">
-            <div className="p-5 border-b border-amber-200 flex items-center justify-between bg-amber-50">
-              <div className="flex items-center gap-3">
-                <div className="w-9 h-9 rounded-xl bg-amber-500/20 text-amber-700 flex items-center justify-center shrink-0">
-                  <ShieldAlert className="w-5 h-5" />
-                </div>
-                <div>
-                  <h3 className="font-bold text-amber-950 text-base leading-tight">Duplicate Scan Protection</h3>
-                  <p className="text-xs text-amber-800">Safety check before filing to monthly ledger</p>
-                </div>
-              </div>
-              <button
-                onClick={() => setShowDuplicateSafetyModal(false)}
-                className="p-1 text-slate-400 hover:text-slate-600 rounded-lg transition-colors cursor-pointer"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <div className="p-5 space-y-4 max-h-[60vh] overflow-y-auto">
-              <div className="text-xs text-slate-600 leading-relaxed">
-                The scanner detected that <strong>{detectedReceipts.filter(r => duplicatesMap.has(r.id) && !dismissedDuplicateIds.has(r.id)).length}</strong> of your <strong>{detectedReceipts.length}</strong> receipts appear to already be recorded in your ledger. Filing duplicate scans can duplicate expenditure and skew totals.
-              </div>
-
-              {/* Duplicate summary list */}
-              <div className="space-y-2">
-                {detectedReceipts
-                  .filter(r => duplicatesMap.has(r.id) && !dismissedDuplicateIds.has(r.id))
-                  .map(dupSlip => {
-                    const match = duplicatesMap.get(dupSlip.id);
-                    return (
-                      <div key={dupSlip.id} className="p-3 bg-amber-50/70 border border-amber-200 rounded-xl text-xs space-y-1">
-                        <div className="flex items-center justify-between font-bold text-slate-900">
-                          <span>{dupSlip.vendor_name}</span>
-                          <span className="font-mono text-emerald-800">R {Number(dupSlip.total_amount).toFixed(2)}</span>
-                        </div>
-                        <div className="text-[11px] text-amber-900">
-                          {match?.matchReason}
-                        </div>
-                        {match && !match.isBatchDuplicate && (
-                          <div className="text-[10px] text-slate-500">
-                            Recorded in ledger: {match.matchedReceipt.month_year} ({match.matchedReceipt.invoice_date})
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
-              </div>
-            </div>
-
-            <div className="p-5 border-t border-slate-100 bg-slate-50/70 flex flex-col sm:flex-row gap-2.5 justify-end">
-              <button
-                type="button"
-                onClick={() => setShowDuplicateSafetyModal(false)}
-                className="px-4 py-2.5 bg-white hover:bg-slate-100 text-slate-700 font-bold rounded-xl text-xs border border-slate-200 cursor-pointer"
-              >
-                Cancel & Review Slips
-              </button>
-
-              <button
-                type="button"
-                onClick={() => executeFileReceipts(detectedReceipts)}
-                className="px-4 py-2.5 bg-slate-200 hover:bg-slate-300 text-slate-800 font-bold rounded-xl text-xs cursor-pointer"
-                title="Save all receipts anyway including duplicates"
-              >
-                File All Anyway ({detectedReceipts.length})
-              </button>
-
-              <button
-                type="button"
-                onClick={handleSkipDuplicatesAndFileNew}
-                className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-xs cursor-pointer shadow-sm flex items-center justify-center gap-1.5"
-              >
-                <Check className="w-4 h-4" />
-                <span>Skip Duplicates & File New ({detectedReceipts.length - detectedReceipts.filter(r => duplicatesMap.has(r.id) && !dismissedDuplicateIds.has(r.id)).length})</span>
-              </button>
-            </div>
-          </div>
+      {/* Helpful Notices & Error States */}
+      {scanNotice && (
+        <div className="rounded-2xl bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 px-4 py-3 text-xs sm:text-sm text-slate-700 dark:text-slate-300 flex items-center justify-between gap-3">
+          <span>{scanNotice}</span>
+          <button
+            type="button"
+            onClick={() => setScanNotice(null)}
+            className="min-h-[36px] min-w-[36px] flex items-center justify-center text-slate-400 hover:text-slate-700 dark:hover:text-white"
+            aria-label="Dismiss notice"
+          >
+            <X className="w-4 h-4" />
+          </button>
         </div>
       )}
-      </section>
 
-      {/* Manual Entry Modal */}
-      {showManualModal && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-in fade-in">
-          <div className="bg-white rounded-3xl max-w-lg w-full max-h-[90vh] flex flex-col shadow-2xl border border-slate-200 overflow-hidden">
-            <div className="p-5 border-b border-slate-100 flex items-center justify-between bg-slate-50/70">
-              <div className="flex items-center gap-2">
-                <div className="w-8 h-8 rounded-lg bg-emerald-100 text-emerald-700 flex items-center justify-center">
-                  <Edit3 className="w-4 h-4" />
-                </div>
-                <div>
-                  <h3 className="font-bold text-slate-900 text-base leading-tight">Manual Receipt Entry</h3>
-                  <p className="text-xs text-slate-500">File slip directly into month expenditure</p>
-                </div>
-              </div>
-              <button
-                onClick={() => setShowManualModal(false)}
-                className="p-1 text-slate-400 hover:text-slate-600 rounded-lg transition-colors cursor-pointer"
-              >
-                <X className="w-5 h-5" />
-              </button>
+      {errorMessage && (
+        <div className="rounded-2xl bg-rose-50 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-800/70 px-4 py-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="flex items-start gap-2.5 text-xs sm:text-sm text-rose-900 dark:text-rose-200">
+            <AlertTriangle className="w-4 h-4 text-rose-600 dark:text-rose-400 shrink-0 mt-0.5" />
+            <span>{errorMessage}</span>
+          </div>
+          <button
+            type="button"
+            onClick={onOpenAddManual}
+            className="min-h-[40px] px-3.5 py-1.5 rounded-xl bg-white dark:bg-slate-900 border border-rose-200 dark:border-rose-800 text-xs font-semibold text-rose-900 dark:text-rose-200 whitespace-nowrap self-start sm:self-auto"
+          >
+            Add Manually Instead
+          </button>
+        </div>
+      )}
+
+      {/* Extracted Receipt Review List */}
+      {drafts.length > 0 && (
+        <section className="space-y-4">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div>
+              <h2 className="text-lg sm:text-xl font-bold text-slate-900 dark:text-white">
+                Review extracted {drafts.length === 1 ? 'receipt' : `receipts (${drafts.length})`}
+              </h2>
+              <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400">
+                Check the store name, date, and total below before saving to your ledger.
+              </p>
             </div>
+            <button
+              type="button"
+              onClick={() => {
+                setDrafts([]);
+                setDuplicateMap(new Map());
+              }}
+              className="min-h-[44px] px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-800 text-xs sm:text-sm font-medium text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white whitespace-nowrap self-start sm:self-auto"
+            >
+              Discard & Scan Again
+            </button>
+          </div>
 
-            <form onSubmit={handleSaveManual} className="p-5 overflow-y-auto space-y-4 flex-1">
-              {/* Duplicate Safety Warning for Manual Entry */}
-              {manualDuplicateWarning && (
-                <div className="p-3.5 bg-amber-50 border border-amber-300 rounded-2xl text-xs text-amber-950 space-y-2.5 animate-in fade-in">
-                  <div className="flex items-center gap-2 font-bold text-amber-900">
-                    <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
-                    <span>Duplicate Purchase Safety Warning</span>
+          <div className="space-y-4">
+            {drafts.map((draft, index) => {
+              const dupeMatch = duplicateMap.get(draft.draftId);
+              return (
+                <div
+                  key={draft.draftId}
+                  className={`rounded-2xl bg-white dark:bg-slate-900 border p-5 sm:p-6 space-y-4 transition-opacity ${
+                    draft.selected
+                      ? 'border-slate-200 dark:border-slate-800'
+                      : 'border-slate-200/60 dark:border-slate-800/60 opacity-65'
+                  }`}
+                >
+                  {/* Duplicate Warning Callout */}
+                  {dupeMatch && (
+                    <div className="rounded-xl bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800/70 px-3.5 py-2.5 flex items-start gap-2.5 text-xs text-amber-900 dark:text-amber-200">
+                      <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                      <div>
+                        <p className="font-semibold">
+                          Looks similar to an existing receipt ({dupeMatch.matchedReceipt.vendor_name} ·{' '}
+                          {formatShortDate(dupeMatch.matchedReceipt.invoice_date)} ·{' '}
+                          {formatMoney(dupeMatch.matchedReceipt.total_amount, currencyCode)})
+                        </p>
+                        <p className="text-amber-800 dark:text-amber-300/90 mt-0.5">
+                          We unchecked this slip to prevent double-counting. Check the box below if
+                          this was a separate purchase.
+                        </p>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Top Row: Include Checkbox + Slip Metadata */}
+                  <div className="flex items-center justify-between gap-3">
+                    <label className="min-h-[44px] flex items-center gap-3 cursor-pointer select-none">
+                      <input
+                        type="checkbox"
+                        checked={draft.selected}
+                        onChange={(e) =>
+                          updateDraftField(draft.draftId, 'selected', e.target.checked)
+                        }
+                        className="w-5 h-5 rounded border-slate-300 text-emerald-600 focus:ring-emerald-600"
+                      />
+                      <span className="text-sm font-semibold text-slate-900 dark:text-white">
+                        {drafts.length > 1 ? `Receipt ${index + 1}` : 'Include this receipt'}
+                      </span>
+                    </label>
+
+                    <div className="text-xs text-slate-500 dark:text-slate-400 tabular-nums">
+                      <span>{draft.line_items?.length || 0} items</span>
+                      <span aria-hidden="true" className="mx-1.5">
+                        ·
+                      </span>
+                      <span className="font-mono font-semibold text-slate-900 dark:text-white">
+                        {formatMoney(draft.total_amount, currencyCode)}
+                      </span>
+                    </div>
                   </div>
-                  <p className="text-[11px] text-amber-800 leading-relaxed">
-                    An existing receipt for <strong>{manualDuplicateWarning.matchedReceipt.vendor_name}</strong> on <strong>{manualDuplicateWarning.matchedReceipt.invoice_date}</strong> (R {Number(manualDuplicateWarning.matchedReceipt.total_amount).toFixed(2)}) is already in your ledger.
-                  </p>
-                  <div className="flex items-center gap-2 pt-1">
-                    <button
-                      type="button"
-                      onClick={() => handleSaveManual(undefined, true)}
-                      className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-bold transition-colors cursor-pointer shadow-2xs"
-                    >
-                      Save Anyway
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setManualDuplicateWarning(null)}
-                      className="px-3 py-1.5 bg-white hover:bg-slate-100 text-slate-700 border border-slate-300 rounded-xl text-xs font-semibold transition-colors cursor-pointer"
-                    >
-                      Cancel
-                    </button>
-                  </div>
-                </div>
-              )}
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">Vendor / Store Name</label>
-                  <input
-                    type="text"
-                    required
-                    value={manualVendor}
-                    onChange={(e) => setManualVendor(e.target.value)}
-                    placeholder="e.g. Pick n Pay, Rayton Express, Eskom"
-                    className="w-full px-3 py-2 border border-slate-200 rounded-xl text-xs font-medium focus:ring-2 focus:ring-emerald-500 focus:outline-none"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">Receipt Date</label>
-                  <input
-                    type="date"
-                    required
-                    value={manualDate}
-                    onChange={(e) => setManualDate(e.target.value)}
-                    className="w-full px-3 py-2 border border-slate-200 rounded-xl text-xs font-medium focus:ring-2 focus:ring-emerald-500 focus:outline-none"
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">Category</label>
-                  <select
-                    value={manualCategory}
-                    onChange={(e: any) => setManualCategory(e.target.value)}
-                    className="w-full px-3 py-2 border border-slate-200 rounded-xl text-xs font-medium focus:ring-2 focus:ring-emerald-500 focus:outline-none bg-white"
-                  >
-                    <option value="Food & Groceries">Food & Groceries</option>
-                    <option value="Electricity & Utilities">Electricity & Utilities</option>
-                    <option value="Home Maintenance">Home Maintenance</option>
-                    <option value="Transport">Transport</option>
-                    <option value="Other">Other</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">Currency</label>
-                  <input
-                    type="text"
-                    value={manualCurrency}
-                    onChange={(e) => setManualCurrency(e.target.value)}
-                    className="w-full px-3 py-2 border border-slate-200 rounded-xl text-xs font-medium focus:ring-2 focus:ring-emerald-500 focus:outline-none"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">Total Spend</label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    required
-                    value={manualTotal}
-                    onChange={(e) => setManualTotal(e.target.value)}
-                    placeholder="241.71"
-                    className="w-full px-3 py-2 border border-slate-200 rounded-xl text-xs font-bold text-emerald-700 focus:ring-2 focus:ring-emerald-500 focus:outline-none font-mono"
-                  />
-                </div>
-              </div>
-
-              {/* Line items section */}
-              <div className="space-y-2 pt-2 border-t border-slate-100">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-bold text-slate-700">Line Items (Optional)</span>
-                  <button
-                    type="button"
-                    onClick={addManualItem}
-                    className="text-[11px] text-emerald-600 font-bold hover:underline flex items-center gap-1 cursor-pointer"
-                  >
-                    <Plus className="w-3 h-3" /> Add Item
-                  </button>
-                </div>
-
-                <div className="space-y-2 max-h-36 overflow-y-auto pr-1">
-                  {manualItems.map((item, idx) => (
-                    <div key={idx} className="flex items-center gap-2 bg-slate-50 p-2 rounded-xl border border-slate-200 text-xs">
+                  {/* Editable Fields Grid */}
+                  <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
+                    <div className="sm:col-span-2">
+                      <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">
+                        Store or Provider
+                      </label>
                       <input
                         type="text"
-                        placeholder="Item description"
-                        value={item.description}
-                        onChange={(e) => updateManualItem(idx, 'description', e.target.value)}
-                        className="flex-1 px-2 py-1 bg-white border border-slate-200 rounded-lg text-xs"
+                        value={draft.vendor_name}
+                        onChange={(e) =>
+                          updateDraftField(draft.draftId, 'vendor_name', e.target.value)
+                        }
+                        className="w-full min-h-[44px] px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50/60 dark:bg-slate-800/60 text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-600"
                       />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">
+                        Date
+                      </label>
                       <input
-                        type="number"
-                        placeholder="Qty"
-                        value={item.quantity}
-                        onChange={(e) => updateManualItem(idx, 'quantity', e.target.value)}
-                        className="w-14 px-2 py-1 bg-white border border-slate-200 rounded-lg text-xs"
+                        type="date"
+                        value={draft.invoice_date}
+                        onChange={(e) =>
+                          updateDraftField(draft.draftId, 'invoice_date', e.target.value)
+                        }
+                        className="w-full min-h-[44px] px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50/60 dark:bg-slate-800/60 text-sm text-slate-900 dark:text-white tabular-nums focus:outline-none focus:ring-2 focus:ring-emerald-600"
                       />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">
+                        Total Amount
+                      </label>
                       <input
                         type="number"
                         step="0.01"
-                        placeholder="Total"
-                        value={item.total_price}
-                        onChange={(e) => updateManualItem(idx, 'total_price', e.target.value)}
-                        className="w-20 px-2 py-1 bg-white border border-slate-200 rounded-lg text-xs font-bold text-emerald-700 font-mono"
+                        min="0"
+                        value={draft.total_amount}
+                        onChange={(e) =>
+                          updateDraftField(
+                            draft.draftId,
+                            'total_amount',
+                            parseFloat(e.target.value) || 0
+                          )
+                        }
+                        className="w-full min-h-[44px] px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50/60 dark:bg-slate-800/60 text-sm font-mono tabular-nums font-semibold text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-600"
                       />
-                      <button
-                        type="button"
-                        onClick={() => removeManualItem(idx)}
-                        className="text-rose-500 hover:text-rose-700 p-1 cursor-pointer"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
                     </div>
-                  ))}
-                </div>
-              </div>
+                  </div>
 
-              <div className="pt-3 border-t border-slate-100 flex gap-2">
-                <button
-                  type="button"
-                  onClick={() => setShowManualModal(false)}
-                  className="flex-1 py-2.5 px-4 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl text-xs transition-colors cursor-pointer"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="flex-1 py-2.5 px-4 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white font-bold rounded-xl text-xs transition-colors shadow-md cursor-pointer"
-                >
-                  Save & File to Month
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">
+                        Category
+                      </label>
+                      <select
+                        value={draft.category}
+                        onChange={(e) =>
+                          updateDraftField(
+                            draft.draftId,
+                            'category',
+                            e.target.value as ReceiptCategory
+                          )
+                        }
+                        className="w-full min-h-[44px] px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50/60 dark:bg-slate-800/60 text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-600"
+                      >
+                        {CATEGORIES.map((cat) => (
+                          <option key={cat} value={cat}>
+                            {cat}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
 
-      {/* Gemini API Key Configuration Modal for Standalone / APK Mode */}
-      {showApiKeyModal && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-in fade-in">
-          <div className="bg-white rounded-3xl max-w-md w-full p-5 sm:p-6 shadow-2xl border border-slate-200 space-y-4">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2.5">
-                <div className="w-9 h-9 rounded-xl bg-emerald-100 text-emerald-700 flex items-center justify-center shadow-xs">
-                  <Key className="w-5 h-5" />
-                </div>
-                <div>
-                  <h3 className="font-bold text-slate-900 text-base leading-tight">Gemini Vision OCR Key</h3>
-                  <p className="text-xs text-slate-500">Enable on-device receipt scanning</p>
-                </div>
-              </div>
-              <button
-                onClick={() => setShowApiKeyModal(false)}
-                className="p-1 text-slate-400 hover:text-slate-600 rounded-lg cursor-pointer"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
+                    <div>
+                      <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">
+                        Optional Note
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="e.g. Weekly groceries"
+                        value={draft.notes || ''}
+                        onChange={(e) =>
+                          updateDraftField(draft.draftId, 'notes', e.target.value)
+                        }
+                        className="w-full min-h-[44px] px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50/60 dark:bg-slate-800/60 text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-600"
+                      />
+                    </div>
+                  </div>
 
-            <p className="text-xs text-slate-600 leading-relaxed">
-              When using ParserPro as an Android APK or offline PWA without a dedicated backend server, receipts are scanned directly on your device using Google&apos;s free Gemini Vision OCR.
-            </p>
-
-            <div className="space-y-2">
-              <label className="block text-xs font-bold text-slate-700">Google Gemini API Key</label>
-              <div className="relative">
-                <input
-                  type={showApiKeyTextInModal ? 'text' : 'password'}
-                  value={apiKeyInput}
-                  onChange={(e) => {
-                    setApiKeyInput(e.target.value);
-                    setTestKeyFeedbackInModal(null);
-                  }}
-                  placeholder="AIzaSy..."
-                  className="w-full pl-3 pr-10 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none"
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowApiKeyTextInModal(!showApiKeyTextInModal)}
-                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-1 cursor-pointer"
-                  title={showApiKeyTextInModal ? 'Hide API Key' : 'Show API Key'}
-                >
-                  {showApiKeyTextInModal ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
-                </button>
-              </div>
-
-              {testKeyFeedbackInModal && (
-                <div className={`p-2.5 rounded-xl text-xs flex items-center gap-1.5 ${
-                  testKeyFeedbackInModal.success 
-                    ? 'bg-emerald-50 text-emerald-800 border border-emerald-200' 
-                    : 'bg-rose-50 text-rose-800 border border-rose-200'
-                }`}>
-                  {testKeyFeedbackInModal.success ? <Check className="w-3.5 h-3.5 text-emerald-600 shrink-0" /> : <AlertTriangle className="w-3.5 h-3.5 text-rose-600 shrink-0" />}
-                  <span>{testKeyFeedbackInModal.message}</span>
-                </div>
-              )}
-
-              <div className="flex justify-between items-center text-[11px] pt-1">
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    disabled={!apiKeyInput.trim() || isTestingKeyInModal}
-                    onClick={async () => {
-                      setIsTestingKeyInModal(true);
-                      setTestKeyFeedbackInModal(null);
-                      const res = await testGeminiApiKey(apiKeyInput.trim());
-                      setTestKeyFeedbackInModal(res);
-                      setIsTestingKeyInModal(false);
-                    }}
-                    className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold rounded-lg text-xs transition-colors border border-slate-200 disabled:opacity-50 cursor-pointer"
-                  >
-                    {isTestingKeyInModal ? 'Testing...' : 'Test Key'}
-                  </button>
-
-                  {apiKeyInput && (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setApiKeyInput('');
-                        setClientGeminiApiKey('');
-                        setHasApiKey(false);
-                        setTestKeyFeedbackInModal(null);
-                      }}
-                      className="text-rose-500 hover:underline text-xs font-semibold cursor-pointer"
-                    >
-                      Clear
-                    </button>
+                  {/* Extracted Line Items Preview */}
+                  {draft.line_items && draft.line_items.length > 0 && (
+                    <div className="pt-2 border-t border-slate-100 dark:border-slate-800">
+                      <p className="text-xs font-medium text-slate-500 dark:text-slate-400 mb-2">
+                        Extracted items
+                      </p>
+                      <div className="divide-y divide-slate-100 dark:divide-slate-800/80 max-h-48 overflow-y-auto pr-1">
+                        {draft.line_items.map((item, idx) => (
+                          <div
+                            key={idx}
+                            className="py-1.5 flex items-center justify-between gap-3 text-xs sm:text-sm"
+                          >
+                            <span className="text-slate-700 dark:text-slate-300 truncate">
+                              {item.quantity > 1 ? `${item.quantity} × ` : ''}
+                              {item.description}
+                            </span>
+                            <span className="font-mono tabular-nums text-slate-900 dark:text-white shrink-0">
+                              {formatMoney(item.total_price, currencyCode)}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
                   )}
                 </div>
-
-                <a
-                  href="https://aistudio.google.com/app/apikey"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-emerald-600 font-bold hover:underline flex items-center gap-1"
-                >
-                  <span>Get Free Key</span>
-                  <ExternalLink className="w-3 h-3" />
-                </a>
-              </div>
-            </div>
-
-            <div className="pt-2 flex gap-2">
-              <button
-                type="button"
-                onClick={() => setShowApiKeyModal(false)}
-                className="flex-1 py-2.5 px-4 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl text-xs transition-colors cursor-pointer"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={handleSaveApiKey}
-                disabled={!apiKeyInput.trim()}
-                className="flex-1 py-2.5 px-4 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-bold rounded-xl text-xs transition-colors shadow-md cursor-pointer flex items-center justify-center gap-1.5"
-              >
-                {apiKeySavedSuccess ? <Check className="w-4 h-4" /> : <Sparkles className="w-4 h-4" />}
-                <span>{apiKeySavedSuccess ? 'Saved & Scanning!' : 'Save & Continue'}</span>
-              </button>
-            </div>
+              );
+            })}
           </div>
-        </div>
+
+          {/* Save Bar */}
+          <div className="rounded-2xl bg-slate-900 dark:bg-slate-900 border border-slate-800 p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4 text-white">
+            <div className="space-y-0.5">
+              <p className="text-sm font-semibold">
+                {selectedDraftCount} {selectedDraftCount === 1 ? 'receipt' : 'receipts'} selected
+              </p>
+              <p className="text-xs text-slate-300 tabular-nums">
+                Combined total: {formatMoney(selectedTotalSpend, currencyCode)}
+              </p>
+            </div>
+            <button
+              type="button"
+              disabled={selectedDraftCount === 0}
+              onClick={handleSaveSelectedDrafts}
+              className="min-h-[48px] px-6 py-3 rounded-xl bg-emerald-500 hover:bg-emerald-400 disabled:opacity-50 text-slate-950 font-bold text-sm sm:text-base flex items-center justify-center gap-2 whitespace-nowrap"
+            >
+              <Check className="w-5 h-5" />
+              <span>
+                Save {selectedDraftCount === 1 ? 'Receipt' : `${selectedDraftCount} Receipts`}
+              </span>
+            </button>
+          </div>
+        </section>
       )}
 
-      {/* Offline OCR Queue Modal */}
-      <OfflineOcrQueueModal
-        isOpen={showQueueModal}
-        onClose={() => setShowQueueModal(false)}
-        onImportExtractedReceipts={(receipts) => {
-          setDetectedReceipts((prev) => [...prev, ...receipts]);
-          setFailSafeNotice(`Imported ${receipts.length} receipt(s) from offline cache.`);
-          setTimeout(() => setFailSafeNotice(null), 4000);
-        }}
-      />
+      {/* Recent Activity Quick Peek when idle */}
+      {drafts.length === 0 && queuedPhotos.length === 0 && existingReceipts.length > 0 && (
+        <section className="pt-2 space-y-3">
+          <div className="flex items-center justify-between">
+            <h2 className="text-sm font-semibold text-slate-700 dark:text-slate-300">
+              Recently saved
+            </h2>
+            <span className="text-xs text-slate-500 dark:text-slate-400 tabular-nums">
+              {existingReceipts.length} total {existingReceipts.length === 1 ? 'receipt' : 'receipts'}
+            </span>
+          </div>
+          <div className="rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800 divide-y divide-slate-100 dark:divide-slate-800">
+            {existingReceipts.slice(0, 3).map((rcpt) => (
+              <div
+                key={rcpt.id}
+                className="px-4 py-3.5 flex items-center justify-between gap-4"
+              >
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold text-slate-900 dark:text-white truncate">
+                    {rcpt.vendor_name}
+                  </p>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 truncate mt-0.5">
+                    <span>{formatShortDate(rcpt.invoice_date)}</span>
+                    <span aria-hidden="true" className="mx-1.5">
+                      ·
+                    </span>
+                    <span>{rcpt.category}</span>
+                    <span aria-hidden="true" className="mx-1.5">
+                      ·
+                    </span>
+                    <span className="tabular-nums">{rcpt.line_items?.length || 0} items</span>
+                  </p>
+                </div>
+                <span className="text-sm font-mono tabular-nums font-semibold text-slate-900 dark:text-white shrink-0">
+                  {formatMoney(rcpt.total_amount, currencyCode)}
+                </span>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
     </div>
   );
 };
