@@ -365,6 +365,18 @@ self.addEventListener('fetch', (e) => {
     });
   });
 
+  // Direct Play Console Native Debug Symbols download endpoint
+  app.get(["/native-debug-symbols.zip", "/api/play-console/native-debug-symbols.zip"], (req, res) => {
+    const symbolsZipPath = path.join(process.cwd(), "android", "signing", "native-debug-symbols.zip");
+    if (!fs.existsSync(symbolsZipPath)) {
+      return res.status(404).json({ error: "native-debug-symbols.zip not found" });
+    }
+    res.setHeader("Access-Control-Allow-Origin", "*");
+    res.setHeader("Content-Type", "application/zip");
+    res.setHeader("Content-Disposition", 'attachment; filename="native-debug-symbols.zip"');
+    return res.sendFile(symbolsZipPath);
+  });
+
   // Receipt OCR extraction endpoint supporting both Multipart Form and JSON payloads
   app.options(["/api/parse-receipt", "/api/parse-receipt/"], (req, res) => {
     res.setHeader("Access-Control-Allow-Origin", "*");

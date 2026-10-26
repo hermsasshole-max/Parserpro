@@ -26,3 +26,21 @@ Your uploaded Google Play Console App Signing certificates (`deployment_cert.der
    - At the bottom of that same GitHub Actions run page, download **`PlayConsole-Upload-Keystore-Backup-SAVE-THIS`**.
    - Open `GITHUB_SECRETS_SETUP.txt` and add the 4 secrets (`ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, `ANDROID_KEY_PASSWORD`) in **GitHub → Settings → Secrets and variables → Actions** so all future updates sign with the exact same Upload Key.
    - *(Alternatively, if you already have your own `.jks` / `.keystore` upload key, add `ANDROID_KEYSTORE_BASE64` and `ANDROID_KEYSTORE_PASSWORD` to GitHub Secrets before uploading your first `.aab`.)*
+
+---
+
+## 3. Native Debug Symbols (`native-debug-symbols.zip`)
+
+- **Automatic in New `.aab` Builds**: `ndk.debugSymbolLevel = 'FULL'` is enabled in `android/app/build.gradle`, so new `ParserPro-release.aab` builds automatically embed native debug symbols inside `BUNDLE-METADATA/com.android.tools.build.debugsymbols/`.
+- **Standalone `.zip` Upload (for Existing Bundles)**: `android/signing/native-debug-symbols.zip` (and the 1-click `native-debug-symbols.zip` download on GitHub Releases `v1.0-playstore-aab`) contains the ABI-rooted native symbol libraries (`arm64-v8a/`, `armeabi-v7a/`, `x86/`, `x86_64/`). Upload it in **Google Play Console → App bundle explorer → Downloads → Native debug symbols** (or via the `⋮` menu next to your bundle on the release page → **Upload native debug symbols (.zip)**).
+
+---
+
+## 4. R8 DEX Code Optimization & Deobfuscation Mapping (`mapping.txt`)
+
+- **Enabled in `android/app/build.gradle` & `android/gradle.properties`**:
+  - `minifyEnabled true` + `shrinkResources true`
+  - `proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'`
+  - `android.enableR8.fullMode=true`
+- **Capacitor-Safe ProGuard Rules (`android/app/proguard-rules.pro`)**: Preserves `SourceFile,LineNumberTable` for readable Play Console stack traces while keeping Capacitor WebView `@JavascriptInterface` bridges, `@CapacitorPlugin` / `@PluginMethod` classes (`CameraPlugin`, `FilesystemPlugin`, `SharePlugin`), `io.ionic.libs.**`, and `Gson` TypeTokens intact.
+- **Automatic Deobfuscation in Play Console**: Because DEX optimization compiles directly into the `.dex` files inside `ParserPro-release.aab`, build a fresh `ParserPro-release.aab` via **Build Release Android App Bundle (Play Console)** and upload it to Play Console. The R8 mapping file is automatically embedded at `BUNDLE-METADATA/com.android.tools.build.obfuscation/proguard.map` and also published standalone as **`mapping.txt`** on GitHub Releases (`v1.0-playstore-aab`).

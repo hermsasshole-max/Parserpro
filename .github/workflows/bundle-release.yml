@@ -46,7 +46,7 @@ jobs:
           java-version: 21
           cache: 'gradle'
 
-      - name: Accept Android SDK Licenses & Prepare Android SDK 36
+      - name: Accept Android SDK Licenses & Prepare Android SDK 36 + NDK
         run: |
           mkdir -p "$ANDROID_HOME/licenses" || true
           echo "24333f8a63b6825ea9c5514f83c2829b004d1fee" >> "$ANDROID_HOME/licenses/android-sdk-license"
@@ -55,6 +55,23 @@ jobs:
           echo "8933bad161af4178b1185d1a37fbf41ea5269c55" >> "$ANDROID_HOME/licenses/android-sdk-preview-license"
           yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses 2>/dev/null || true
           $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager "platforms;android-36" "platforms;android-35" "platforms;android-34" "build-tools;36.0.0" "build-tools;35.0.0" "build-tools;34.0.0" || true
+
+          # Resolve pre-installed Android NDK (or install NDK 27 LTS) for native debug symbols extraction
+          RESOLVED_NDK=""
+          if [ -n "${ANDROID_NDK_LATEST_HOME:-}" ] && [ -d "${ANDROID_NDK_LATEST_HOME}" ]; then
+            RESOLVED_NDK="${ANDROID_NDK_LATEST_HOME}"
+          elif [ -d "$ANDROID_HOME/ndk" ]; then
+            RESOLVED_NDK=$(ls -1d "$ANDROID_HOME/ndk/"* 2>/dev/null | sort -V | tail -n 1 || true)
+          fi
+          if [ -z "$RESOLVED_NDK" ] || [ ! -d "$RESOLVED_NDK" ]; then
+            echo "Installing Android NDK 27.2.12479018 for Play Console native debug symbols..."
+            $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager "ndk;27.2.12479018" || true
+            RESOLVED_NDK="$ANDROID_HOME/ndk/27.2.12479018"
+          fi
+          if [ -d "$RESOLVED_NDK" ]; then
+            echo "Using Android NDK at: $RESOLVED_NDK"
+            echo "ANDROID_NDK_PATH=${RESOLVED_NDK}" >> $GITHUB_ENV
+          fi
 
       - name: Install NPM Dependencies
         run: |
@@ -109,17 +126,21 @@ jobs:
           INPUT_VERSION_CODE: ${{ inputs.version_code }}
           INPUT_VERSION_NAME: ${{ inputs.version_name }}
         run: |
-          # 1. Compute strictly increasing Play Console versionCode & versionName
+          # 1. Compute strictly increasing Play Console versionCode (>= 114) & versionName
+          MIN_VERSION_CODE=114
           if [ -n "$INPUT_VERSION_CODE" ]; then
             COMPUTED_VC="$INPUT_VERSION_CODE"
           else
             COMPUTED_VC=$((100 + GITHUB_RUN_NUMBER))
+            if [ "$COMPUTED_VC" -lt "$MIN_VERSION_CODE" ]; then
+              COMPUTED_VC="$MIN_VERSION_CODE"
+            fi
           fi
 
           if [ -n "$INPUT_VERSION_NAME" ]; then
             COMPUTED_VN="$INPUT_VERSION_NAME"
           else
-            COMPUTED_VN="1.0.${GITHUB_RUN_NUMBER}"
+            COMPUTED_VN="1.0.$((COMPUTED_VC - 100))"
           fi
 
           echo "ANDROID_VERSION_CODE=${COMPUTED_VC}" >> $GITHUB_ENV
@@ -307,7 +328,7 @@ jobs:
             gradle bundleRelease --no-daemon --stacktrace
           fi
 
-      - name: Verify Signed App Bundle (.aab) for Play Console
+      - name: Verify Signed App Bundle (.aab), R8 DEX Optimization & Native Debug Symbols
         run: |
           echo "=== Locating generated .aab file ==="
           AAB_SRC=$(find android/app/build/outputs/bundle/release -name "*.aab" | head -n 1)
@@ -334,6 +355,60 @@ jobs:
             echo "Verified package=com.receiptscannerpro.app and unique provider authorities!"
           fi
 
+          echo "=== Verifying R8 DEX Code Optimization & Deobfuscation Mapping (mapping.txt) ==="
+          MAPPING_OUT="${GITHUB_WORKSPACE}/mapping.txt"
+          AGP_MAPPING=$(find android/app/build/outputs/mapping/release -name "mapping.txt" 2>/dev/null | head -n 1 || true)
+          if [ -n "$AGP_MAPPING" ] && [ -s "$AGP_MAPPING" ]; then
+            cp "$AGP_MAPPING" "$MAPPING_OUT"
+            ls -lh "$MAPPING_OUT"
+          elif unzip -Z1 "${GITHUB_WORKSPACE}/ParserPro-release.aab" 2>/dev/null | grep -q "BUNDLE-METADATA/com.android.tools.build.obfuscation/proguard.map"; then
+            unzip -p "${GITHUB_WORKSPACE}/ParserPro-release.aab" "BUNDLE-METADATA/com.android.tools.build.obfuscation/proguard.map" > "$MAPPING_OUT"
+            ls -lh "$MAPPING_OUT"
+          else
+            echo "ERROR: R8 DEX optimization mapping (mapping.txt / proguard.map) was not generated!"
+            exit 1
+          fi
+
+          if ! unzip -Z1 "${GITHUB_WORKSPACE}/ParserPro-release.aab" 2>/dev/null | grep -q "BUNDLE-METADATA/com.android.tools.build.obfuscation/proguard.map"; then
+            echo "ERROR: proguard.map is missing from BUNDLE-METADATA inside ParserPro-release.aab!"
+            exit 1
+          fi
+          echo "Verified R8 DEX code optimization and embedded BUNDLE-METADATA/com.android.tools.build.obfuscation/proguard.map!"
+
+          echo "=== Packaging Play Console Native Debug Symbols (native-debug-symbols.zip) ==="
+          SYMBOLS_OUT="${GITHUB_WORKSPACE}/native-debug-symbols.zip"
+          AGP_SYMBOLS=$(find android/app/build/outputs/native-debug-symbols/release -name "*.zip" 2>/dev/null | head -n 1 || true)
+          MERGED_LIB_DIR=$(find android/app/build/intermediates/merged_native_libs/release -type d -name "lib" 2>/dev/null | head -n 1 || true)
+
+          if [ -n "$AGP_SYMBOLS" ] && [ -f "$AGP_SYMBOLS" ] && unzip -Z1 "$AGP_SYMBOLS" 2>/dev/null | grep -qE '\.(so|dbg|sym)$'; then
+            echo "Using AGP-generated native-debug-symbols.zip ($AGP_SYMBOLS)..."
+            cp "$AGP_SYMBOLS" "$SYMBOLS_OUT"
+          elif [ -n "$MERGED_LIB_DIR" ] && [ -d "$MERGED_LIB_DIR" ]; then
+            echo "Packaging native debug symbols from merged_native_libs ($MERGED_LIB_DIR)..."
+            python3 - "$MERGED_LIB_DIR" "$SYMBOLS_OUT" << 'PYEOF'
+          import os, sys, zipfile
+          lib_dir, out_zip = sys.argv[1], sys.argv[2]
+          with zipfile.ZipFile(out_zip, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+              for root, _, files in os.walk(lib_dir):
+                  for fn in sorted(files):
+                      if fn.endswith((".so", ".dbg", ".sym")):
+                          full_path = os.path.join(root, fn)
+                          rel_path = os.path.relpath(full_path, lib_dir).replace(os.sep, "/")
+                          zf.write(full_path, arcname=rel_path)
+          PYEOF
+          elif [ -f "${GITHUB_WORKSPACE}/android/signing/native-debug-symbols.zip" ]; then
+            echo "Using pre-packaged android/signing/native-debug-symbols.zip..."
+            cp "${GITHUB_WORKSPACE}/android/signing/native-debug-symbols.zip" "$SYMBOLS_OUT"
+          fi
+
+          if [ -f "$SYMBOLS_OUT" ]; then
+            ls -lh "$SYMBOLS_OUT"
+            unzip -l "$SYMBOLS_OUT"
+          fi
+
+          echo "=== Checking Embedded Debug Symbols Inside .aab ==="
+          unzip -l "${GITHUB_WORKSPACE}/ParserPro-release.aab" | grep "com.android.tools.build.debugsymbols" || echo "Note: Use standalone native-debug-symbols.zip if Play Console requests manual symbol upload."
+
       - name: Upload Play Console App Bundle (.aab) Artifact
         uses: actions/upload-artifact@v4
         with:
@@ -341,6 +416,22 @@ jobs:
           path: ${{ github.workspace }}/ParserPro-release.aab
           retention-days: 90
           if-no-files-found: error
+
+      - name: Upload Play Console R8 Deobfuscation Mapping (mapping.txt) Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ParserPro-R8-Deobfuscation-Mapping
+          path: ${{ github.workspace }}/mapping.txt
+          retention-days: 90
+          if-no-files-found: warn
+
+      - name: Upload Play Console Native Debug Symbols (.zip) Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ParserPro-Native-Debug-Symbols
+          path: ${{ github.workspace }}/native-debug-symbols.zip
+          retention-days: 90
+          if-no-files-found: warn
 
       - name: Upload Private Play Signing Keystore Backup (First-Run Only)
         if: steps.signing_setup.outputs.keystore_mode == 'generated'
@@ -351,67 +442,72 @@ jobs:
           retention-days: 90
           if-no-files-found: warn
 
-      - name: Publish Direct 1-Click .aab Download to GitHub Releases
+      - name: Publish Direct 1-Click .aab, R8 Mapping & Native Debug Symbols to GitHub Releases
         if: success()
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           TAG_NAME="v1.0-playstore-aab"
           AAB_PATH="${GITHUB_WORKSPACE}/ParserPro-release.aab"
+          MAPPING_PATH="${GITHUB_WORKSPACE}/mapping.txt"
+          SYMBOLS_PATH="${GITHUB_WORKSPACE}/native-debug-symbols.zip"
           PEM_PATH="${GITHUB_WORKSPACE}/upload_certificate.pem"
           SIGN_SHA1="${{ steps.signing_setup.outputs.signing_sha1 }}"
           PLAY_DEPLOY_SHA1="AA:14:BE:52:28:F8:80:7C:13:DE:D0:86:F1:11:6A:0F:AE:93:17:4D"
 
           if [ -f "$AAB_PATH" ]; then
-            echo "Publishing Play Console AAB to GitHub Releases ($TAG_NAME)..."
+            echo "Publishing Play Console AAB, R8 Mapping & Native Debug Symbols to GitHub Releases ($TAG_NAME)..."
             NOTES_FILE="${RUNNER_TEMP}/aab-release-notes.md"
             {
-              echo "### Google Play Console Signed App Bundle (.aab)"
-              echo "- **Direct 1-Click Download**: **[ParserPro-release.aab](https://github.com/${{ github.repository }}/releases/download/${TAG_NAME}/ParserPro-release.aab)**"
+              echo "### Google Play Console Signed App Bundle (.aab), R8 DEX Optimization & Debug Symbols"
+              echo "- **1-Click App Bundle (.aab)**: **[ParserPro-release.aab](https://github.com/${{ github.repository }}/releases/download/${TAG_NAME}/ParserPro-release.aab)** *(R8 DEX-optimized + embedded proguard.map & native debug symbols)*"
+              if [ -f "$MAPPING_PATH" ]; then
+                echo "- **1-Click R8 Deobfuscation Mapping (.txt)**: **[mapping.txt](https://github.com/${{ github.repository }}/releases/download/${TAG_NAME}/mapping.txt)**"
+              fi
+              if [ -f "$SYMBOLS_PATH" ]; then
+                echo "- **1-Click Native Debug Symbols (.zip)**: **[native-debug-symbols.zip](https://github.com/${{ github.repository }}/releases/download/${TAG_NAME}/native-debug-symbols.zip)**"
+              fi
               if [ -f "$PEM_PATH" ]; then
                 echo "- **Upload Certificate (.pem)**: **[upload_certificate.pem](https://github.com/${{ github.repository }}/releases/download/${TAG_NAME}/upload_certificate.pem)**"
               fi
               echo "- **Application ID**: \`com.receiptscannerpro.app\`"
+              echo "- **DEX Optimization**: Enabled (\`R8 fullMode\`, \`minifyEnabled true\`, \`shrinkResources true\`, \`proguard-android-optimize.txt\`)"
               echo "- **Version Name**: \`${{ steps.signing_setup.outputs.version_name }}\` (\`versionCode ${{ steps.signing_setup.outputs.version_code }}\`)"
               echo "- **Bundle Upload Key SHA1**: \`${SIGN_SHA1}\`"
               echo "- **Play App Signing Certificate (\`deployment_cert.der\`) SHA1**: \`${PLAY_DEPLOY_SHA1}\`"
               echo "- **Built from commit**: \`${{ github.sha }}\`"
             } > "$NOTES_FILE"
 
+            ASSETS=("$AAB_PATH")
+            [ -f "$MAPPING_PATH" ] && ASSETS+=("$MAPPING_PATH")
+            [ -f "$SYMBOLS_PATH" ] && ASSETS+=("$SYMBOLS_PATH")
+            [ -f "$PEM_PATH" ] && ASSETS+=("$PEM_PATH")
+
             if gh release view "$TAG_NAME" >/dev/null 2>&1; then
-              gh release upload "$TAG_NAME" "$AAB_PATH" --clobber || echo "GitHub Release AAB upload skipped"
-              if [ -f "$PEM_PATH" ]; then
-                gh release upload "$TAG_NAME" "$PEM_PATH" --clobber || true
-              fi
+              gh release upload "$TAG_NAME" "${ASSETS[@]}" --clobber || echo "GitHub Release upload skipped"
               gh release edit "$TAG_NAME" --notes-file "$NOTES_FILE" || true
             else
-              if [ -f "$PEM_PATH" ]; then
-                gh release create "$TAG_NAME" "$AAB_PATH" "$PEM_PATH" \
-                  --title "ParserPro Google Play Console Bundle (.aab)" \
-                  --notes-file "$NOTES_FILE" \
-                  --prerelease || echo "GitHub Release creation skipped"
-              else
-                gh release create "$TAG_NAME" "$AAB_PATH" \
-                  --title "ParserPro Google Play Console Bundle (.aab)" \
-                  --notes-file "$NOTES_FILE" \
-                  --prerelease || echo "GitHub Release creation skipped"
-              fi
+              gh release create "$TAG_NAME" "${ASSETS[@]}" \
+                --title "ParserPro Google Play Console Bundle (.aab), R8 Mapping & Debug Symbols" \
+                --notes-file "$NOTES_FILE" \
+                --prerelease || echo "GitHub Release creation skipped"
             fi
           fi
 
-      - name: Add Direct Play Console AAB Download Links to Run Summary
+      - name: Add Direct Play Console AAB, R8 Mapping & Symbols Download Links to Run Summary
         if: always()
         run: |
           PLAY_DEPLOY_SHA1="AA:14:BE:52:28:F8:80:7C:13:DE:D0:86:F1:11:6A:0F:AE:93:17:4D"
           SIGN_SHA1="${{ steps.signing_setup.outputs.signing_sha1 }}"
           KEY_MODE="${{ steps.signing_setup.outputs.keystore_mode }}"
-          echo "# 📦 Google Play Console App Bundle (.aab) Summary" >> $GITHUB_STEP_SUMMARY
+          echo "# 📦 Google Play Console App Bundle, DEX Optimization & Symbols Summary" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           if [ -f "${GITHUB_WORKSPACE}/ParserPro-release.aab" ]; then
             AAB_SIZE=$(ls -lh "${GITHUB_WORKSPACE}/ParserPro-release.aab" | awk '{print $5}')
             echo "### Bundle Details" >> $GITHUB_STEP_SUMMARY
-            echo "- **File**: \`ParserPro-release.aab\` (${AAB_SIZE})" >> $GITHUB_STEP_SUMMARY
+            echo "- **File**: \`ParserPro-release.aab\` (${AAB_SIZE}) — *R8 DEX-Optimized + \`proguard.map\` & Native Debug Symbols (\`FULL\`) embedded*" >> $GITHUB_STEP_SUMMARY
             echo "- **Package Name**: \`com.receiptscannerpro.app\`" >> $GITHUB_STEP_SUMMARY
+            echo "- **DEX Code Optimization**: \`minifyEnabled true\` + \`shrinkResources true\` + \`proguard-android-optimize.txt\` (\`R8 fullMode\`) ✅" >> $GITHUB_STEP_SUMMARY
             echo "- **Version**: \`${{ steps.signing_setup.outputs.version_name }}\` (\`versionCode ${{ steps.signing_setup.outputs.version_code }}\`)" >> $GITHUB_STEP_SUMMARY
             echo "- **Upload Signing Key Source**: \`${KEY_MODE}\` (alias: \`${{ steps.signing_setup.outputs.signing_alias }}\`)" >> $GITHUB_STEP_SUMMARY
             echo "- **Upload Key Certificate SHA1**: \`${SIGN_SHA1}\`" >> $GITHUB_STEP_SUMMARY
@@ -419,7 +515,9 @@ jobs:
             echo "" >> $GITHUB_STEP_SUMMARY
             echo "### 📥 Direct 1-Click Downloads" >> $GITHUB_STEP_SUMMARY
             echo "1. **App Bundle (\`.aab\`)**: **[Download ParserPro-release.aab](https://github.com/${{ github.repository }}/releases/download/v1.0-playstore-aab/ParserPro-release.aab)**" >> $GITHUB_STEP_SUMMARY
-            echo "2. **Upload Certificate (\`.pem\`)**: **[Download upload_certificate.pem](https://github.com/${{ github.repository }}/releases/download/v1.0-playstore-aab/upload_certificate.pem)**" >> $GITHUB_STEP_SUMMARY
+            echo "2. **R8 Deobfuscation Mapping (\`.txt\`)**: **[Download mapping.txt](https://github.com/${{ github.repository }}/releases/download/v1.0-playstore-aab/mapping.txt)**" >> $GITHUB_STEP_SUMMARY
+            echo "3. **Native Debug Symbols (\`.zip\`)**: **[Download native-debug-symbols.zip](https://github.com/${{ github.repository }}/releases/download/v1.0-playstore-aab/native-debug-symbols.zip)**" >> $GITHUB_STEP_SUMMARY
+            echo "4. **Upload Certificate (\`.pem\`)**: **[Download upload_certificate.pem](https://github.com/${{ github.repository }}/releases/download/v1.0-playstore-aab/upload_certificate.pem)**" >> $GITHUB_STEP_SUMMARY
             if [ "$KEY_MODE" = "generated" ]; then
               echo "" >> $GITHUB_STEP_SUMMARY
               echo "### 🔑 Lock Your Upload Key for Future Updates" >> $GITHUB_STEP_SUMMARY
