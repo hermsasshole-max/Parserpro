@@ -13,7 +13,7 @@ coverage/
 *.jks
 *.keystore
 !android/signing/
-!android/signing/*
+!android/signing/**
 .env*
 !.env.example
 

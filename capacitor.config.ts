@@ -1,7 +1,7 @@
 import type { CapacitorConfig } from '@capacitor/cli';
 
 const config: CapacitorConfig = {
-  appId: 'com.cortech.praiserpro',
+  appId: 'com.receiptscannerpro.app',
   appName: 'ParserPro',
   webDir: 'dist',
   server: {

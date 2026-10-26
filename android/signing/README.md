@@ -1,39 +1,28 @@
-# Google Play Console Upload Keystore Setup (`com.cortech.praiserpro`)
+# Google Play Console Signing Setup (`com.receiptscannerpro.app`)
 
-Google Play Console expects `com.cortech.praiserpro` bundles to be signed with the upload certificate matching:
-`SHA1: 4A:C2:38:3A:F5:41:99:5E:99:FD:CC:CD:E5:BC:F7:C8:2A:52:DC:3B`
+## 1. Integrated Google Play App Signing Certificates (`play-store-certs/`)
 
-Choose **Option A** if you still have that `.jks` / `.keystore` file, or **Option B** if you no longer have it.
+Your uploaded Google Play Console App Signing certificates (`deployment_cert.der`, `hybrid_classical_cert.der`, and `hybrid_pqc_cert.der`) are installed in `android/signing/play-store-certs/` (in both `.der` and `.pem` formats) and linked to `public/.well-known/assetlinks.json` for `com.receiptscannerpro.app`:
 
----
+- **Deployment Certificate (`deployment_cert.der`)**:
+  - `SHA-1`: `AA:14:BE:52:28:F8:80:7C:13:DE:D0:86:F1:11:6A:0F:AE:93:17:4D`
+  - `SHA-256`: `47:4A:47:3D:23:74:45:84:40:9F:FD:15:F5:E5:ED:FD:8E:C0:0A:27:67:6D:52:4F:41:D1:FA:3B:DC:A6:2E:19`
+- **Hybrid Classical Certificate (`hybrid_classical_cert.der`)**:
+  - `SHA-1`: `74:9C:E0:25:BD:DA:4E:CA:7D:83:3B:DE:57:E3:B4:E1:1F:79:0C:4B`
+  - `SHA-256`: `16:F5:4D:1B:55:E1:99:46:9B:99:81:DE:A9:59:A7:FB:30:7F:37:83:47:62:FE:31:4A:A3:BB:06:46:9F:FF:9B`
+- **Hybrid PQC Certificate (`hybrid_pqc_cert.der`)**:
+  - `SHA-1`: `5E:FF:72:FD:93:ED:59:02:92:20:BF:31:BD:8A:1B:92:D8:56:7C:3B`
+  - `SHA-256`: `E7:C0:F4:CF:9F:BF:55:48:6E:58:01:CC:56:59:49:D0:06:53:18:59:C4:17:66:5D:91:BD:0A:20:0D:8A:57:AA`
 
-## Option A: You HAVE the `.jks` / `.keystore` file (`4A:C2:38:...`)
-
-### Easiest Way 1 — GitHub Secrets (Recommended for Public & Private Repos)
-1. Convert your keystore file to Base64:
-   - **Windows PowerShell**: `[Convert]::ToBase64String([IO.File]::ReadAllBytes("C:\path\to\your-key.jks")) | Set-Clipboard`
-   - **macOS**: `base64 -i /path/to/your-key.jks | tr -d '\n' | pbcopy`
-   - **Linux**: `base64 -w 0 /path/to/your-key.jks`
-2. In your GitHub repo, open **Settings → Secrets and variables → Actions** and add:
-   - `ANDROID_KEYSTORE_BASE64`: *(paste the Base64 string)*
-   - `ANDROID_KEYSTORE_PASSWORD`: *(your keystore password)*
-   - `ANDROID_KEY_ALIAS` *(optional — auto-detected if omitted!)*
-   - `ANDROID_KEY_PASSWORD` *(optional — defaults to `ANDROID_KEYSTORE_PASSWORD` if omitted!)*
-3. Re-run **Build Release Android App Bundle (Play Console)**.
-
-### Easiest Way 2 — Direct File Upload on GitHub (Private Repos Only, Zero Base64 Needed)
-1. Ensure your GitHub repository visibility is **Private**.
-2. On GitHub, open this `android/signing/` folder, click **Add file → Upload files**, and upload your `.jks`, `.keystore`, or `.p12` file directly here.
-3. In **Settings → Secrets and variables → Actions**, add:
-   - `ANDROID_KEYSTORE_PASSWORD`: *(your keystore password)*
-   - *(Optional)* `ANDROID_KEY_ALIAS` and `ANDROID_KEY_PASSWORD` if different from the keystore password.
-4. Re-run **Build Release Android App Bundle (Play Console)**.
+> **How Play App Signing works**: Google Play holds the private keys for the `.der` App Signing certificates on Google's servers to sign APKs delivered to end users. Your `.aab` bundle (`ParserPro-release.aab`) is signed with an **Upload Keystore** (`.jks` / `.p12`) when uploading to Play Console.
 
 ---
 
-## Option B: You LOST the old `4A:C2:38:...` keystore file
+## 2. First Upload & Locking Your Upload Key on GitHub
 
-Google Play Console lets you replace a lost upload key in 3 quick steps:
-1. Open your latest **Build Release Android App Bundle (Play Console)** run in GitHub Actions, download the **`PlayConsole-Upload-Keystore-Backup-SAVE-THIS`** artifact at the bottom of the page, and add the 4 secrets inside `GITHUB_SECRETS_SETUP.txt` (`ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, `ANDROID_KEY_PASSWORD`) to **Settings → Secrets and variables → Actions** so all future builds permanently use the new key.
-2. Re-run the workflow once and download **`upload_certificate.pem`** (1-click download from **GitHub Releases `v1.0-playstore-aab`** or inside the backup zip).
-3. In **Google Play Console → Test and release → Setup → App signing** (under *Upload key certificate*), click **Request upload key reset**, choose **"I lost my upload key"**, and upload **`upload_certificate.pem`**. Once Google Play activates the reset, upload `ParserPro-release.aab`.
+1. Run **Build Release Android App Bundle (Play Console)** in GitHub Actions and download **`ParserPro-release.aab`** (1-click download from **GitHub Releases `v1.0-playstore-aab`**).
+2. Upload **`ParserPro-release.aab`** to your new **`com.receiptscannerpro.app`** listing in Google Play Console. Google Play automatically registers this bundle's signing key as your Upload Key.
+3. **Important — Save the Upload Key for Future Updates**:
+   - At the bottom of that same GitHub Actions run page, download **`PlayConsole-Upload-Keystore-Backup-SAVE-THIS`**.
+   - Open `GITHUB_SECRETS_SETUP.txt` and add the 4 secrets (`ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, `ANDROID_KEY_PASSWORD`) in **GitHub → Settings → Secrets and variables → Actions** so all future updates sign with the exact same Upload Key.
+   - *(Alternatively, if you already have your own `.jks` / `.keystore` upload key, add `ANDROID_KEYSTORE_BASE64` and `ANDROID_KEYSTORE_PASSWORD` to GitHub Secrets before uploading your first `.aab`.)*

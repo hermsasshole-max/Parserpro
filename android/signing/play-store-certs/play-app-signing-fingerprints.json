@@ -1,0 +1,29 @@
+{
+  "packageName": "com.receiptscannerpro.app",
+  "source": "Google Play Console App Signing Certificates",
+  "validFrom": "2026-10-26T08:45:27Z",
+  "validUntil": "2056-10-26T08:45:27Z",
+  "certificates": {
+    "deployment": {
+      "derFile": "deployment_cert.der",
+      "pemFile": "deployment_cert.pem",
+      "serial": "037759D51F4B6C75104CFEE84A96C8E1F50AF052",
+      "sha1": "AA:14:BE:52:28:F8:80:7C:13:DE:D0:86:F1:11:6A:0F:AE:93:17:4D",
+      "sha256": "47:4A:47:3D:23:74:45:84:40:9F:FD:15:F5:E5:ED:FD:8E:C0:0A:27:67:6D:52:4F:41:D1:FA:3B:DC:A6:2E:19"
+    },
+    "hybridClassical": {
+      "derFile": "hybrid_classical_cert.der",
+      "pemFile": "hybrid_classical_cert.pem",
+      "serial": "6A6A43CF7E116E76C8083DA0982FCAB367C9186A",
+      "sha1": "74:9C:E0:25:BD:DA:4E:CA:7D:83:3B:DE:57:E3:B4:E1:1F:79:0C:4B",
+      "sha256": "16:F5:4D:1B:55:E1:99:46:9B:99:81:DE:A9:59:A7:FB:30:7F:37:83:47:62:FE:31:4A:A3:BB:06:46:9F:FF:9B"
+    },
+    "hybridPqc": {
+      "derFile": "hybrid_pqc_cert.der",
+      "pemFile": "hybrid_pqc_cert.pem",
+      "serial": "551847FBECA0515E47266B1834AE6C39A6E4D0D1",
+      "sha1": "5E:FF:72:FD:93:ED:59:02:92:20:BF:31:BD:8A:1B:92:D8:56:7C:3B",
+      "sha256": "E7:C0:F4:CF:9F:BF:55:48:6E:58:01:CC:56:59:49:D0:06:53:18:59:C4:17:66:5D:91:BD:0A:20:0D:8A:57:AA"
+    }
+  }
+}
