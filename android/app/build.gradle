@@ -8,10 +8,15 @@ def hasReleaseKeystore = keystorePath && file(keystorePath).exists() && keystore
 
 def envVersionCode = System.getenv("ANDROID_VERSION_CODE")?.trim()
 def envVersionName = System.getenv("ANDROID_VERSION_NAME")?.trim()
-def minVersionCode = 114
+def ghRunNumber = System.getenv("GITHUB_RUN_NUMBER")?.trim()
+def ghRunAttempt = System.getenv("GITHUB_RUN_ATTEMPT")?.trim()
+def minVersionCode = 115
 def parsedEnvVersionCode = (envVersionCode && envVersionCode.isInteger()) ? envVersionCode.toInteger() : minVersionCode
-def resolvedVersionCode = Math.max(parsedEnvVersionCode, minVersionCode)
-def resolvedVersionName = (envVersionCode && parsedEnvVersionCode >= minVersionCode && envVersionName)
+def ghAutoVersionCode = (ghRunNumber && ghRunNumber.isInteger())
+    ? (110 + ghRunNumber.toInteger() + ((ghRunAttempt && ghRunAttempt.isInteger()) ? Math.max(0, ghRunAttempt.toInteger() - 1) : 0))
+    : minVersionCode
+def resolvedVersionCode = Math.max(minVersionCode, Math.max(parsedEnvVersionCode, ghAutoVersionCode))
+def resolvedVersionName = (envVersionName && parsedEnvVersionCode == resolvedVersionCode)
     ? envVersionName
     : "1.0.${resolvedVersionCode - 100}"
 def envNdkPath = System.getenv("ANDROID_NDK_PATH") ?: System.getenv("ANDROID_NDK_LATEST_HOME")

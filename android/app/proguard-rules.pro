@@ -48,3 +48,14 @@
 -keep class * implements androidx.startup.Initializer {
     public <init>();
 }
+
+# Preserve Kotlin metadata for coroutines & Ionic/Capacitor Kotlin plugins
+-keep class kotlin.Metadata { *; }
+
+# Ignore optional JVM-only / compile-time annotation classes referenced by transitive libraries
+-dontwarn sun.misc.**
+-dontwarn java.lang.instrument.**
+-dontwarn org.slf4j.**
+-dontwarn javax.annotation.**
+-dontwarn com.google.errorprone.annotations.**
+-dontwarn org.codehaus.mojo.animal_sniffer.**

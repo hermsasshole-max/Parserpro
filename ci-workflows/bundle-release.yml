@@ -93,32 +93,55 @@ jobs:
 
       - name: Verify Google Play App Signing Certificates (com.receiptscannerpro.app)
         run: |
-          CERT_DIR="${GITHUB_WORKSPACE}/android/signing/play-store-certs"
-          EXPECTED_DEPLOY_SHA1="AA:14:BE:52:28:F8:80:7C:13:DE:D0:86:F1:11:6A:0F:AE:93:17:4D"
-          EXPECTED_DEPLOY_SHA256="47:4A:47:3D:23:74:45:84:40:9F:FD:15:F5:E5:ED:FD:8E:C0:0A:27:67:6D:52:4F:41:D1:FA:3B:DC:A6:2E:19"
+          python3 - "${GITHUB_WORKSPACE}/android/signing/play-store-certs" "${GITHUB_WORKSPACE}/dist/.well-known/assetlinks.json" << 'PYEOF'
+          import hashlib, json, os, sys
 
-          for cert_file in deployment_cert.der hybrid_classical_cert.der hybrid_pqc_cert.der; do
-            if [ ! -f "${CERT_DIR}/${cert_file}" ]; then
-              echo "ERROR: Missing Play Store certificate ${CERT_DIR}/${cert_file}"
-              exit 1
-            fi
-          done
+          cert_dir, assetlinks_path = sys.argv[1], sys.argv[2]
+          expected = {
+              "deployment_cert.der": (
+                  "AA:14:BE:52:28:F8:80:7C:13:DE:D0:86:F1:11:6A:0F:AE:93:17:4D",
+                  "47:4A:47:3D:23:74:45:84:40:9F:FD:15:F5:E5:ED:FD:8E:C0:0A:27:67:6D:52:4F:41:D1:FA:3B:DC:A6:2E:19",
+              ),
+              "hybrid_classical_cert.der": (
+                  "74:9C:E0:25:BD:DA:4E:CA:7D:83:3B:DE:57:E3:B4:E1:1F:79:0C:4B",
+                  "16:F5:4D:1B:55:E1:99:46:9B:99:81:DE:A9:59:A7:FB:30:7F:37:83:47:62:FE:31:4A:A3:BB:06:46:9F:FF:9B",
+              ),
+              "hybrid_pqc_cert.der": (
+                  "5E:FF:72:FD:93:ED:59:02:92:20:BF:31:BD:8A:1B:92:D8:56:7C:3B",
+                  "E7:C0:F4:CF:9F:BF:55:48:6E:58:01:CC:56:59:49:D0:06:53:18:59:C4:17:66:5D:91:BD:0A:20:0D:8A:57:AA",
+              ),
+          }
 
-          ACTUAL_SHA1=$(openssl x509 -inform DER -in "${CERT_DIR}/deployment_cert.der" -noout -fingerprint -sha1 | cut -d'=' -f2 | tr '[:lower:]' '[:upper:]' | tr -d ' \r\n')
-          ACTUAL_SHA256=$(openssl x509 -inform DER -in "${CERT_DIR}/deployment_cert.der" -noout -fingerprint -sha256 | cut -d'=' -f2 | tr '[:lower:]' '[:upper:]' | tr -d ' \r\n')
+          def fmt_hex(h):
+              return ":".join(h.upper()[i:i+2] for i in range(0, len(h), 2))
 
-          if [ "$ACTUAL_SHA1" != "$EXPECTED_DEPLOY_SHA1" ] || [ "$ACTUAL_SHA256" != "$EXPECTED_DEPLOY_SHA256" ]; then
-            echo "ERROR: deployment_cert.der fingerprint mismatch! Got SHA1=${ACTUAL_SHA1}, SHA256=${ACTUAL_SHA256}"
-            exit 1
-          fi
+          for fname, (exp_sha1, exp_sha256) in expected.items():
+              fpath = os.path.join(cert_dir, fname)
+              if not os.path.isfile(fpath):
+                  raise SystemExit(f"ERROR: Missing Play Store certificate {fpath}")
+              data = open(fpath, "rb").read()
+              act_sha1 = fmt_hex(hashlib.sha1(data).hexdigest())
+              act_sha256 = fmt_hex(hashlib.sha256(data).hexdigest())
+              if act_sha1 != exp_sha1 or act_sha256 != exp_sha256:
+                  raise SystemExit(f"ERROR: {fname} fingerprint mismatch! Got SHA1={act_sha1}, SHA256={act_sha256}")
+              print(f"Verified {fname} -> SHA1={act_sha1}")
 
-          grep -q '"package_name": "com.receiptscannerpro.app"' "${GITHUB_WORKSPACE}/dist/.well-known/assetlinks.json"
-          grep -q "$EXPECTED_DEPLOY_SHA256" "${GITHUB_WORKSPACE}/dist/.well-known/assetlinks.json"
-          echo "Verified Google Play App Signing certificates (SHA1: ${ACTUAL_SHA1}) and Digital Asset Links!"
+          with open(assetlinks_path, "r", encoding="utf-8") as f:
+              assetlinks = json.load(f)
+          target = assetlinks[0]["target"]
+          if target.get("package_name") != "com.receiptscannerpro.app":
+              raise SystemExit(f"ERROR: Unexpected assetlinks package_name: {target.get('package_name')}")
+          fps = set(target.get("sha256_cert_fingerprints", []))
+          for fname, (_, exp_sha256) in expected.items():
+              if exp_sha256 not in fps:
+                  raise SystemExit(f"ERROR: {fname} SHA256 missing from dist/.well-known/assetlinks.json")
+          print("Verified all 3 Play App Signing certificates and Digital Asset Links!")
+          PYEOF
 
       - name: Configure Version & Play Store Release Signing Keystore
         id: signing_setup
         env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           SECRET_KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
           SECRET_KEYSTORE_PW: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           SECRET_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
@@ -126,23 +149,34 @@ jobs:
           INPUT_VERSION_CODE: ${{ inputs.version_code }}
           INPUT_VERSION_NAME: ${{ inputs.version_name }}
         run: |
-          # 1. Compute strictly increasing Play Console versionCode (>= 114) & versionName
-          MIN_VERSION_CODE=114
-          if [ -n "$INPUT_VERSION_CODE" ]; then
-            COMPUTED_VC="$INPUT_VERSION_CODE"
-          else
-            COMPUTED_VC=$((100 + GITHUB_RUN_NUMBER))
-            if [ "$COMPUTED_VC" -lt "$MIN_VERSION_CODE" ]; then
-              COMPUTED_VC="$MIN_VERSION_CODE"
-            fi
+          # 1. Compute strictly increasing Play Console versionCode (>= 115, strictly > used 113) & versionName
+          MIN_VERSION_CODE=115
+          ATTEMPT_NUM="${GITHUB_RUN_ATTEMPT:-1}"
+          ATTEMPT_OFFSET=$(( ATTEMPT_NUM > 1 ? ATTEMPT_NUM - 1 : 0 ))
+          AUTO_VC=$(( 110 + GITHUB_RUN_NUMBER + ATTEMPT_OFFSET ))
+          if [ "$AUTO_VC" -lt "$MIN_VERSION_CODE" ]; then
+            AUTO_VC="$MIN_VERSION_CODE"
           fi
 
-          if [ -n "$INPUT_VERSION_NAME" ]; then
+          # Also inspect last published GitHub Release versionCode so even manual re-runs always increment
+          LAST_REL_VC=$(gh release view "v1.0-playstore-aab" --json body -q '.body' 2>/dev/null | grep -oE 'versionCode [0-9]+' | head -n 1 | awk '{print $2}' || true)
+          if [[ "$LAST_REL_VC" =~ ^[0-9]+$ ]] && [ $((LAST_REL_VC + 1)) -gt "$AUTO_VC" ]; then
+            AUTO_VC=$((LAST_REL_VC + 1))
+          fi
+
+          if [[ "$INPUT_VERSION_CODE" =~ ^[0-9]+$ ]] && [ "$INPUT_VERSION_CODE" -ge "$MIN_VERSION_CODE" ]; then
+            COMPUTED_VC="$INPUT_VERSION_CODE"
+          else
+            COMPUTED_VC="$AUTO_VC"
+          fi
+
+          if [ -n "$INPUT_VERSION_NAME" ] && [[ "$INPUT_VERSION_CODE" =~ ^[0-9]+$ ]] && [ "$INPUT_VERSION_CODE" -eq "$COMPUTED_VC" ]; then
             COMPUTED_VN="$INPUT_VERSION_NAME"
           else
             COMPUTED_VN="1.0.$((COMPUTED_VC - 100))"
           fi
 
+          echo "Resolved Play Console release version: versionName=${COMPUTED_VN} (versionCode=${COMPUTED_VC})"
           echo "ANDROID_VERSION_CODE=${COMPUTED_VC}" >> $GITHUB_ENV
           echo "ANDROID_VERSION_NAME=${COMPUTED_VN}" >> $GITHUB_ENV
           echo "version_code=${COMPUTED_VC}" >> $GITHUB_OUTPUT
@@ -337,12 +371,13 @@ jobs:
             exit 1
           fi
           cp "$AAB_SRC" "${GITHUB_WORKSPACE}/ParserPro-release.aab"
-          ls -lh "${GITHUB_WORKSPACE}/ParserPro-release.aab"
+          cp "$AAB_SRC" "${GITHUB_WORKSPACE}/ParserPro-release-v${ANDROID_VERSION_CODE}.aab"
+          ls -lh "${GITHUB_WORKSPACE}/ParserPro-release.aab" "${GITHUB_WORKSPACE}/ParserPro-release-v${ANDROID_VERSION_CODE}.aab"
 
           echo "=== Verifying Release Cryptographic Signature ==="
           jarsigner -verify "${GITHUB_WORKSPACE}/ParserPro-release.aab"
 
-          echo "=== Verifying Merged Manifest Package & Provider Authorities ==="
+          echo "=== Verifying Merged Manifest Package, Version (> 113) & Provider Authorities ==="
           MERGED_MANIFEST=$(find android/app/build/intermediates/merged_manifests/release -name "AndroidManifest.xml" | head -n 1)
           if [ -n "$MERGED_MANIFEST" ]; then
             grep -q 'package="com.receiptscannerpro.app"' "$MERGED_MANIFEST"
@@ -352,7 +387,13 @@ jobs:
               echo "ERROR: Legacy package or conflicting authority found in merged manifest!"
               exit 1
             fi
-            echo "Verified package=com.receiptscannerpro.app and unique provider authorities!"
+            MANIFEST_VC=$(grep -oE 'android:versionCode="[0-9]+"' "$MERGED_MANIFEST" | head -n 1 | grep -oE '[0-9]+' || true)
+            echo "Merged Manifest versionCode=${MANIFEST_VC}"
+            if [ -n "$MANIFEST_VC" ] && [ "$MANIFEST_VC" -le 113 ]; then
+              echo "ERROR: Merged Manifest versionCode (${MANIFEST_VC}) must be strictly greater than already-used Play Console version 113!"
+              exit 1
+            fi
+            echo "Verified package=com.receiptscannerpro.app, versionCode=${MANIFEST_VC} (> 113), and unique provider authorities!"
           fi
 
           echo "=== Verifying R8 DEX Code Optimization & Deobfuscation Mapping (mapping.txt) ==="
@@ -412,8 +453,8 @@ jobs:
       - name: Upload Play Console App Bundle (.aab) Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ParserPro-PlayConsole-AAB
-          path: ${{ github.workspace }}/ParserPro-release.aab
+          name: ParserPro-PlayConsole-AAB-v${{ steps.signing_setup.outputs.version_code }}
+          path: ${{ github.workspace }}/ParserPro-release-v${{ steps.signing_setup.outputs.version_code }}.aab
           retention-days: 90
           if-no-files-found: error
 
@@ -448,7 +489,11 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           TAG_NAME="v1.0-playstore-aab"
+          VC="${{ steps.signing_setup.outputs.version_code }}"
+          VN="${{ steps.signing_setup.outputs.version_name }}"
           AAB_PATH="${GITHUB_WORKSPACE}/ParserPro-release.aab"
+          VERSIONED_AAB_NAME="ParserPro-release-v${VC}.aab"
+          VERSIONED_AAB_PATH="${GITHUB_WORKSPACE}/${VERSIONED_AAB_NAME}"
           MAPPING_PATH="${GITHUB_WORKSPACE}/mapping.txt"
           SYMBOLS_PATH="${GITHUB_WORKSPACE}/native-debug-symbols.zip"
           PEM_PATH="${GITHUB_WORKSPACE}/upload_certificate.pem"
@@ -456,11 +501,12 @@ jobs:
           PLAY_DEPLOY_SHA1="AA:14:BE:52:28:F8:80:7C:13:DE:D0:86:F1:11:6A:0F:AE:93:17:4D"
 
           if [ -f "$AAB_PATH" ]; then
-            echo "Publishing Play Console AAB, R8 Mapping & Native Debug Symbols to GitHub Releases ($TAG_NAME)..."
+            echo "Publishing Play Console AAB (v${VC}), R8 Mapping & Native Debug Symbols to GitHub Releases ($TAG_NAME)..."
             NOTES_FILE="${RUNNER_TEMP}/aab-release-notes.md"
             {
-              echo "### Google Play Console Signed App Bundle (.aab), R8 DEX Optimization & Debug Symbols"
-              echo "- **1-Click App Bundle (.aab)**: **[ParserPro-release.aab](https://github.com/${{ github.repository }}/releases/download/${TAG_NAME}/ParserPro-release.aab)** *(R8 DEX-optimized + embedded proguard.map & native debug symbols)*"
+              echo "### Google Play Console Signed App Bundle (.aab) — versionCode ${VC} (${VN})"
+              echo "- **1-Click App Bundle (Versioned — Recommended)**: **[${VERSIONED_AAB_NAME}](https://github.com/${{ github.repository }}/releases/download/${TAG_NAME}/${VERSIONED_AAB_NAME})** *(R8 DEX-optimized + embedded proguard.map & native debug symbols)*"
+              echo "- **1-Click App Bundle (Latest Alias)**: **[ParserPro-release.aab](https://github.com/${{ github.repository }}/releases/download/${TAG_NAME}/ParserPro-release.aab)**"
               if [ -f "$MAPPING_PATH" ]; then
                 echo "- **1-Click R8 Deobfuscation Mapping (.txt)**: **[mapping.txt](https://github.com/${{ github.repository }}/releases/download/${TAG_NAME}/mapping.txt)**"
               fi
@@ -471,24 +517,25 @@ jobs:
                 echo "- **Upload Certificate (.pem)**: **[upload_certificate.pem](https://github.com/${{ github.repository }}/releases/download/${TAG_NAME}/upload_certificate.pem)**"
               fi
               echo "- **Application ID**: \`com.receiptscannerpro.app\`"
-              echo "- **DEX Optimization**: Enabled (\`R8 fullMode\`, \`minifyEnabled true\`, \`shrinkResources true\`, \`proguard-android-optimize.txt\`)"
-              echo "- **Version Name**: \`${{ steps.signing_setup.outputs.version_name }}\` (\`versionCode ${{ steps.signing_setup.outputs.version_code }}\`)"
+              echo "- **DEX Optimization**: Enabled (\`minifyEnabled true\`, \`shrinkResources true\`, \`proguard-android-optimize.txt\`, R8 compatibility mode)"
+              echo "- **Version Name**: \`${VN}\` (\`versionCode ${VC}\`)"
               echo "- **Bundle Upload Key SHA1**: \`${SIGN_SHA1}\`"
               echo "- **Play App Signing Certificate (\`deployment_cert.der\`) SHA1**: \`${PLAY_DEPLOY_SHA1}\`"
               echo "- **Built from commit**: \`${{ github.sha }}\`"
             } > "$NOTES_FILE"
 
             ASSETS=("$AAB_PATH")
+            [ -f "$VERSIONED_AAB_PATH" ] && ASSETS+=("$VERSIONED_AAB_PATH")
             [ -f "$MAPPING_PATH" ] && ASSETS+=("$MAPPING_PATH")
             [ -f "$SYMBOLS_PATH" ] && ASSETS+=("$SYMBOLS_PATH")
             [ -f "$PEM_PATH" ] && ASSETS+=("$PEM_PATH")
 
             if gh release view "$TAG_NAME" >/dev/null 2>&1; then
               gh release upload "$TAG_NAME" "${ASSETS[@]}" --clobber || echo "GitHub Release upload skipped"
-              gh release edit "$TAG_NAME" --notes-file "$NOTES_FILE" || true
+              gh release edit "$TAG_NAME" --title "ParserPro Google Play Console Bundle — v${VC} (${VN})" --notes-file "$NOTES_FILE" || true
             else
               gh release create "$TAG_NAME" "${ASSETS[@]}" \
-                --title "ParserPro Google Play Console Bundle (.aab), R8 Mapping & Debug Symbols" \
+                --title "ParserPro Google Play Console Bundle — v${VC} (${VN})" \
                 --notes-file "$NOTES_FILE" \
                 --prerelease || echo "GitHub Release creation skipped"
             fi
@@ -498,23 +545,26 @@ jobs:
         if: always()
         run: |
           PLAY_DEPLOY_SHA1="AA:14:BE:52:28:F8:80:7C:13:DE:D0:86:F1:11:6A:0F:AE:93:17:4D"
+          VC="${{ steps.signing_setup.outputs.version_code }}"
+          VN="${{ steps.signing_setup.outputs.version_name }}"
+          VERSIONED_AAB_NAME="ParserPro-release-v${VC}.aab"
           SIGN_SHA1="${{ steps.signing_setup.outputs.signing_sha1 }}"
           KEY_MODE="${{ steps.signing_setup.outputs.keystore_mode }}"
-          echo "# 📦 Google Play Console App Bundle, DEX Optimization & Symbols Summary" >> $GITHUB_STEP_SUMMARY
+          echo "# 📦 Google Play Console App Bundle (v${VC}), DEX Optimization & Symbols Summary" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           if [ -f "${GITHUB_WORKSPACE}/ParserPro-release.aab" ]; then
             AAB_SIZE=$(ls -lh "${GITHUB_WORKSPACE}/ParserPro-release.aab" | awk '{print $5}')
             echo "### Bundle Details" >> $GITHUB_STEP_SUMMARY
-            echo "- **File**: \`ParserPro-release.aab\` (${AAB_SIZE}) — *R8 DEX-Optimized + \`proguard.map\` & Native Debug Symbols (\`FULL\`) embedded*" >> $GITHUB_STEP_SUMMARY
+            echo "- **File**: \`${VERSIONED_AAB_NAME}\` (${AAB_SIZE}) — *R8 DEX-Optimized + \`proguard.map\` & Native Debug Symbols (\`FULL\`) embedded*" >> $GITHUB_STEP_SUMMARY
             echo "- **Package Name**: \`com.receiptscannerpro.app\`" >> $GITHUB_STEP_SUMMARY
-            echo "- **DEX Code Optimization**: \`minifyEnabled true\` + \`shrinkResources true\` + \`proguard-android-optimize.txt\` (\`R8 fullMode\`) ✅" >> $GITHUB_STEP_SUMMARY
-            echo "- **Version**: \`${{ steps.signing_setup.outputs.version_name }}\` (\`versionCode ${{ steps.signing_setup.outputs.version_code }}\`)" >> $GITHUB_STEP_SUMMARY
+            echo "- **DEX Code Optimization**: \`minifyEnabled true\` + \`shrinkResources true\` + \`proguard-android-optimize.txt\` (R8 compatibility mode) ✅" >> $GITHUB_STEP_SUMMARY
+            echo "- **Version**: \`${VN}\` (\`versionCode ${VC}\`) ✅" >> $GITHUB_STEP_SUMMARY
             echo "- **Upload Signing Key Source**: \`${KEY_MODE}\` (alias: \`${{ steps.signing_setup.outputs.signing_alias }}\`)" >> $GITHUB_STEP_SUMMARY
             echo "- **Upload Key Certificate SHA1**: \`${SIGN_SHA1}\`" >> $GITHUB_STEP_SUMMARY
             echo "- **Play App Signing Certificate (\`deployment_cert.der\`) SHA1**: \`${PLAY_DEPLOY_SHA1}\` ✅" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
             echo "### 📥 Direct 1-Click Downloads" >> $GITHUB_STEP_SUMMARY
-            echo "1. **App Bundle (\`.aab\`)**: **[Download ParserPro-release.aab](https://github.com/${{ github.repository }}/releases/download/v1.0-playstore-aab/ParserPro-release.aab)**" >> $GITHUB_STEP_SUMMARY
+            echo "1. **App Bundle (\`versionCode ${VC}\` — Recommended)**: **[Download ${VERSIONED_AAB_NAME}](https://github.com/${{ github.repository }}/releases/download/v1.0-playstore-aab/${VERSIONED_AAB_NAME})**" >> $GITHUB_STEP_SUMMARY
             echo "2. **R8 Deobfuscation Mapping (\`.txt\`)**: **[Download mapping.txt](https://github.com/${{ github.repository }}/releases/download/v1.0-playstore-aab/mapping.txt)**" >> $GITHUB_STEP_SUMMARY
             echo "3. **Native Debug Symbols (\`.zip\`)**: **[Download native-debug-symbols.zip](https://github.com/${{ github.repository }}/releases/download/v1.0-playstore-aab/native-debug-symbols.zip)**" >> $GITHUB_STEP_SUMMARY
             echo "4. **Upload Certificate (\`.pem\`)**: **[Download upload_certificate.pem](https://github.com/${{ github.repository }}/releases/download/v1.0-playstore-aab/upload_certificate.pem)**" >> $GITHUB_STEP_SUMMARY
