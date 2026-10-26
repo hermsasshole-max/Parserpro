@@ -113,14 +113,23 @@ jobs:
           
           if [ -f "$APK_PATH" ]; then
             echo "Publishing direct download APK to GitHub Releases tag $TAG_NAME..."
-            gh release upload "$TAG_NAME" "$APK_PATH" --clobber 2>/dev/null || \
-            gh release create "$TAG_NAME" "$APK_PATH" \
-              --title "ParserPro Android Debug APK (Direct Download)" \
-              --notes "### Direct 1-Click APK Download:
-Download **[app-debug.apk](https://github.com/${{ github.repository }}/releases/download/${TAG_NAME}/app-debug.apk)** directly to your Android device without unzipping.
-- Built from commit: \`${{ github.sha }}\`
-- Built on: $(date -u '+%Y-%m-%d %H:%M:%S UTC')" \
-              --prerelease || echo "GitHub Release upload completed or skipped"
+            NOTES_FILE="${RUNNER_TEMP}/apk-release-notes.md"
+            {
+              echo "### Direct 1-Click APK Download"
+              echo "- **Direct Download**: **[app-debug.apk](https://github.com/${{ github.repository }}/releases/download/${TAG_NAME}/app-debug.apk)**"
+              echo "- **Built from commit**: \`${{ github.sha }}\`"
+              echo "- **Built on**: $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
+            } > "$NOTES_FILE"
+
+            if gh release view "$TAG_NAME" >/dev/null 2>&1; then
+              gh release upload "$TAG_NAME" "$APK_PATH" --clobber || echo "GitHub Release upload skipped"
+              gh release edit "$TAG_NAME" --notes-file "$NOTES_FILE" || true
+            else
+              gh release create "$TAG_NAME" "$APK_PATH" \
+                --title "ParserPro Android Debug APK (Direct Download)" \
+                --notes-file "$NOTES_FILE" \
+                --prerelease || echo "GitHub Release creation skipped"
+            fi
           else
             echo "APK file not found at $APK_PATH"
           fi

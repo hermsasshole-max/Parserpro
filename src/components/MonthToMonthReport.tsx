@@ -1,18 +1,22 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { 
   TrendingUp, TrendingDown, ArrowUpDown, Search, Printer, 
-  Download, Calendar, CheckCircle2, ArrowRight, ShieldCheck, Sparkles,
-  FileDown, Loader2, Share2, Check
+  Download, Calendar, CheckCircle2, ShieldCheck, Sparkles,
+  FileDown, Loader2, Share2, Check, Sliders, Edit3
 } from 'lucide-react';
-import type { SavedReceipt } from '../types';
-import { compareMonths, exportComparisonToCSV } from '../utils/reportUtils';
+import type { SavedReceipt, CategoryBudgets, ReceiptCategory } from '../types';
+import { compareMonths, exportComparisonToCSV, generateMonthReport } from '../utils/reportUtils';
 import { downloadComparisonPDF, shareOrSavePDF } from '../utils/pdfGenerator';
+import { computeCategoryBudgetProgress, loadCategoryBudgets, saveCategoryBudgets } from '../utils/budgetStorage';
+import { BudgetLimitsModal } from './BudgetLimitsModal';
 
 interface MonthToMonthReportProps {
   receipts: SavedReceipt[];
   initialMonthA?: string;
   initialMonthB?: string;
   onOpenPrintReport: () => void;
+  categoryBudgets?: CategoryBudgets;
+  onUpdateCategoryBudgets?: (budgets: CategoryBudgets) => void;
 }
 
 export const MonthToMonthReport: React.FC<MonthToMonthReportProps> = ({
@@ -20,10 +24,28 @@ export const MonthToMonthReport: React.FC<MonthToMonthReportProps> = ({
   initialMonthA,
   initialMonthB,
   onOpenPrintReport,
+  categoryBudgets: externalBudgets,
+  onUpdateCategoryBudgets,
 }) => {
   const [isDownloadingPdf, setIsDownloadingPdf] = useState(false);
   const [isSharingPdf, setIsSharingPdf] = useState(false);
   const [actionFeedback, setActionFeedback] = useState<string | null>(null);
+  const [localBudgets, setLocalBudgets] = useState<CategoryBudgets>(() => loadCategoryBudgets());
+  const [isBudgetModalOpen, setIsBudgetModalOpen] = useState(false);
+  const [focusBudgetCategory, setFocusBudgetCategory] = useState<ReceiptCategory | null>(null);
+
+  const activeBudgets = externalBudgets || localBudgets;
+
+  const handleSaveBudgets = (updated: CategoryBudgets) => {
+    if (onUpdateCategoryBudgets) {
+      onUpdateCategoryBudgets(updated);
+    } else {
+      setLocalBudgets(updated);
+      saveCategoryBudgets(updated);
+    }
+    setActionFeedback('Monthly category spending budgets updated.');
+    setTimeout(() => setActionFeedback(null), 3500);
+  };
   // Get all unique available months sorted descending
   const availableMonths = useMemo(() => {
     return Array.from(new Set<string>(receipts.map(r => r.month_year)))
@@ -43,10 +65,31 @@ export const MonthToMonthReport: React.FC<MonthToMonthReportProps> = ({
   const [statusFilter, setStatusFilter] = useState<'all' | 'saved_more' | 'spent_more' | 'new_item'>('all');
   const [sortBy, setSortBy] = useState<'alpha' | 'diff_high' | 'diff_low' | 'totalA'>('alpha');
 
+  useEffect(() => {
+    if (initialMonthA && availableMonths.includes(initialMonthA)) {
+      setMonthA(initialMonthA);
+    }
+  }, [initialMonthA, availableMonths]);
+
+  useEffect(() => {
+    if (initialMonthB && availableMonths.includes(initialMonthB)) {
+      setMonthB(initialMonthB);
+    }
+  }, [initialMonthB, availableMonths]);
+
   // Compute live comparison
   const comparison = useMemo(() => {
     return compareMonths(monthA, monthB, receipts);
   }, [monthA, monthB, receipts]);
+
+  // Compute selected month report & budget progress
+  const selectedMonthReport = useMemo(() => {
+    return generateMonthReport(monthA, receipts);
+  }, [monthA, receipts]);
+
+  const budgetProgress = useMemo(() => {
+    return computeCategoryBudgetProgress(selectedMonthReport.category_totals, activeBudgets);
+  }, [selectedMonthReport, activeBudgets]);
 
   // Filter & sort items
   const displayedItems = useMemo(() => {
@@ -97,20 +140,33 @@ export const MonthToMonthReport: React.FC<MonthToMonthReportProps> = ({
           <div className="space-y-2">
             <h2 className="text-xl font-bold text-slate-800">No Invoices or Receipts Recorded</h2>
             <p className="text-sm text-slate-500 max-w-md mx-auto leading-relaxed">
-              Once you scan or add receipts, ParserPro will automatically extract line items, aggregate identical purchases A-Z, and generate side-by-side comparative monthly reports.
+              Once you scan or add receipts, ParserPro will automatically extract line items, track spending against your monthly category budgets, and generate comparative monthly reports.
             </p>
           </div>
           <div className="pt-2 flex flex-wrap items-center justify-center gap-3">
-            <div className="px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-600 font-semibold flex items-center gap-2">
-              <Sparkles className="w-4 h-4 text-amber-500" />
-              <span>Auto-calculates itemized unit prices & quantities</span>
-            </div>
-            <div className="px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-600 font-semibold flex items-center gap-2">
-              <ShieldCheck className="w-4 h-4 text-emerald-600" />
-              <span>Tracks category variance & net savings</span>
-            </div>
+            <button
+              type="button"
+              onClick={() => {
+                setFocusBudgetCategory(null);
+                setIsBudgetModalOpen(true);
+              }}
+              className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold flex items-center gap-2 transition-colors cursor-pointer shadow-xs"
+            >
+              <Sliders className="w-4 h-4" />
+              <span>Set Monthly Category Budgets (R {budgetProgress.overall.totalBudget.toFixed(0)} cap)</span>
+            </button>
           </div>
         </div>
+
+        <BudgetLimitsModal
+          isOpen={isBudgetModalOpen}
+          onClose={() => setIsBudgetModalOpen(false)}
+          budgets={activeBudgets}
+          onSave={handleSaveBudgets}
+          selectedMonth={monthA}
+          monthCategoryTotals={selectedMonthReport.category_totals}
+          initialFocusCategory={focusBudgetCategory}
+        />
       </div>
     );
   }
@@ -172,8 +228,21 @@ export const MonthToMonthReport: React.FC<MonthToMonthReportProps> = ({
           </button>
         </div>
 
-        {/* Action Buttons: Print, Share & Export */}
+        {/* Action Buttons: Budgets, Print, Share & Export */}
         <div className="flex items-center gap-2 self-end lg:self-auto flex-wrap">
+          <button
+            type="button"
+            onClick={() => {
+              setFocusBudgetCategory(null);
+              setIsBudgetModalOpen(true);
+            }}
+            className="px-3.5 py-2 bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs rounded-xl flex items-center gap-1.5 transition-colors shadow-2xs cursor-pointer"
+            title="Set monthly spending budget limits per category"
+          >
+            <Sliders className="w-3.5 h-3.5 text-emerald-400" />
+            <span>Set Budgets</span>
+          </button>
+
           <button
             onClick={async () => {
               setIsDownloadingPdf(true);
@@ -397,31 +466,209 @@ export const MonthToMonthReport: React.FC<MonthToMonthReportProps> = ({
         </div>
       </div>
 
-      {/* Category Breakdown Comparison */}
-      <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm space-y-3">
-        <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500">
-          Category-by-Category Spend Comparison
-        </h3>
+      {/* Monthly Budget Progress & Category Spend Breakdown for Selected Month (monthA) */}
+      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+        {/* Overall Selected Month Budget Header & Progress Bar */}
+        <div className="p-5 border-b border-slate-100 space-y-3">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+            <div>
+              <h3 className="text-sm font-bold text-slate-900">
+                Monthly Budget Progress & Category Spend ({monthA})
+              </h3>
+              <div className="text-xs text-slate-500 mt-0.5 flex flex-wrap items-center gap-1.5 tabular-nums">
+                {budgetProgress.overall.status === 'unset' ? (
+                  <span>No category budget limits configured yet</span>
+                ) : (
+                  <>
+                    <span>
+                      Spent <strong className="text-slate-800">R {budgetProgress.overall.budgetedSpend.toFixed(2)}</strong> of{' '}
+                      <strong className="text-slate-800">R {budgetProgress.overall.totalBudget.toFixed(2)}</strong> monthly budget
+                    </span>
+                    <span aria-hidden="true">·</span>
+                    <span
+                      className={
+                        budgetProgress.overall.status === 'exceeded'
+                          ? 'text-rose-600 font-semibold'
+                          : budgetProgress.overall.status === 'near'
+                          ? 'text-amber-600 font-semibold'
+                          : 'text-emerald-700 font-semibold'
+                      }
+                    >
+                      {budgetProgress.overall.percentUsed}% used
+                    </span>
+                    <span aria-hidden="true">·</span>
+                    {budgetProgress.overall.overAmount > 0 ? (
+                      <span className="text-rose-600 font-semibold">
+                        Over budget by R {budgetProgress.overall.overAmount.toFixed(2)}
+                      </span>
+                    ) : (
+                      <span className="text-slate-600">
+                        R {budgetProgress.overall.remaining.toFixed(2)} remaining
+                      </span>
+                    )}
+                  </>
+                )}
+              </div>
+            </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
+            <button
+              type="button"
+              onClick={() => {
+                setFocusBudgetCategory(null);
+                setIsBudgetModalOpen(true);
+              }}
+              className="self-start sm:self-auto px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
+            >
+              <Edit3 className="w-3.5 h-3.5 text-slate-600" />
+              <span>Edit Category Limits</span>
+            </button>
+          </div>
+
+          {/* Overall Selected Month Progress Bar */}
+          <div className="space-y-1">
+            <div
+              className="w-full h-3 bg-slate-100 rounded-full overflow-hidden"
+              role="progressbar"
+              aria-valuenow={Math.round(budgetProgress.overall.barWidthPercent)}
+              aria-valuemin={0}
+              aria-valuemax={100}
+              aria-label={`Overall ${monthA} budget progress`}
+            >
+              <div
+                className={`h-full rounded-full transition-all duration-500 ${
+                  budgetProgress.overall.status === 'unset'
+                    ? 'bg-slate-300'
+                    : budgetProgress.overall.status === 'exceeded'
+                    ? 'bg-rose-600'
+                    : budgetProgress.overall.status === 'near'
+                    ? 'bg-amber-500'
+                    : 'bg-emerald-500'
+                }`}
+                style={{
+                  width: `${
+                    budgetProgress.overall.status === 'unset'
+                      ? 0
+                      : budgetProgress.overall.barWidthPercent
+                  }%`,
+                }}
+              />
+            </div>
+            {budgetProgress.overall.exceededCount > 0 && (
+              <p className="text-[11px] text-rose-600 font-medium tabular-nums">
+                {budgetProgress.overall.exceededCount}{' '}
+                {budgetProgress.overall.exceededCount === 1 ? 'category has' : 'categories have'} exceeded the monthly limit in {monthA}.
+              </p>
+            )}
+          </div>
+        </div>
+
+        {/* Per-Category Budget Progress & Month-to-Month Variance */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 divide-y sm:divide-y-0 sm:divide-x divide-slate-100">
           {comparison.categoryComparison.map((cat) => {
             const isCatSaving = cat.diff < 0;
+            const catProg = budgetProgress.categories.find((c) => c.category === cat.category);
+            const limit = catProg?.limit ?? 0;
+            const pctUsed = catProg?.percentUsed ?? 0;
+            const barWidth = catProg?.barWidthPercent ?? 0;
+            const status = catProg?.status ?? 'unset';
+
             return (
-              <div key={cat.category} className="p-3 bg-slate-50 border border-slate-100 rounded-xl">
-                <div className="text-[11px] font-bold text-slate-700 truncate">{cat.category}</div>
-                <div className="text-xs font-extrabold text-slate-900 mt-1">
-                  R {cat.monthA.toFixed(2)}
+              <div key={cat.category} className="p-4 flex flex-col justify-between gap-2.5 hover:bg-slate-50/60 transition-colors">
+                <div className="space-y-1">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-xs font-bold text-slate-800 truncate">
+                      {cat.category}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setFocusBudgetCategory(cat.category);
+                        setIsBudgetModalOpen(true);
+                      }}
+                      className="text-[11px] text-emerald-700 hover:text-emerald-800 hover:underline font-medium shrink-0 cursor-pointer"
+                      title={`Edit ${cat.category} monthly budget`}
+                    >
+                      {limit > 0 ? 'Edit' : 'Set limit'}
+                    </button>
+                  </div>
+
+                  <div className="flex items-baseline justify-between gap-1 tabular-nums">
+                    <span className="text-sm font-black text-slate-900">
+                      R {cat.monthA.toFixed(2)}
+                    </span>
+                    <span className="text-[11px] text-slate-500">
+                      {limit > 0 ? `/ R ${limit.toFixed(0)}` : 'No limit'}
+                    </span>
+                  </div>
                 </div>
-                <div className="text-[10px] text-slate-400">
-                  {monthB}: R {cat.monthB.toFixed(2)}
+
+                {/* Category Budget Progress Bar */}
+                <div className="space-y-1.5">
+                  <div
+                    className="w-full h-2 bg-slate-100 rounded-full overflow-hidden"
+                    role="progressbar"
+                    aria-valuenow={Math.round(barWidth)}
+                    aria-valuemin={0}
+                    aria-valuemax={100}
+                    aria-label={`${cat.category} budget progress for ${monthA}`}
+                  >
+                    <div
+                      className={`h-full rounded-full transition-all duration-500 ${
+                        status === 'unset'
+                          ? 'bg-slate-300'
+                          : status === 'exceeded'
+                          ? 'bg-rose-600'
+                          : status === 'near'
+                          ? 'bg-amber-500'
+                          : 'bg-emerald-500'
+                      }`}
+                      style={{ width: `${limit > 0 ? barWidth : 0}%` }}
+                    />
+                  </div>
+
+                  <div className="flex items-center justify-between text-[11px] tabular-nums">
+                    {limit > 0 ? (
+                      <>
+                        <span
+                          className={
+                            status === 'exceeded'
+                              ? 'text-rose-600 font-semibold'
+                              : status === 'near'
+                              ? 'text-amber-600 font-semibold'
+                              : 'text-emerald-700 font-medium'
+                          }
+                        >
+                          {pctUsed}%
+                        </span>
+                        <span className={status === 'exceeded' ? 'text-rose-600 font-semibold' : 'text-slate-500'}>
+                          {catProg && catProg.overAmount > 0
+                            ? `+R ${catProg.overAmount.toFixed(0)} over`
+                            : `R ${(catProg?.remaining ?? 0).toFixed(0)} left`}
+                        </span>
+                      </>
+                    ) : (
+                      <span className="text-slate-400">Budget not set</span>
+                    )}
+                  </div>
                 </div>
-                <div className="mt-1 text-[10px] font-bold">
+
+                {/* Baseline Month Comparison Line */}
+                <div className="pt-2 border-t border-slate-100 flex items-center justify-between text-[10px] tabular-nums">
+                  <span className="text-slate-400">
+                    {monthB}: R {cat.monthB.toFixed(0)}
+                  </span>
                   {cat.monthA === 0 && cat.monthB === 0 ? (
-                    <span className="text-slate-400">No Spend</span>
+                    <span className="text-slate-400">No spend</span>
                   ) : isCatSaving ? (
-                    <span className="text-emerald-600">Saved R {Math.abs(cat.diff).toFixed(2)}</span>
+                    <span className="text-emerald-700 font-semibold">
+                      -R {Math.abs(cat.diff).toFixed(0)} vs {monthB}
+                    </span>
+                  ) : cat.diff > 0 ? (
+                    <span className="text-rose-600 font-semibold">
+                      +R {cat.diff.toFixed(0)} vs {monthB}
+                    </span>
                   ) : (
-                    <span className="text-rose-600">+ R {cat.diff.toFixed(2)} more</span>
+                    <span className="text-slate-500">Unchanged</span>
                   )}
                 </div>
               </div>
@@ -656,6 +903,17 @@ export const MonthToMonthReport: React.FC<MonthToMonthReportProps> = ({
           </table>
         </div>
       </div>
+
+      {/* Category Budget Configuration Modal */}
+      <BudgetLimitsModal
+        isOpen={isBudgetModalOpen}
+        onClose={() => setIsBudgetModalOpen(false)}
+        budgets={activeBudgets}
+        onSave={handleSaveBudgets}
+        selectedMonth={monthA}
+        monthCategoryTotals={selectedMonthReport.category_totals}
+        initialFocusCategory={focusBudgetCategory}
+      />
     </div>
   );
 };

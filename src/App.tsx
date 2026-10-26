@@ -20,7 +20,8 @@ import {
   requestPersistentDeviceStorage 
 } from './utils/deviceStorage';
 import { checkAndRequestStartupPermissions, type AndroidStartupPermissionsResult } from './utils/nativePermissions';
-import type { SavedReceipt } from './types';
+import { loadCategoryBudgets, saveCategoryBudgets } from './utils/budgetStorage';
+import type { SavedReceipt, CategoryBudgets } from './types';
 
 const STORAGE_KEY = 'parserpro_saved_receipts_v1';
 
@@ -70,6 +71,12 @@ export default function App() {
   const [saveToast, setSaveToast] = useState<{ message: string; month?: string } | null>(null);
   const [androidPermissions, setAndroidPermissions] = useState<AndroidStartupPermissionsResult | null>(null);
   const [showPermissionBanner, setShowPermissionBanner] = useState(false);
+  const [categoryBudgets, setCategoryBudgets] = useState<CategoryBudgets>(() => loadCategoryBudgets());
+
+  const handleUpdateCategoryBudgets = (updated: CategoryBudgets) => {
+    setCategoryBudgets(updated);
+    saveCategoryBudgets(updated);
+  };
 
   // Initialize Android IndexedDB and persistent storage guarantee, and request native permissions on startup
   useEffect(() => {
@@ -341,6 +348,8 @@ export default function App() {
             initialMonthA={selectedMonth}
             initialMonthB={comparisonMonth}
             onOpenPrintReport={() => setIsPrintModalOpen(true)}
+            categoryBudgets={categoryBudgets}
+            onUpdateCategoryBudgets={handleUpdateCategoryBudgets}
           />
         )}
 
@@ -355,6 +364,8 @@ export default function App() {
             onImportData={handleImportData}
             onLoadSampleData={handleLoadSampleData}
             onOpenAndroidBackup={() => setIsBackupModalOpen(true)}
+            categoryBudgets={categoryBudgets}
+            onUpdateCategoryBudgets={handleUpdateCategoryBudgets}
           />
         )}
       </main>

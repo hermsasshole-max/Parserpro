@@ -98,3 +98,17 @@ export interface MonthReportData {
   category_totals: Record<ReceiptCategory, number>;
   items_alphabetical: AggregatedItem[];
 }
+
+export type CategoryBudgets = Record<ReceiptCategory, number>;
+
+export interface CategoryBudgetProgress {
+  category: ReceiptCategory;
+  spent: number;
+  limit: number;
+  percentUsed: number;
+  barWidthPercent: number;
+  remaining: number;
+  overAmount: number;
+  status: 'within' | 'near' | 'exceeded' | 'unset';
+}
+

@@ -44,10 +44,10 @@ export async function checkAndRequestStartupPermissions(): Promise<AndroidStartu
     cameraStatus = currentCam.camera;
     console.log('[NativePermissions] Current Android camera status:', currentCam);
     
-    if (currentCam.camera !== 'granted' || currentCam.photos !== 'granted') {
+    if (currentCam.camera !== 'granted') {
       prompted = true;
-      console.log('[NativePermissions] Prompting Android OS for Camera & Gallery permissions...');
-      const requestedCam = await Camera.requestPermissions();
+      console.log('[NativePermissions] Prompting Android OS for Camera permission...');
+      const requestedCam = await Camera.requestPermissions({ permissions: ['camera'] });
       cameraStatus = requestedCam.camera;
       cameraGranted = requestedCam.camera === 'granted';
     } else {
@@ -57,7 +57,7 @@ export async function checkAndRequestStartupPermissions(): Promise<AndroidStartu
     console.warn('[NativePermissions] Camera.checkPermissions notice, attempting direct requestPermissions():', camErr);
     try {
       prompted = true;
-      const requestedCam = await Camera.requestPermissions();
+      const requestedCam = await Camera.requestPermissions({ permissions: ['camera'] });
       cameraStatus = requestedCam.camera;
       cameraGranted = requestedCam.camera === 'granted';
     } catch (directCamErr) {

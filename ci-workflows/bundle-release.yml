@@ -1,4 +1,4 @@
-name: Build Release Android App Bundle
+name: Build Release Android App Bundle (Play Console)
 
 on:
   push:
@@ -6,6 +6,19 @@ on:
       - main
       - master
   workflow_dispatch:
+    inputs:
+      version_name:
+        description: 'Release versionName (optional, e.g. 1.0.5)'
+        required: false
+        type: string
+      version_code:
+        description: 'Release integer versionCode (optional, auto-increments by default)'
+        required: false
+        type: string
+
+permissions:
+  contents: write
+  actions: read
 
 # Ensure concurrent runs do not conflict
 concurrency:
@@ -14,7 +27,7 @@ concurrency:
 
 jobs:
   build-bundle:
-    name: Build Release AAB
+    name: Build Signed Play Console AAB
     runs-on: ubuntu-latest
 
     steps:
@@ -61,6 +74,99 @@ jobs:
       - name: Sync Capacitor Android Project
         run: npx cap sync android
 
+      - name: Configure Version & Play Store Release Signing Keystore
+        id: signing_setup
+        env:
+          SECRET_KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          SECRET_KEYSTORE_PW: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          SECRET_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          SECRET_KEY_PW: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          INPUT_VERSION_CODE: ${{ inputs.version_code }}
+          INPUT_VERSION_NAME: ${{ inputs.version_name }}
+        run: |
+          # 1. Compute strictly increasing Play Console versionCode & versionName
+          if [ -n "$INPUT_VERSION_CODE" ]; then
+            COMPUTED_VC="$INPUT_VERSION_CODE"
+          else
+            COMPUTED_VC=$((100 + GITHUB_RUN_NUMBER))
+          fi
+
+          if [ -n "$INPUT_VERSION_NAME" ]; then
+            COMPUTED_VN="$INPUT_VERSION_NAME"
+          else
+            COMPUTED_VN="1.0.${GITHUB_RUN_NUMBER}"
+          fi
+
+          echo "ANDROID_VERSION_CODE=${COMPUTED_VC}" >> $GITHUB_ENV
+          echo "ANDROID_VERSION_NAME=${COMPUTED_VN}" >> $GITHUB_ENV
+          echo "version_code=${COMPUTED_VC}" >> $GITHUB_OUTPUT
+          echo "version_name=${COMPUTED_VN}" >> $GITHUB_OUTPUT
+
+          KEYSTORE_FILE="${GITHUB_WORKSPACE}/android/upload-keystore.jks"
+
+          # 2. Load persistent upload keystore from GitHub Secrets or generate a Play Console upload key
+          if [ -n "$SECRET_KEYSTORE_B64" ] && [ -n "$SECRET_KEYSTORE_PW" ] && [ -n "$SECRET_KEY_ALIAS" ]; then
+            echo "Using persistent Android Upload Keystore from GitHub Secrets..."
+            echo "$SECRET_KEYSTORE_B64" | tr -d ' \n\r' | base64 -d > "$KEYSTORE_FILE"
+            FINAL_KEY_PW="${SECRET_KEY_PW:-$SECRET_KEYSTORE_PW}"
+            echo "ANDROID_KEYSTORE_PATH=${KEYSTORE_FILE}" >> $GITHUB_ENV
+            echo "ANDROID_KEYSTORE_PASSWORD=${SECRET_KEYSTORE_PW}" >> $GITHUB_ENV
+            echo "ANDROID_KEY_ALIAS=${SECRET_KEY_ALIAS}" >> $GITHUB_ENV
+            echo "ANDROID_KEY_PASSWORD=${FINAL_KEY_PW}" >> $GITHUB_ENV
+            echo "keystore_mode=secrets" >> $GITHUB_OUTPUT
+          else
+            echo "No GitHub signing secrets found — generating a new Play Console Upload Keystore..."
+            GEN_PW=$(openssl rand -hex 16)
+            GEN_ALIAS="upload"
+            echo "::add-mask::${GEN_PW}"
+
+            keytool -genkeypair -v \
+              -keystore "$KEYSTORE_FILE" \
+              -storetype PKCS12 \
+              -keyalg RSA \
+              -keysize 2048 \
+              -validity 10000 \
+              -alias "$GEN_ALIAS" \
+              -storepass "$GEN_PW" \
+              -keypass "$GEN_PW" \
+              -dname "CN=ParserPro, OU=Mobile, O=ParserPro, L=Johannesburg, S=GP, C=ZA"
+
+            echo "ANDROID_KEYSTORE_PATH=${KEYSTORE_FILE}" >> $GITHUB_ENV
+            echo "ANDROID_KEYSTORE_PASSWORD=${GEN_PW}" >> $GITHUB_ENV
+            echo "ANDROID_KEY_ALIAS=${GEN_ALIAS}" >> $GITHUB_ENV
+            echo "ANDROID_KEY_PASSWORD=${GEN_PW}" >> $GITHUB_ENV
+            echo "keystore_mode=generated" >> $GITHUB_OUTPUT
+
+            # Package private signing backup kit for authenticated Actions Artifact download
+            mkdir -p "${GITHUB_WORKSPACE}/play-signing-kit"
+            cp "$KEYSTORE_FILE" "${GITHUB_WORKSPACE}/play-signing-kit/upload-keystore.jks"
+            B64_STR=$(base64 -w 0 "$KEYSTORE_FILE" 2>/dev/null || base64 "$KEYSTORE_FILE" | tr -d '\n')
+
+            {
+              echo "==================================================================="
+              echo "GOOGLE PLAY CONSOLE UPLOAD KEYSTORE — SAVE THESE TO GITHUB SECRETS!"
+              echo "==================================================================="
+              echo "Google Play Console requires all future app updates to be signed with"
+              echo "the EXACT SAME upload key as your first upload."
+              echo ""
+              echo "Go to your GitHub Repository -> Settings -> Secrets and variables -> Actions"
+              echo "and create these 4 Repository Secrets:"
+              echo ""
+              echo "1. ANDROID_KEYSTORE_BASE64"
+              echo "${B64_STR}"
+              echo ""
+              echo "2. ANDROID_KEYSTORE_PASSWORD"
+              echo "${GEN_PW}"
+              echo ""
+              echo "3. ANDROID_KEY_ALIAS"
+              echo "${GEN_ALIAS}"
+              echo ""
+              echo "4. ANDROID_KEY_PASSWORD"
+              echo "${GEN_PW}"
+              echo "==================================================================="
+            } > "${GITHUB_WORKSPACE}/play-signing-kit/GITHUB_SECRETS_SETUP.txt"
+          fi
+
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
@@ -71,12 +177,13 @@ jobs:
         run: |
           chmod +x android/gradlew
           cd android
+          mkdir -p gradle/wrapper
           if [ ! -f "gradle/wrapper/gradle-wrapper.jar" ]; then
-            echo "Generating Gradle wrapper..."
-            gradle wrapper --gradle-version 8.14.3 || true
+            echo "Downloading Gradle wrapper jar..."
+            curl -fsSL -o gradle/wrapper/gradle-wrapper.jar https://raw.githubusercontent.com/gradle/gradle/v8.14.3/gradle/wrapper/gradle-wrapper.jar || true
           fi
 
-      - name: Build Release Android App Bundle (.aab)
+      - name: Build Signed Release Android App Bundle (.aab)
         run: |
           cd android
           if [ -f "gradle/wrapper/gradle-wrapper.jar" ]; then
@@ -85,16 +192,91 @@ jobs:
             gradle bundleRelease --no-daemon --stacktrace
           fi
 
-      - name: Verify and Locate Generated App Bundle (.aab)
+      - name: Verify Signed App Bundle (.aab) for Play Console
         run: |
-          echo "=== Locating generated .aab files ==="
-          find . -name "*.aab" -exec ls -lh {} +
+          echo "=== Locating generated .aab file ==="
+          AAB_SRC=$(find android/app/build/outputs/bundle/release -name "*.aab" | head -n 1)
+          if [ -z "$AAB_SRC" ]; then
+            echo "ERROR: No .aab bundle generated!"
+            exit 1
+          fi
+          cp "$AAB_SRC" "${GITHUB_WORKSPACE}/ParserPro-release.aab"
+          ls -lh "${GITHUB_WORKSPACE}/ParserPro-release.aab"
 
-      - name: Upload Release Android App Bundle Artifact
+          echo "=== Verifying Release Cryptographic Signature ==="
+          jarsigner -verify "${GITHUB_WORKSPACE}/ParserPro-release.aab"
+
+      - name: Upload Play Console App Bundle (.aab) Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: receipt-scanner-release-aab
-          path: |
-            android/app/build/outputs/bundle/release/*.aab
-          retention-days: 30
+          name: ParserPro-PlayConsole-AAB
+          path: ${{ github.workspace }}/ParserPro-release.aab
+          retention-days: 90
           if-no-files-found: error
+
+      - name: Upload Private Play Signing Keystore Backup (First-Run Only)
+        if: steps.signing_setup.outputs.keystore_mode == 'generated'
+        uses: actions/upload-artifact@v4
+        with:
+          name: PlayConsole-Upload-Keystore-Backup-SAVE-THIS
+          path: ${{ github.workspace }}/play-signing-kit/*
+          retention-days: 90
+          if-no-files-found: warn
+
+      - name: Publish Direct 1-Click .aab Download to GitHub Releases
+        if: success()
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG_NAME="v1.0-playstore-aab"
+          AAB_PATH="${GITHUB_WORKSPACE}/ParserPro-release.aab"
+
+          if [ -f "$AAB_PATH" ]; then
+            echo "Publishing Play Console AAB to GitHub Releases ($TAG_NAME)..."
+            NOTES_FILE="${RUNNER_TEMP}/aab-release-notes.md"
+            {
+              echo "### Google Play Console Signed App Bundle (.aab)"
+              echo "- **Direct 1-Click Download**: **[ParserPro-release.aab](https://github.com/${{ github.repository }}/releases/download/${TAG_NAME}/ParserPro-release.aab)**"
+              echo "- **Application ID**: \`com.receiptscanner.app\`"
+              echo "- **Version Name**: \`${{ steps.signing_setup.outputs.version_name }}\`"
+              echo "- **Version Code**: \`${{ steps.signing_setup.outputs.version_code }}\`"
+              echo "- **Built from commit**: \`${{ github.sha }}\`"
+            } > "$NOTES_FILE"
+
+            if gh release view "$TAG_NAME" >/dev/null 2>&1; then
+              gh release upload "$TAG_NAME" "$AAB_PATH" --clobber || echo "GitHub Release upload skipped"
+              gh release edit "$TAG_NAME" --notes-file "$NOTES_FILE" || true
+            else
+              gh release create "$TAG_NAME" "$AAB_PATH" \
+                --title "ParserPro Google Play Console Bundle (.aab)" \
+                --notes-file "$NOTES_FILE" \
+                --prerelease || echo "GitHub Release creation skipped"
+            fi
+          fi
+
+      - name: Add Direct Play Console AAB Download Links to Run Summary
+        if: always()
+        run: |
+          echo "# 📦 Google Play Console App Bundle (.aab) Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          if [ -f "${GITHUB_WORKSPACE}/ParserPro-release.aab" ]; then
+            AAB_SIZE=$(ls -lh "${GITHUB_WORKSPACE}/ParserPro-release.aab" | awk '{print $5}')
+            AAB_SHA=$(sha256sum "${GITHUB_WORKSPACE}/ParserPro-release.aab" | awk '{print $1}')
+            echo "### ✅ Signed Release Bundle Ready for Google Play Console" >> $GITHUB_STEP_SUMMARY
+            echo "- **File**: \`ParserPro-release.aab\` (${AAB_SIZE})" >> $GITHUB_STEP_SUMMARY
+            echo "- **Package Name**: \`com.receiptscanner.app\`" >> $GITHUB_STEP_SUMMARY
+            echo "- **Version**: \`${{ steps.signing_setup.outputs.version_name }}\` (\`versionCode ${{ steps.signing_setup.outputs.version_code }}\`)" >> $GITHUB_STEP_SUMMARY
+            echo "- **SHA256**: \`${AAB_SHA}\`" >> $GITHUB_STEP_SUMMARY
+            echo "- **Signing Key Source**: \`${{ steps.signing_setup.outputs.keystore_mode }}\`" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "### 📥 How to Download Your \`.aab\` File" >> $GITHUB_STEP_SUMMARY
+            echo "1. **Direct 1-Click \`.aab\` Download (No unzipping needed)**: **[Download ParserPro-release.aab from GitHub Releases](https://github.com/${{ github.repository }}/releases/download/v1.0-playstore-aab/ParserPro-release.aab)** (or visit **[Releases](https://github.com/${{ github.repository }}/releases)**)." >> $GITHUB_STEP_SUMMARY
+            echo "2. **Actions Artifact**: Scroll to the **Artifacts** table below and click **\`ParserPro-PlayConsole-AAB\`** (requires being logged into GitHub; downloads as a \`.zip\` containing \`ParserPro-release.aab\`)." >> $GITHUB_STEP_SUMMARY
+            if [ "${{ steps.signing_setup.outputs.keystore_mode }}" = "generated" ]; then
+              echo "" >> $GITHUB_STEP_SUMMARY
+              echo "### 🔑 Important for Future Play Store Updates" >> $GITHUB_STEP_SUMMARY
+              echo "Because no signing secrets were configured yet, a fresh release upload keystore was generated to sign this bundle. **Download the \`PlayConsole-Upload-Keystore-Backup-SAVE-THIS\` artifact below** and copy the 4 values inside \`GITHUB_SECRETS_SETUP.txt\` into your repository's **Settings → Secrets and variables → Actions** so all future updates use the exact same Play Console upload certificate." >> $GITHUB_STEP_SUMMARY
+            fi
+          else
+            echo "### ⚠️ App Bundle (.aab) was not generated" >> $GITHUB_STEP_SUMMARY
+          fi

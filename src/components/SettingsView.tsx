@@ -29,7 +29,7 @@ import {
   EyeOff,
   ExternalLink
 } from 'lucide-react';
-import type { SavedReceipt, OcrEngineMode } from '../types';
+import type { SavedReceipt, OcrEngineMode, CategoryBudgets, ReceiptCategory } from '../types';
 import { 
   getStoredOcrMode, 
   setStoredOcrMode, 
@@ -37,6 +37,8 @@ import {
   setStoredApiTimeoutMs 
 } from '../utils/failSafeOcrCoordinator';
 import { OfflineOcrQueueModal } from './OfflineOcrQueueModal';
+import { BudgetLimitsModal } from './BudgetLimitsModal';
+import { ALL_RECEIPT_CATEGORIES, loadCategoryBudgets, saveCategoryBudgets } from '../utils/budgetStorage';
 import { 
   exportDeviceBackupJSON, 
   parseBackupFile, 
@@ -62,6 +64,8 @@ interface SettingsViewProps {
   onImportData: (importedReceipts: SavedReceipt[]) => void;
   onLoadSampleData?: () => void;
   onOpenAndroidBackup?: () => void;
+  categoryBudgets?: CategoryBudgets;
+  onUpdateCategoryBudgets?: (budgets: CategoryBudgets) => void;
 }
 
 export const SettingsView: React.FC<SettingsViewProps> = ({
@@ -74,6 +78,8 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   onImportData,
   onLoadSampleData,
   onOpenAndroidBackup,
+  categoryBudgets: externalBudgets,
+  onUpdateCategoryBudgets,
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedMonthFilter, setSelectedMonthFilter] = useState<string>('all');
@@ -84,12 +90,28 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   const [isExporting, setIsExporting] = useState(false);
   const [permissionStatus, setPermissionStatus] = useState<string | null>(null);
   const [showQueueModal, setShowQueueModal] = useState(false);
+  const [showBudgetModal, setShowBudgetModal] = useState(false);
+  const [focusBudgetCategory, setFocusBudgetCategory] = useState<ReceiptCategory | null>(null);
+  const [localBudgets, setLocalBudgets] = useState<CategoryBudgets>(() => loadCategoryBudgets());
   const [engineMode, setEngineMode] = useState<OcrEngineMode>(() => getStoredOcrMode());
   const [timeoutSec, setTimeoutSec] = useState<number>(() => Math.round(getStoredApiTimeoutMs() / 1000));
   const [apiKeyInput, setApiKeyInput] = useState(() => getActiveGeminiApiKey());
   const [showApiKeyText, setShowApiKeyText] = useState(false);
   const [isTestingKey, setIsTestingKey] = useState(false);
   const [testKeyFeedback, setTestKeyFeedback] = useState<{ success: boolean; message: string } | null>(null);
+
+  const activeBudgets = externalBudgets || localBudgets;
+
+  const handleSaveBudgets = (updated: CategoryBudgets) => {
+    if (onUpdateCategoryBudgets) {
+      onUpdateCategoryBudgets(updated);
+    } else {
+      setLocalBudgets(updated);
+      saveCategoryBudgets(updated);
+    }
+    setFeedbackToast('Monthly category spending budgets saved.');
+    setTimeout(() => setFeedbackToast(null), 3000);
+  };
 
   useEffect(() => {
     checkStoragePersistence().then(res => setIsPersistent(res));
@@ -552,6 +574,57 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           </div>
         </div>
 
+        {/* Monthly Spending Budget Limits per Category */}
+        <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm space-y-4 lg:col-span-3">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+            <div>
+              <span className="text-xs font-bold uppercase tracking-wider text-slate-700 flex items-center gap-1.5">
+                <Sliders className="w-3.5 h-3.5 text-emerald-600" /> Monthly Category Budget Limits
+              </span>
+              <p className="text-xs text-slate-500 mt-1">
+                Set target monthly spending caps per category. Progress bars appear automatically in the Month-to-Month Report.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                setFocusBudgetCategory(null);
+                setShowBudgetModal(true);
+              }}
+              className="self-start sm:self-auto px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors shadow-xs cursor-pointer"
+            >
+              <Edit3 className="w-3.5 h-3.5" />
+              <span>Edit Monthly Budgets</span>
+            </button>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 divide-y sm:divide-y-0 sm:divide-x divide-slate-100 border-t border-slate-100 pt-3">
+            {ALL_RECEIPT_CATEGORIES.map((cat) => {
+              const limit = activeBudgets[cat] ?? 0;
+              return (
+                <div key={cat} className="py-2 sm:py-0 sm:px-3 first:sm:pl-0 last:sm:pr-0 flex sm:flex-col items-center sm:items-start justify-between gap-1">
+                  <span className="text-xs font-semibold text-slate-700">{cat}</span>
+                  <div className="flex items-center gap-2 tabular-nums">
+                    <span className="text-sm font-black text-slate-900">
+                      {limit > 0 ? `R ${limit.toFixed(2)}` : 'No limit'}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setFocusBudgetCategory(cat);
+                        setShowBudgetModal(true);
+                      }}
+                      className="text-[11px] text-emerald-700 hover:underline font-medium cursor-pointer"
+                    >
+                      Edit
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
         {/* Reset Totals to 0 (Clear All Invoices) */}
         <div className="bg-white p-5 rounded-2xl border border-rose-100 bg-gradient-to-b from-white to-rose-50/20 shadow-sm space-y-4 lg:col-span-3">
           <div className="flex items-center justify-between">
@@ -829,6 +902,16 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           setFeedbackToast(`Imported ${imported.length} receipt(s) from offline cache.`);
           setTimeout(() => setFeedbackToast(null), 4000);
         }}
+      />
+
+      {/* Category Budgets Modal */}
+      <BudgetLimitsModal
+        isOpen={showBudgetModal}
+        onClose={() => setShowBudgetModal(false)}
+        budgets={activeBudgets}
+        onSave={handleSaveBudgets}
+        selectedMonth={availableMonths[0]}
+        initialFocusCategory={focusBudgetCategory}
       />
     </div>
   );
