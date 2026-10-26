@@ -1,19 +1,35 @@
 apply plugin: 'com.android.application'
 
-def keystorePath = System.getenv("ANDROID_KEYSTORE_PATH")
+def repoSigningPropsFile = file("../signing/keystore.properties")
+def repoSigningProps = new Properties()
+if (repoSigningPropsFile.exists()) {
+    repoSigningPropsFile.withInputStream { stream -> repoSigningProps.load(stream) }
+}
+def repoKeystoreFile = repoSigningProps.getProperty("storeFile")
+    ? file("../signing/${repoSigningProps.getProperty('storeFile').trim()}")
+    : null
+
+def keystorePath = System.getenv("ANDROID_KEYSTORE_PATH")?.trim()
 def keystorePassword = System.getenv("ANDROID_KEYSTORE_PASSWORD")
-def keyAliasName = System.getenv("ANDROID_KEY_ALIAS")
+def keyAliasName = System.getenv("ANDROID_KEY_ALIAS")?.trim()
 def keyAliasPassword = System.getenv("ANDROID_KEY_PASSWORD")
+
+if ((!keystorePath || !file(keystorePath).exists()) && repoKeystoreFile != null && repoKeystoreFile.exists()) {
+    keystorePath = repoKeystoreFile.absolutePath
+    keystorePassword = repoSigningProps.getProperty("storePassword")
+    keyAliasName = repoSigningProps.getProperty("keyAlias")
+    keyAliasPassword = repoSigningProps.getProperty("keyPassword") ?: keystorePassword
+}
 def hasReleaseKeystore = keystorePath && file(keystorePath).exists() && keystorePassword && keyAliasName && keyAliasPassword
 
 def envVersionCode = System.getenv("ANDROID_VERSION_CODE")?.trim()
 def envVersionName = System.getenv("ANDROID_VERSION_NAME")?.trim()
 def ghRunNumber = System.getenv("GITHUB_RUN_NUMBER")?.trim()
 def ghRunAttempt = System.getenv("GITHUB_RUN_ATTEMPT")?.trim()
-def minVersionCode = 115
+def minVersionCode = 130
 def parsedEnvVersionCode = (envVersionCode && envVersionCode.isInteger()) ? envVersionCode.toInteger() : minVersionCode
 def ghAutoVersionCode = (ghRunNumber && ghRunNumber.isInteger())
-    ? (110 + ghRunNumber.toInteger() + ((ghRunAttempt && ghRunAttempt.isInteger()) ? Math.max(0, ghRunAttempt.toInteger() - 1) : 0))
+    ? (115 + ghRunNumber.toInteger() + ((ghRunAttempt && ghRunAttempt.isInteger()) ? Math.max(0, ghRunAttempt.toInteger() - 1) : 0))
     : minVersionCode
 def resolvedVersionCode = Math.max(minVersionCode, Math.max(parsedEnvVersionCode, ghAutoVersionCode))
 def resolvedVersionName = (envVersionName && parsedEnvVersionCode == resolvedVersionCode)

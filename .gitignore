@@ -12,8 +12,15 @@ coverage/
 *.aab
 *.jks
 *.keystore
+*.p12
+*.pfx
 !android/signing/
 !android/signing/**
+!android/signing/*.jks
+!android/signing/*.keystore
+!android/signing/*.p12
+!android/signing/*.pem
+!android/signing/keystore.properties
 .env*
 !.env.example
 

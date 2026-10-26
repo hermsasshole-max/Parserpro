@@ -14,33 +14,24 @@ Your uploaded Google Play Console App Signing certificates (`deployment_cert.der
   - `SHA-1`: `5E:FF:72:FD:93:ED:59:02:92:20:BF:31:BD:8A:1B:92:D8:56:7C:3B`
   - `SHA-256`: `E7:C0:F4:CF:9F:BF:55:48:6E:58:01:CC:56:59:49:D0:06:53:18:59:C4:17:66:5D:91:BD:0A:20:0D:8A:57:AA`
 
-> **How Play App Signing works**: Google Play holds the private keys for the `.der` App Signing certificates on Google's servers to sign APKs delivered to end users. Your `.aab` bundle (`ParserPro-release.aab`) is signed with an **Upload Keystore** (`.jks` / `.p12`) when uploading to Play Console.
+> **How Play App Signing works**: Google Play holds the private keys for the `.der` App Signing certificates on Google's servers to sign APKs delivered to end users. Your `.aab` bundle (`ParserPro-release-v<versionCode>.aab`) is signed with an **Upload Keystore** (`.jks` / `.p12`) when uploading to Play Console.
 
 ---
 
-## 2. First Upload & Locking Your Upload Key on GitHub
+## 2. Deterministic Upload Keystore & Automatic Play Console Key Recovery
 
-1. Run **Build Release Android App Bundle (Play Console)** in GitHub Actions and download **`ParserPro-release.aab`** (1-click download from **GitHub Releases `v1.0-playstore-aab`**).
-2. Upload **`ParserPro-release.aab`** to your new **`com.receiptscannerpro.app`** listing in Google Play Console. Google Play automatically registers this bundle's signing key as your Upload Key.
-3. **Important — Save the Upload Key for Future Updates**:
-   - At the bottom of that same GitHub Actions run page, download **`PlayConsole-Upload-Keystore-Backup-SAVE-THIS`**.
-   - Open `GITHUB_SECRETS_SETUP.txt` and add the 4 secrets (`ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, `ANDROID_KEY_PASSWORD`) in **GitHub → Settings → Secrets and variables → Actions** so all future updates sign with the exact same Upload Key.
-   - *(Alternatively, if you already have your own `.jks` / `.keystore` upload key, add `ANDROID_KEYSTORE_BASE64` and `ANDROID_KEYSTORE_PASSWORD` to GitHub Secrets before uploading your first `.aab`.)*
+Random per-build signing key generation has been permanently eliminated:
 
----
-
-## 3. Native Debug Symbols (`native-debug-symbols.zip`)
-
-- **Automatic in New `.aab` Builds**: `ndk.debugSymbolLevel = 'FULL'` is enabled in `android/app/build.gradle`, so new `ParserPro-release.aab` builds automatically embed native debug symbols inside `BUNDLE-METADATA/com.android.tools.build.debugsymbols/`.
-- **Standalone `.zip` Upload (for Existing Bundles)**: `android/signing/native-debug-symbols.zip` (and the 1-click `native-debug-symbols.zip` download on GitHub Releases `v1.0-playstore-aab`) contains the ABI-rooted native symbol libraries (`arm64-v8a/`, `armeabi-v7a/`, `x86/`, `x86_64/`). Upload it in **Google Play Console → App bundle explorer → Downloads → Native debug symbols** (or via the `⋮` menu next to your bundle on the release page → **Upload native debug symbols (.zip)**).
+1. **Automatic Play Console Upload Key Recovery (`SHA-1: F5:BA:06:8E:1E:42:BC:00:0F:7F:80:C4:8E:81:42:F3:E9:...`)**:
+   - During CI, `bundle-release.yml` automatically scans your repository's `PlayConsole-Upload-Keystore-Backup-SAVE-THIS` artifacts, locates the exact Upload Keystore registered with Google Play Console (`F5:BA:06:8E:...`), signs your new bundle (`versionCode >= 130`) with it, and refreshes the backup artifact's 90-day retention.
+2. **Permanent Fallback Repository Upload Keystore (`android/signing/upload-keystore.p12`)**:
+   - If running in a repository without prior artifacts or GitHub Secrets, builds always sign with the permanent committed `android/signing/upload-keystore.p12` (`SHA-1: 03:D0:5B:95:5C:87:A3:14:FE:4C:D3:1D:75:F2:7B:A5:68:3E:06:CE`) and `android/signing/upload_certificate.pem` (also served at `/upload_certificate.pem`) — never rotating keys between builds.
+   - If you ever reset your Upload Key in **Play Console → Setup → App signing → Upload key certificate → Request upload key reset**, upload `upload_certificate.pem`.
 
 ---
 
-## 4. R8 DEX Code Optimization & Deobfuscation Mapping (`mapping.txt`)
+## 3. Native Debug Symbols (`native-debug-symbols.zip`) & R8 DEX Optimization (`mapping.txt`)
 
-- **Enabled in `android/app/build.gradle` & `android/gradle.properties`**:
-  - `minifyEnabled true` + `shrinkResources true`
-  - `proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'`
-  - `android.enableR8.fullMode=false` (R8 compatibility mode for safe Gson / Capacitor / Cordova reflection)
-- **Capacitor-Safe ProGuard Rules (`android/app/proguard-rules.pro`)**: Preserves `SourceFile,LineNumberTable` for readable Play Console stack traces while keeping Capacitor WebView `@JavascriptInterface` bridges, `@CapacitorPlugin` / `@PluginMethod` classes (`CameraPlugin`, `FilesystemPlugin`, `SharePlugin`), `io.ionic.libs.**`, Kotlin `Metadata`, and `Gson` TypeTokens intact.
-- **Automatic Deobfuscation & Versioned `.aab` in Play Console**: Build a fresh bundle via **Build Release Android App Bundle (Play Console)** and download **`ParserPro-release-v<versionCode>.aab`** from GitHub Releases (`v1.0-playstore-aab`). Every build automatically increments `versionCode` strictly above `113` (`>= 115`) and embeds `BUNDLE-METADATA/com.android.tools.build.obfuscation/proguard.map` alongside standalone **`mapping.txt`**.
+- **Automatic Version Progression (`versionCode >= 130`)**: Every build automatically produces a single uniquely named **`ParserPro-release-v<versionCode>.aab`** (`versionCode >= 130`, strictly above used `113` and `125`) on GitHub Releases (`v1.0-playstore-aab`) and cleans out older `.aab` files so you never accidentally upload an older bundle.
+- **Before Uploading in Play Console**: Always tap **`✕`** next to any previously failed `.aab` rows sitting in Play Console's **Upload app bundles** list before uploading the new `ParserPro-release-v<versionCode>.aab`.
+- **Embedded Optimization & Symbols**: `minifyEnabled true`, `shrinkResources true`, `proguard-android-optimize.txt` (`BUNDLE-METADATA/com.android.tools.build.obfuscation/proguard.map`), and `ndk.debugSymbolLevel = 'FULL'` are embedded directly inside the `.aab`.
