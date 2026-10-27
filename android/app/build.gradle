@@ -26,10 +26,10 @@ def envVersionCode = System.getenv("ANDROID_VERSION_CODE")?.trim()
 def envVersionName = System.getenv("ANDROID_VERSION_NAME")?.trim()
 def ghRunNumber = System.getenv("GITHUB_RUN_NUMBER")?.trim()
 def ghRunAttempt = System.getenv("GITHUB_RUN_ATTEMPT")?.trim()
-def minVersionCode = 131
+def minVersionCode = 146
 def parsedEnvVersionCode = (envVersionCode && envVersionCode.isInteger()) ? envVersionCode.toInteger() : minVersionCode
 def ghAutoVersionCode = (ghRunNumber && ghRunNumber.isInteger())
-    ? (115 + ghRunNumber.toInteger() + ((ghRunAttempt && ghRunAttempt.isInteger()) ? Math.max(0, ghRunAttempt.toInteger() - 1) : 0))
+    ? (126 + ghRunNumber.toInteger() + ((ghRunAttempt && ghRunAttempt.isInteger()) ? Math.max(0, ghRunAttempt.toInteger() - 1) : 0))
     : minVersionCode
 def resolvedVersionCode = Math.max(minVersionCode, Math.max(parsedEnvVersionCode, ghAutoVersionCode))
 def resolvedVersionName = (envVersionName && parsedEnvVersionCode == resolvedVersionCode)
@@ -104,6 +104,7 @@ dependencies {
     implementation "androidx.coordinatorlayout:coordinatorlayout:$androidxCoordinatorLayoutVersion"
     implementation "androidx.core:core-splashscreen:$coreSplashScreenVersion"
     implementation project(':capacitor-android')
+    implementation "com.google.mlkit:text-recognition:16.0.1"
     testImplementation "junit:junit:$junitVersion"
     androidTestImplementation "androidx.test.ext:junit:$androidxJunitVersion"
     androidTestImplementation "androidx.test.espresso:espresso-core:$androidxEspressoCoreVersion"

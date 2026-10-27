@@ -162,27 +162,44 @@ export async function performLocalTesseractOcr(
 }
 
 /**
- * Known South African and popular retail vendors for accurate dictionary matching
+ * Known South African and global retail vendors for accurate dictionary matching
  */
 const KNOWN_VENDORS = [
-  'Pick n Pay', 'Pick n Pay Express', 'Checkers', 'Checkers Hyper', 'Shoprite',
+  'Pick n Pay', 'Pick n Pay Express', 'Checkers', 'Checkers Hyper', 'Checkers Sixty60', 'Shoprite',
   'Woolworths', 'Woolworths Food', 'Spar', 'SUPERSPAR', 'KWIKSPAR',
-  'Food Lover\'s Market', 'Food Lovers', 'Makro', 'Game', 'Dis-Chem', 'Clicks',
+  "Food Lover's Market", 'Food Lovers', 'Makro', 'Game', 'Dis-Chem', 'Clicks',
+  'Boxer', 'PNP', 'Takealot',
   'Eskom', 'City Power', 'Tshwane Electricity', 'Ethekwini Electricity',
   'Engen', 'Shell', 'TotalEnergies', 'BP', 'Sasol', 'Caltex', 'Astron Energy',
   'Builders Warehouse', 'Builders Express', 'Chamberlains', 'Mica Hardware',
   'Leroy Merlin', 'Cashbuild', 'Agrimark', 'Kaap Agri',
-  'McDonald\'s', 'KFC', 'Nando\'s', 'Steers', 'Debonairs Pizza', 'Wimpy',
+  'Walmart', 'Target', 'Costco', 'Kroger', 'Whole Foods', "Trader Joe's", 'Aldi', 'Lidl',
+  'Tesco', "Sainsbury's", 'Asda', 'Morrisons', 'Carrefour', 'Coles', 'Home Depot', "Lowe's", 'IKEA',
+  "McDonald's", 'KFC', "Nando's", 'Steers', 'Debonairs Pizza', 'Wimpy', 'Starbucks',
   'Rayton Express', 'Rayton Pharmacy', 'Clicks Pharmacy', 'Total Garage'
 ];
 
+export interface LocalParseOptions {
+  preferredCurrency?: string;
+  engineLabel?: 'native_mlkit' | 'local_tesseract';
+}
+
+const CURRENCY_PREFIX_PATTERN = '(?:R|ZAR|US\\$|A\\$|C\\$|NZ\\$|\\$|£|€|₹|¥|CHF|SEK|NOK|AED)?';
+
 /**
- * Parses raw text extracted by local Tesseract into structured ReceiptData objects.
+ * Parses raw text extracted by on-device ML Kit or Tesseract into structured ReceiptData objects.
  * If text is empty or unreadable, creates a valid, clean, editable slip so the user is never blocked.
  */
-export function parseLocalOcrTextToReceipts(rawText: string, originalFileName?: string): ReceiptData[] {
+export function parseLocalOcrTextToReceipts(
+  rawText: string,
+  originalFileName?: string,
+  options: LocalParseOptions = {}
+): ReceiptData[] {
+  const preferredCurrency = options.preferredCurrency || 'ZAR';
+  const engineUsed = options.engineLabel || 'local_tesseract';
+
   if (!rawText || rawText.trim().length === 0) {
-    return [createDefaultReceipt('Household Store Purchase', 'Food & Groceries', originalFileName)];
+    return [createDefaultReceipt('Store Purchase', 'Food & Groceries', originalFileName, preferredCurrency, engineUsed)];
   }
 
   const lines = rawText
@@ -191,35 +208,33 @@ export function parseLocalOcrTextToReceipts(rawText: string, originalFileName?: 
     .filter(line => line.length > 0);
 
   if (lines.length === 0) {
-    return [createDefaultReceipt('Household Store Purchase', 'Food & Groceries', originalFileName)];
+    return [createDefaultReceipt('Store Purchase', 'Food & Groceries', originalFileName, preferredCurrency, engineUsed)];
   }
 
   // 1. Detect Vendor Name
   let vendorName = '';
   const fullTextUpper = rawText.toUpperCase();
 
-  // Check known vendor dictionary first
   for (const v of KNOWN_VENDORS) {
     if (fullTextUpper.includes(v.toUpperCase())) {
-      vendorName = v;
+      vendorName = v === 'PNP' ? 'Pick n Pay' : v;
       break;
     }
   }
 
-  // If not in dictionary, check first 6 lines for store header
   if (!vendorName) {
-    for (let i = 0; i < Math.min(6, lines.length); i++) {
+    for (let i = 0; i < Math.min(8, lines.length); i++) {
       const line = lines[i];
       if (
         /^\d+$/.test(line) ||
-        /tel:|fax:|vat|tax|invoice|date|cashier|slip/i.test(line) ||
+        /tel:|fax:|vat|tax|invoice|date|cashier|slip|welcome|thank\s+you|reg\s*no|www\.|http/i.test(line) ||
         line.length < 3 ||
-        line.length > 45
+        line.length > 48
       ) {
         continue;
       }
-      const clean = line.replace(/[^a-zA-Z0-9\s&'-]/g, '').trim();
-      if (clean.length >= 3) {
+      const clean = line.replace(/[^a-zA-Z0-9\s&'.-]/g, '').trim();
+      if (clean.length >= 3 && /[A-Za-z]{2,}/.test(clean)) {
         vendorName = clean;
         break;
       }
@@ -234,12 +249,9 @@ export function parseLocalOcrTextToReceipts(rawText: string, originalFileName?: 
   let invoiceDate = new Date().toISOString().split('T')[0];
   let monthYear = invoiceDate.substring(0, 7);
 
-  // Match YYYY-MM-DD or YYYY/MM/DD
   const ymdMatch = rawText.match(/\b(202[0-9])[-/.](0[1-9]|1[0-2])[-/.](0[1-9]|[12][0-9]|3[01])\b/);
-  // Match DD-MM-YYYY or DD/MM/YYYY
   const dmyMatch = rawText.match(/\b(0[1-9]|[12][0-9]|3[01])[-/.](0[1-9]|1[0-2])[-/.](202[0-9]|2[0-9])\b/);
-  // Match DD Mon YYYY e.g. 24 Sep 2026
-  const monMatch = rawText.match(/\b(0[1-9]|[12][0-9]|3[01])\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+(202[0-9]|2[0-9])\b/i);
+  const monMatch = rawText.match(/\b(0[1-9]|[12][0-9]|3[01])\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*[\s,.-]+(202[0-9]|2[0-9])\b/i);
 
   if (ymdMatch) {
     const y = ymdMatch[1];
@@ -268,22 +280,40 @@ export function parseLocalOcrTextToReceipts(rawText: string, originalFileName?: 
     monthYear = `${y}-${m}`;
   }
 
-  // 3. Detect Amounts & Total
+  // 3. Detect Amounts & Total (prefer explicit TOTAL keywords over payment tender lines)
   let totalAmount = 0;
   let subtotal = 0;
   let tax = 0;
-  const potentialTotals: number[] = [];
+  const primaryTotals: number[] = [];
+  const paymentTotals: number[] = [];
 
-  const totalKeywordsRegex = /(?:GRAND\s*TOTAL|TOTAL\s*DUE|AMOUNT\s*DUE|BALANCE\s*DUE|TOTAL|AMOUNT|TOTAAL|CARD|CASH|PAID)\s*[:=]?\s*(?:R|ZAR|\$)?\s*([0-9]+[.,][0-9]{2})/gi;
+  const primaryTotalRegex = new RegExp(
+    `(?:GRAND\\s*TOTAL|TOTAL\\s*DUE|AMOUNT\\s*DUE|BALANCE\\s*DUE|INVOICE\\s*TOTAL|TOTAL\\s*INCL|TOTAAL|\\bTOTAL\\b)(?!\\s*(?:ITEMS|QTY|SAVINGS|DISCOUNT))\\s*[:=]?\\s*${CURRENCY_PREFIX_PATTERN}\\s*([0-9]{1,6}[.,][0-9]{2})`,
+    'gi'
+  );
   let match;
-  while ((match = totalKeywordsRegex.exec(rawText)) !== null) {
+  while ((match = primaryTotalRegex.exec(rawText)) !== null) {
     const val = parseFloat(match[1].replace(',', '.'));
     if (!isNaN(val) && val > 0 && val < 500000) {
-      potentialTotals.push(val);
+      primaryTotals.push(val);
     }
   }
 
-  const vatRegex = /(?:VAT|TAX)\s*(?:15%|14%)?\s*[:=]?\s*(?:R|ZAR|\$)?\s*([0-9]+[.,][0-9]{2})/gi;
+  const paymentFallbackRegex = new RegExp(
+    `(?:DEBIT\\s*CARD|CREDIT\\s*CARD|CARD\\s*PAYMENT|EFT|CARD|PAID)\\s*[:=]?\\s*${CURRENCY_PREFIX_PATTERN}\\s*([0-9]{1,6}[.,][0-9]{2})`,
+    'gi'
+  );
+  while ((match = paymentFallbackRegex.exec(rawText)) !== null) {
+    const val = parseFloat(match[1].replace(',', '.'));
+    if (!isNaN(val) && val > 0 && val < 500000) {
+      paymentTotals.push(val);
+    }
+  }
+
+  const vatRegex = new RegExp(
+    `(?:VAT|TAX|GST)\\s*(?:15%|14%|@[0-9.]+%)?\\s*[:=]?\\s*${CURRENCY_PREFIX_PATTERN}\\s*([0-9]{1,6}[.,][0-9]{2})`,
+    'gi'
+  );
   while ((match = vatRegex.exec(rawText)) !== null) {
     const val = parseFloat(match[1].replace(',', '.'));
     if (!isNaN(val) && val > 0) {
@@ -291,7 +321,10 @@ export function parseLocalOcrTextToReceipts(rawText: string, originalFileName?: 
     }
   }
 
-  const subtotalRegex = /(?:SUBTOTAL|SUB\s*TOTAL|NET\s*TOTAL)\s*[:=]?\s*(?:R|ZAR|\$)?\s*([0-9]+[.,][0-9]{2})/gi;
+  const subtotalRegex = new RegExp(
+    `(?:SUBTOTAL|SUB\\s*TOTAL|NET\\s*TOTAL|TOTAL\\s*EXCL)\\s*[:=]?\\s*${CURRENCY_PREFIX_PATTERN}\\s*([0-9]{1,6}[.,][0-9]{2})`,
+    'gi'
+  );
   while ((match = subtotalRegex.exec(rawText)) !== null) {
     const val = parseFloat(match[1].replace(',', '.'));
     if (!isNaN(val) && val > 0) {
@@ -299,30 +332,39 @@ export function parseLocalOcrTextToReceipts(rawText: string, originalFileName?: 
     }
   }
 
-  if (potentialTotals.length > 0) {
-    totalAmount = Math.max(...potentialTotals);
+  if (primaryTotals.length > 0) {
+    totalAmount = Math.max(...primaryTotals);
+  } else if (paymentTotals.length > 0) {
+    totalAmount = Math.max(...paymentTotals);
   }
 
-  // 4. Extract Line Items
+  // 4. Extract Line Items (handles dots like 1.5L, parentheses, VAT suffixes A/Z/V/*, and 2-line thermal rows)
   const lineItems: LineItem[] = [];
-  const lineItemRegex = /^([A-Za-z0-9#&%*+/'\s-]{3,35})\s+(?:R|ZAR|\$)?\s*([0-9]+[.,][0-9]{2})$/;
+  const skipLineRegex = /\b(?:total|totaal|subtotal|sub\s*total|balance|amount\s*due|vat|tax|gst|cashier|invoice|date|change|rounding|tender|cash|card|debit|credit|eft|auth|aid:|rrn:|stan:|slip|tel:|vat\s*no|loyalty|savings|points)\b/i;
+  const inlineItemRegex = new RegExp(
+    `^([A-Za-z0-9#&%*+/'().,:\\s-]{2,60}?)\\s+${CURRENCY_PREFIX_PATTERN}\\s*([0-9]{1,5}[.,][0-9]{2})(?:\\s*[*#A-Za-z]{1,2})?$`
+  );
+  const standalonePriceRegex = new RegExp(
+    `^(?:(\\d+)\\s*[xX@]\\s*[0-9]+[.,][0-9]{2}\\s+)?${CURRENCY_PREFIX_PATTERN}\\s*([0-9]{1,5}[.,][0-9]{2})(?:\\s*[*#A-Za-z]{1,2})?$`
+  );
 
-  for (const line of lines) {
-    if (/total|subtotal|balance|due|vat|tax|cashier|invoice|date|change|slip|tel:|card|auth/i.test(line)) {
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    if (skipLineRegex.test(line)) {
       continue;
     }
 
-    const itemMatch = line.match(lineItemRegex);
+    const itemMatch = line.match(inlineItemRegex);
     if (itemMatch) {
-      const desc = itemMatch[1].replace(/^[\d*#\s-]+/, '').trim();
+      const desc = itemMatch[1].replace(/^[\d*#\s-]+(?=[A-Za-z])/, '').trim();
       const price = parseFloat(itemMatch[2].replace(',', '.'));
-      if (desc.length >= 2 && !isNaN(price) && price > 0 && price < 25000) {
+      if (desc.length >= 2 && /[A-Za-z]{2,}/.test(desc) && !isNaN(price) && price > 0 && price < 50000) {
         let qty = 1;
-        const qtyMatch = desc.match(/^(\d+)\s*[xX]?\s+(.+)$/);
         let finalDesc = desc;
-        if (qtyMatch) {
-          qty = parseInt(qtyMatch[1], 10) || 1;
-          finalDesc = qtyMatch[2];
+        const qtyPrefix = desc.match(/^(\d{1,3})\s*[xX]\s+(.+)$/);
+        if (qtyPrefix) {
+          qty = parseInt(qtyPrefix[1], 10) || 1;
+          finalDesc = qtyPrefix[2].trim();
         }
 
         lineItems.push({
@@ -331,6 +373,31 @@ export function parseLocalOcrTextToReceipts(rawText: string, originalFileName?: 
           unit_price: parseFloat((price / qty).toFixed(2)),
           total_price: price
         });
+        continue;
+      }
+    }
+
+    // Check 2-line thermal slip format: description on line i, qty x unit / price on line i + 1
+    if (
+      i + 1 < lines.length &&
+      /[A-Za-z]{3,}/.test(line) &&
+      !/[0-9]+[.,][0-9]{2}$/.test(line) &&
+      !skipLineRegex.test(lines[i + 1])
+    ) {
+      const nextPriceMatch = lines[i + 1].match(standalonePriceRegex);
+      if (nextPriceMatch) {
+        const qty = nextPriceMatch[1] ? parseInt(nextPriceMatch[1], 10) || 1 : 1;
+        const price = parseFloat(nextPriceMatch[2].replace(',', '.'));
+        const cleanDesc = line.replace(/^[\d*#\s-]+(?=[A-Za-z])/, '').trim();
+        if (cleanDesc.length >= 2 && !isNaN(price) && price > 0 && price < 50000) {
+          lineItems.push({
+            description: cleanDesc,
+            quantity: qty,
+            unit_price: parseFloat((price / qty).toFixed(2)),
+            total_price: price
+          });
+          i += 1;
+        }
       }
     }
   }
@@ -361,13 +428,16 @@ export function parseLocalOcrTextToReceipts(rawText: string, originalFileName?: 
     invoice_date: invoiceDate,
     month_year: monthYear,
     category,
-    currency: 'ZAR',
+    currency: preferredCurrency,
     line_items: lineItems,
     subtotal,
     tax,
     total_amount: totalAmount,
-    notes: '⚡ Extracted locally via on-device Tesseract OCR engine (fail-safe fallback).',
-    engine_used: 'local_tesseract'
+    notes:
+      engineUsed === 'native_mlkit'
+        ? 'Scanned directly on your phone'
+        : 'Scanned offline on your device',
+    engine_used: engineUsed
   };
 
   return [receipt];
@@ -392,10 +462,11 @@ function classifyReceiptCategory(vendor: string, fullText: string): ReceiptCateg
   // Transport
   if (
     text.includes('petrol') || text.includes('diesel') || text.includes('unleaded') ||
-    text.includes('fuel') || text.includes('litres') || text.includes('engen') ||
-    text.includes('shell') || text.includes('sasol') || text.includes('totalenergies') ||
-    text.includes('bp ') || text.includes('caltex') || text.includes('toll') ||
-    text.includes('parking')
+    text.includes('fuel') || text.includes('litres') || text.includes('gallons') ||
+    text.includes('engen') || text.includes('shell') || text.includes('sasol') ||
+    text.includes('totalenergies') || text.includes('bp ') || text.includes('caltex') ||
+    text.includes('chevron') || text.includes('exxon') || text.includes('toll') ||
+    text.includes('parking') || text.includes('uber')
   ) {
     return 'Transport';
   }
@@ -404,8 +475,9 @@ function classifyReceiptCategory(vendor: string, fullText: string): ReceiptCateg
   if (
     text.includes('builders') || text.includes('hardware') || text.includes('paint') ||
     text.includes('timber') || text.includes('cement') || text.includes('mica') ||
-    text.includes('chamberlains') || text.includes('plumbing') || text.includes('tools') ||
-    text.includes('screws') || text.includes('garden') || text.includes('diy')
+    text.includes('chamberlains') || text.includes('home depot') || text.includes('ikea') ||
+    text.includes('plumbing') || text.includes('tools') || text.includes('screws') ||
+    text.includes('garden') || text.includes('diy')
   ) {
     return 'Home Maintenance';
   }
@@ -413,12 +485,14 @@ function classifyReceiptCategory(vendor: string, fullText: string): ReceiptCateg
   // Food & Groceries
   if (
     text.includes('pick n pay') || text.includes('checkers') || text.includes('shoprite') ||
-    text.includes('woolworths') || text.includes('spar') || text.includes('food') ||
-    text.includes('grocery') || text.includes('bakery') || text.includes('butchery') ||
-    text.includes('supermarket') || text.includes('milk') || text.includes('bread') ||
-    text.includes('meat') || text.includes('cheese') || text.includes('fruit') ||
-    text.includes('kfc') || text.includes('mcdonald') || text.includes('steers') ||
-    text.includes('nando') || text.includes('wimpy')
+    text.includes('woolworths') || text.includes('spar') || text.includes('walmart') ||
+    text.includes('tesco') || text.includes('costco') || text.includes('aldi') ||
+    text.includes('lidl') || text.includes('kroger') || text.includes('target') ||
+    text.includes('food') || text.includes('grocery') || text.includes('bakery') ||
+    text.includes('butchery') || text.includes('supermarket') || text.includes('milk') ||
+    text.includes('bread') || text.includes('meat') || text.includes('cheese') ||
+    text.includes('fruit') || text.includes('kfc') || text.includes('mcdonald') ||
+    text.includes('steers') || text.includes('nando') || text.includes('wimpy')
   ) {
     return 'Food & Groceries';
   }
@@ -426,14 +500,20 @@ function classifyReceiptCategory(vendor: string, fullText: string): ReceiptCateg
   return 'Other';
 }
 
-function createDefaultReceipt(vendor: string, category: ReceiptCategory, fileName?: string): ReceiptData {
+function createDefaultReceipt(
+  vendor: string,
+  category: ReceiptCategory,
+  fileName?: string,
+  currency = 'ZAR',
+  engineUsed: 'native_mlkit' | 'local_tesseract' = 'local_tesseract'
+): ReceiptData {
   const today = new Date().toISOString().split('T')[0];
   return {
     vendor_name: vendor,
     invoice_date: today,
     month_year: today.substring(0, 7),
     category,
-    currency: 'ZAR',
+    currency,
     line_items: [{
       description: fileName ? `Scanned Slip (${fileName})` : 'Household Expense',
       quantity: 1,
@@ -443,7 +523,7 @@ function createDefaultReceipt(vendor: string, category: ReceiptCategory, fileNam
     subtotal: 0,
     tax: 0,
     total_amount: 0,
-    notes: '⚡ Offline scan: Saved on device. Ready for review or background sync.',
-    engine_used: 'local_tesseract'
+    notes: 'Photo captured on device — confirm store name and total below.',
+    engine_used: engineUsed
   };
 }

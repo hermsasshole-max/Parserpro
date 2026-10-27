@@ -52,10 +52,30 @@
 # Preserve Kotlin metadata for coroutines & Ionic/Capacitor Kotlin plugins
 -keep class kotlin.Metadata { *; }
 
+# Keep Google ML Kit On-Device Text Recognition, Dynamite descriptors, ComponentRegistrars & JNI pipeline
+-keep class com.google.mlkit.** { *; }
+-keep class com.google.android.gms.dynamite.** { *; }
+-keep class com.google.android.libraries.vision.visionkit.** { *; }
+-keep class com.google.android.odml.** { *; }
+-keep class * implements com.google.firebase.components.ComponentRegistrar { *; }
+-keep @com.google.android.gms.common.util.DynamiteApi public class * {
+    public <fields>;
+    public <methods>;
+}
+-keep @com.google.android.gms.common.annotation.KeepName class *
+-keepclassmembers class * {
+    @com.google.android.gms.common.annotation.KeepName *;
+}
+-keepclasseswithmembernames,includedescriptorclasses class * {
+    native <methods>;
+}
+
 # Ignore optional JVM-only / compile-time annotation classes referenced by transitive libraries
 -dontwarn sun.misc.**
 -dontwarn java.lang.instrument.**
 -dontwarn org.slf4j.**
 -dontwarn javax.annotation.**
+-dontwarn javax.inject.**
+-dontwarn com.google.android.datatransport.**
 -dontwarn com.google.errorprone.annotations.**
 -dontwarn org.codehaus.mojo.animal_sniffer.**

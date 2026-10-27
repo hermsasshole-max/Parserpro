@@ -12,7 +12,7 @@ export interface LineItem {
   total_price: number;
 }
 
-export type OcrEngineType = 'cloud_api' | 'local_tesseract' | 'manual';
+export type OcrEngineType = 'cloud_api' | 'native_mlkit' | 'local_tesseract' | 'manual';
 
 export type OcrEngineMode = 'auto_fallback' | 'cloud_only' | 'local_tesseract_only';
 

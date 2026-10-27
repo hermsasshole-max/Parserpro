@@ -1,12 +1,16 @@
 import type { ReceiptData, OcrEngineType, OcrEngineMode, CachedReceiptJob } from '../types';
 import { performLocalTesseractOcr, parseLocalOcrTextToReceipts } from './localTesseractOcr';
+import { isNativeMlKitAvailable, performNativeMlKitOcr } from './nativeReceiptOcr';
 import {
   enqueueUnprocessedReceipt,
   updateQueueJob,
   recordJobFailure,
   getPendingRetryJobs,
 } from './offlineOcrQueue';
-import { parseMultipleReceiptsViaServer } from './geminiVision';
+import {
+  parseMultipleReceiptsViaServer,
+  hasConfiguredCloudOcrEndpoint,
+} from './geminiVision';
 import { getPreferredCurrency } from './currencyFormat';
 
 const OCR_MODE_STORAGE_KEY = 'parserpro_ocr_engine_mode_v1';
@@ -36,7 +40,7 @@ export function getStoredApiTimeoutMs(): number {
       if (!isNaN(num) && num >= 5000 && num <= 60000) return num;
     }
   } catch {}
-  return 14000;
+  return 12000;
 }
 
 export function setStoredApiTimeoutMs(timeoutMs: number): void {
@@ -87,9 +91,60 @@ async function callSmartOcrWithTimeout(
 }
 
 /**
- * Consumer-friendly smart receipt scanner with seamless offline fallback:
- * Automatically reads receipts via the smart cloud scanner when online, and seamlessly
- * falls back to on-device offline reading if there is no signal or a slow connection.
+ * Runs the fastest, highest-accuracy on-device OCR engine available:
+ * 1. Bundled Android Google ML Kit Text Recognition (native C++/JNI, ~200ms, row-reconstructed)
+ * 2. Bundled WebAssembly Tesseract.js fallback (works in any browser/WebView offline)
+ */
+async function performBestOnDeviceOcr(params: {
+  base64Data: string;
+  mimeType: string;
+  fileName: string;
+  preferredCurrency: string;
+  onStage?: (stage: string) => void;
+}): Promise<{ receipts: ReceiptData[]; engineUsed: 'native_mlkit' | 'local_tesseract'; hadText: boolean }> {
+  const { base64Data, mimeType, fileName, preferredCurrency, onStage } = params;
+
+  // Tier A: Native Android ML Kit
+  if (await isNativeMlKitAvailable()) {
+    try {
+      const mlText = await performNativeMlKitOcr(base64Data, onStage);
+      if (mlText && mlText.trim().length > 0) {
+        const parsed = parseLocalOcrTextToReceipts(mlText, fileName, {
+          preferredCurrency,
+          engineLabel: 'native_mlkit',
+        });
+        return {
+          receipts: parsed,
+          engineUsed: 'native_mlkit',
+          hadText: true,
+        };
+      }
+    } catch (mlErr) {
+      console.warn('[FailSafeOCR] Native ML Kit encountered an issue, trying Tesseract fallback:', mlErr);
+    }
+  }
+
+  // Tier B: Bundled WebAssembly Tesseract.js
+  const tessText = await performLocalTesseractOcr(base64Data, mimeType, (stage) => {
+    if (onStage) onStage(stage || 'Reading items on your device...');
+  });
+  const parsed = parseLocalOcrTextToReceipts(tessText, fileName, {
+    preferredCurrency,
+    engineLabel: 'local_tesseract',
+  });
+
+  return {
+    receipts: parsed,
+    engineUsed: 'local_tesseract',
+    hadText: Boolean(tessText && tessText.trim().length > 0),
+  };
+}
+
+/**
+ * 3-Tier Fail-Safe Receipt Scanner:
+ * 1. Smart Cloud Scanner (when online and a backend API endpoint is configured)
+ * 2. Bundled Android Google ML Kit On-Device OCR (instant offline native extraction)
+ * 3. Bundled WebAssembly Tesseract.js On-Device OCR (universal offline fallback)
  */
 export async function executeFailSafeOcr(params: {
   base64Data: string;
@@ -112,50 +167,65 @@ export async function executeFailSafeOcr(params: {
   const timeoutMs = options.timeoutMs || getStoredApiTimeoutMs();
   const preferredCurrency = options.preferredCurrency || getPreferredCurrency();
   const isOnline = typeof navigator !== 'undefined' ? navigator.onLine : true;
+  const cloudAvailable = hasConfiguredCloudOcrEndpoint();
 
-  // Offline or forced on-device mode
-  if (mode === 'local_tesseract_only' || !isOnline) {
-    const offlineReason = !isOnline
-      ? 'No internet connection — reading receipt directly on your phone.'
-      : 'Offline reading mode active.';
+  // Direct on-device path when standalone Android (no cloud URL), offline, or user-forced offline
+  if (!cloudAvailable || mode === 'local_tesseract_only' || !isOnline) {
+    if (options.onStage) {
+      options.onStage('Reading receipt on your phone...');
+    }
+
+    const onDevice = await performBestOnDeviceOcr({
+      base64Data,
+      mimeType,
+      fileName,
+      preferredCurrency,
+      onStage: options.onStage,
+    });
 
     if (options.onEngineSwitched) {
-      options.onEngineSwitched('local_tesseract', offlineReason);
-    }
-    if (options.onStage) {
-      options.onStage('Reading receipt offline on your phone...');
+      options.onEngineSwitched(
+        onDevice.engineUsed,
+        !isOnline
+          ? 'No internet connection — scanned directly on your phone.'
+          : 'Scanned directly on your phone.'
+      );
     }
 
-    const rawText = await performLocalTesseractOcr(base64Data, mimeType, () => {
-      if (options.onStage) options.onStage('Reading items offline...');
-    });
-    const parsedReceipts = parseLocalOcrTextToReceipts(rawText, fileName).map((r) => ({
-      ...r,
-      currency: r.currency || preferredCurrency,
-    }));
-
-    const cachedJob = await enqueueUnprocessedReceipt({
-      fileName,
-      fileSize,
-      mimeType,
-      base64Data,
-      previewUrl,
-      initialError: offlineReason,
-      engineUsed: 'local_tesseract',
-      extractedReceipts: parsedReceipts,
-      status: 'fallback_extracted',
-    });
+    let cachedJobId: string | undefined;
+    // Only queue for background cloud retry if a cloud endpoint exists, we were temporarily offline, and total was unreadable
+    if (
+      cloudAvailable &&
+      !isOnline &&
+      mode !== 'local_tesseract_only' &&
+      (!onDevice.hadText || onDevice.receipts.every((r) => (r.total_amount || 0) === 0))
+    ) {
+      const job = await enqueueUnprocessedReceipt({
+        fileName,
+        fileSize,
+        mimeType,
+        base64Data,
+        previewUrl,
+        initialError: 'Captured offline — queued for smart sync when online.',
+        engineUsed: onDevice.engineUsed,
+        extractedReceipts: onDevice.receipts,
+        status: 'fallback_extracted',
+      });
+      cachedJobId = job.id;
+    }
 
     return {
-      receipts: parsedReceipts,
-      engineUsed: 'local_tesseract',
-      fallbackTriggered: true,
-      warning: 'Scanned offline on your device. Please review store name and total before saving.',
-      cachedJobId: cachedJob.id,
+      receipts: onDevice.receipts,
+      engineUsed: onDevice.engineUsed,
+      fallbackTriggered: !cloudAvailable ? false : true,
+      warning: onDevice.hadText
+        ? 'Scanned on your device — please confirm the store name and total below before saving.'
+        : 'Receipt photo captured. Please enter or confirm the store name and total below.',
+      cachedJobId,
     };
   }
 
-  // Online smart scan with automatic offline fallback
+  // Online smart scan with automatic instant failover to ML Kit / Tesseract
   try {
     if (options.onStage) {
       options.onStage('Reading store name, date & line items...');
@@ -188,68 +258,53 @@ export async function executeFailSafeOcr(params: {
         engineUsed: 'cloud_api',
         status: 'pending',
       });
-      throw new Error('Connection was interrupted. Your receipt photo was saved to Pending Scans so you can retry shortly.');
+      throw new Error(
+        'Connection was interrupted. Your receipt photo was saved to Pending Scans so you can retry shortly.'
+      );
     }
 
-    const switchMessage = 'Slow connection detected — finishing scan directly on your phone...';
-    if (options.onEngineSwitched) {
-      options.onEngineSwitched('local_tesseract', switchMessage);
-    }
+    const switchMessage = 'Finishing scan directly on your phone...';
     if (options.onStage) {
       options.onStage(switchMessage);
     }
 
-    const cachedJob = await enqueueUnprocessedReceipt({
-      fileName,
-      fileSize,
-      mimeType,
+    const onDevice = await performBestOnDeviceOcr({
       base64Data,
-      previewUrl,
-      initialError: errMsg,
-      engineUsed: 'local_tesseract',
-      status: 'processing',
+      mimeType,
+      fileName,
+      preferredCurrency,
+      onStage: options.onStage,
     });
 
-    try {
-      const rawText = await performLocalTesseractOcr(base64Data, mimeType, () => {
-        if (options.onStage) options.onStage('Finishing scan on your phone...');
-      });
-      const parsedReceipts = parseLocalOcrTextToReceipts(rawText, fileName).map((r) => ({
-        ...r,
-        currency: r.currency || preferredCurrency,
-      }));
-
-      await updateQueueJob(cachedJob.id, {
-        status: 'fallback_extracted',
-        engineUsed: 'local_tesseract',
-        extractedReceipts: parsedReceipts,
-      });
-
-      return {
-        receipts: parsedReceipts,
-        engineUsed: 'local_tesseract',
-        fallbackTriggered: true,
-        warning: 'Scanned offline due to weak signal. Quickly check the total before saving.',
-        cachedJobId: cachedJob.id,
-      };
-    } catch {
-      const safeFallback = parseLocalOcrTextToReceipts('', fileName).map((r) => ({
-        ...r,
-        currency: preferredCurrency,
-      }));
-      await updateQueueJob(cachedJob.id, {
-        status: 'fallback_extracted',
-        engineUsed: 'local_tesseract',
-        extractedReceipts: safeFallback,
-      });
-      return {
-        receipts: safeFallback,
-        engineUsed: 'local_tesseract',
-        fallbackTriggered: true,
-        warning: 'Receipt photo captured offline. Please confirm store name and amount below.',
-        cachedJobId: cachedJob.id,
-      };
+    if (options.onEngineSwitched) {
+      options.onEngineSwitched(onDevice.engineUsed, switchMessage);
     }
+
+    let cachedJobId: string | undefined;
+    if (!onDevice.hadText || onDevice.receipts.every((r) => (r.total_amount || 0) === 0)) {
+      const cachedJob = await enqueueUnprocessedReceipt({
+        fileName,
+        fileSize,
+        mimeType,
+        base64Data,
+        previewUrl,
+        initialError: errMsg,
+        engineUsed: onDevice.engineUsed,
+        extractedReceipts: onDevice.receipts,
+        status: 'fallback_extracted',
+      });
+      cachedJobId = cachedJob.id;
+    }
+
+    return {
+      receipts: onDevice.receipts,
+      engineUsed: onDevice.engineUsed,
+      fallbackTriggered: true,
+      warning: onDevice.hadText
+        ? 'Scanned on your device while cloud service was busy — please check the total before saving.'
+        : 'Receipt photo captured. Please confirm the store name and amount below.',
+      cachedJobId,
+    };
   }
 }
 
@@ -259,12 +314,17 @@ let isWorkerRunning = false;
 export function startBackgroundQueueWorker(
   onSyncEvent?: (job: CachedReceiptJob, success: boolean) => void
 ): () => void {
+  if (!hasConfiguredCloudOcrEndpoint()) {
+    return () => {};
+  }
+
   if (workerIntervalId) {
     return () => stopBackgroundQueueWorker();
   }
 
   const runWorkerCycle = async () => {
     if (isWorkerRunning) return;
+    if (!hasConfiguredCloudOcrEndpoint()) return;
     if (typeof navigator !== 'undefined' && !navigator.onLine) {
       return;
     }

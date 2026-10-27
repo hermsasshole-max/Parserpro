@@ -106,11 +106,21 @@ public class NativeReceiptOcrPlugin extends Plugin {
                                 result.put("blocks", blocksArr);
                                 call.resolve(result);
                             } finally {
-                                bitmap.recycle();
+                                try {
+                                    if (!bitmap.isRecycled()) {
+                                        bitmap.recycle();
+                                    }
+                                } catch (Exception ignored) {
+                                }
                             }
                         })
                         .addOnFailureListener(err -> {
-                            bitmap.recycle();
+                            try {
+                                if (!bitmap.isRecycled()) {
+                                    bitmap.recycle();
+                                }
+                            } catch (Exception ignored) {
+                            }
                             call.reject(err != null && err.getMessage() != null
                                     ? err.getMessage()
                                     : "ML Kit receipt recognition failed");
