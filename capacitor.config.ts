@@ -12,6 +12,11 @@ const config: CapacitorConfig = {
     Camera: {
       presentationStyle: 'fullscreen',
     },
+    SystemBars: {
+      insetsHandling: 'native',
+      style: 'DEFAULT',
+      hidden: false,
+    },
   },
 };
 

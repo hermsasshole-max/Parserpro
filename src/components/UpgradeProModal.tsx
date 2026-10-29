@@ -300,7 +300,7 @@ export const UpgradeProModal: React.FC<UpgradeProModalProps> = ({
 
         {/* Sticky Bottom Action Bar */}
         {!showTestCheckoutConfirm && (
-          <div className="px-6 py-4 border-t border-slate-200 bg-slate-50 flex flex-col gap-3 shrink-0">
+          <div className="px-6 py-4 pb-safe-modal border-t border-slate-200 bg-slate-50 flex flex-col gap-3 shrink-0">
             <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
               <div className="text-xs text-slate-500 leading-snug">
                 <div className="font-semibold text-slate-800">{activePlanObj.subPriceNote}</div>

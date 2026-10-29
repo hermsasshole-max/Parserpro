@@ -142,7 +142,7 @@ export const EditReceiptModal: React.FC<EditReceiptModalProps> = ({
           </button>
         </div>
 
-        <form onSubmit={handleSubmit} className="p-6 overflow-y-auto space-y-4 flex-1">
+        <form onSubmit={handleSubmit} className="p-6 pb-safe-modal overflow-y-auto space-y-4 flex-1">
           {validationError && (
             <div className="rounded-xl bg-rose-50 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-800/70 px-4 py-3 text-xs sm:text-sm text-rose-900 dark:text-rose-200">
               {validationError}

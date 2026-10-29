@@ -11,16 +11,16 @@ export const ALL_RECEIPT_CATEGORIES: ReceiptCategory[] = [
 ];
 
 export const DEFAULT_CATEGORY_BUDGETS: CategoryBudgets = {
-  'Food & Groceries': 2500,
-  'Electricity & Utilities': 1000,
+  'Food & Groceries': 0,
+  'Electricity & Utilities': 0,
   'Home Maintenance': 0,
-  'Transport': 1200,
+  'Transport': 0,
   'Other': 0,
 };
 
 /**
  * Loads monthly spending budget limits per category from localStorage.
- * Falls back to sensible household defaults if not yet configured.
+ * Starts clean at 0 across all categories on new installations until configured by the user.
  */
 export function loadCategoryBudgets(): CategoryBudgets {
   try {

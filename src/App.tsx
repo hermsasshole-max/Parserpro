@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import { Camera, ArrowRight } from 'lucide-react';
 import type { CategoryBudgets, SavedReceipt } from './types';
 import { Navigation, type NavTab } from './components/Navigation';
 import { MobileBottomNav } from './components/MobileBottomNav';
@@ -18,6 +19,7 @@ import {
   loadReceiptsFromDevice,
   saveReceiptsToDevice,
   requestPersistentDeviceStorage,
+  stripLegacyDemoReceipts,
 } from './utils/deviceStorage';
 import {
   loadCategoryBudgets,
@@ -43,23 +45,16 @@ function getPreviousMonthIso(monthIso: string): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
 }
 
-/**
- * Strips any legacy pre-seeded demo items (`sample-*`) so published Play Store users
- * always get a clean personal ledger while preserving all real user-scanned receipts.
- */
-function stripLegacySampleData(items: SavedReceipt[]): SavedReceipt[] {
-  return items.filter((r) => !String(r.id || '').startsWith('sample-'));
-}
-
 export function App() {
   const [activeTab, setActiveTab] = useState<NavTab>('scanner');
+  const [cameraLaunchTrigger, setCameraLaunchTrigger] = useState<number>(0);
   const [receipts, setReceipts] = useState<SavedReceipt[]>(() => {
     try {
       const raw = localStorage.getItem('parserpro_saved_receipts_v1');
       if (raw) {
         const parsed = JSON.parse(raw);
         if (Array.isArray(parsed)) {
-          return stripLegacySampleData(parsed);
+          return stripLegacyDemoReceipts(parsed);
         }
       }
     } catch {}
@@ -120,7 +115,7 @@ export function App() {
     requestPersistentDeviceStorage().catch(() => {});
 
     loadReceiptsFromDevice().then((stored) => {
-      const cleaned = stripLegacySampleData(stored);
+      const cleaned = stripLegacyDemoReceipts(stored);
       if (cleaned.length !== stored.length) {
         saveReceiptsToDevice(cleaned).catch(() => {});
       }
@@ -253,13 +248,43 @@ export function App() {
         onOpenAddManual={() => setIsAddModalOpen(true)}
       />
 
-      <main className="flex-1 w-full max-w-6xl mx-auto px-4 sm:px-6 pt-5 sm:pt-8 pb-24 sm:pb-12">
+      <main className="flex-1 w-full max-w-6xl mx-auto px-4 sm:px-6 pt-4 sm:pt-8 pb-32 sm:pb-12">
+        {receipts.length === 0 && (
+          <button
+            type="button"
+            onClick={() => {
+              setActiveTab('scanner');
+              setCameraLaunchTrigger((n) => n + 1);
+            }}
+            className="w-full mb-5 rounded-2xl bg-emerald-50/90 dark:bg-emerald-950/35 border border-emerald-200 dark:border-emerald-800/70 px-4 py-3 flex items-center justify-between gap-3 text-left hover:bg-emerald-100/70 dark:hover:bg-emerald-950/55 active:scale-[0.99] transition-all cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600"
+          >
+            <div className="flex items-center gap-3 min-w-0">
+              <div className="w-9 h-9 rounded-xl bg-emerald-600 text-white flex items-center justify-center shrink-0">
+                <Camera className="w-4 h-4" />
+              </div>
+              <div className="min-w-0">
+                <p className="text-sm font-bold text-slate-900 dark:text-white truncate">
+                  Scan your first receipt
+                </p>
+                <p className="text-xs text-slate-600 dark:text-slate-300 truncate">
+                  Tap here to snap a slip and start your personal ledger
+                </p>
+              </div>
+            </div>
+            <span className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-700 dark:text-emerald-300 whitespace-nowrap shrink-0">
+              <span>Start</span>
+              <ArrowRight className="w-3.5 h-3.5" />
+            </span>
+          </button>
+        )}
+
         {activeTab === 'scanner' && (
           <ReceiptScanner
             existingReceipts={receipts}
             subscriptionState={subscriptionState}
             currencyCode={currencyCode}
             pendingOfflineCount={pendingOfflineCount}
+            cameraLaunchTrigger={cameraLaunchTrigger}
             onSaveReceipts={handleSaveBatchReceipts}
             onOpenUpgrade={openUpgradeModal}
             onOpenSearch={() => setIsSearchOpen(true)}

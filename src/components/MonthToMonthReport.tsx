@@ -142,7 +142,7 @@ export const MonthToMonthReport: React.FC<MonthToMonthReportProps> = ({
       <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
         <div className="flex flex-wrap items-center gap-2.5">
           <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white mr-1">
-            Insights
+            Reports
           </h1>
           <select
             aria-label="Target month"

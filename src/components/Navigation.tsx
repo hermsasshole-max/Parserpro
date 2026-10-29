@@ -21,13 +21,13 @@ export const Navigation: React.FC<NavigationProps> = ({
   const navItems: { id: NavTab; label: string }[] = [
     { id: 'scanner', label: 'Scan' },
     { id: 'receipts', label: 'Receipts' },
-    { id: 'reports', label: 'Insights' },
+    { id: 'reports', label: 'Reports' },
     { id: 'settings', label: 'Account' },
   ];
 
   return (
-    <header className="sticky top-0 z-30 h-12 sm:h-14 bg-white/90 dark:bg-slate-900/90 backdrop-blur-md border-b border-slate-200/80 dark:border-slate-800 transition-colors">
-      <div className="max-w-6xl mx-auto h-full px-4 sm:px-6 flex items-center justify-between gap-8">
+    <header className="sticky top-0 z-30 bg-white/90 dark:bg-slate-900/90 backdrop-blur-md border-b border-slate-200/80 dark:border-slate-800 transition-colors pt-safe">
+      <div className="max-w-6xl mx-auto h-12 sm:h-14 px-4 sm:px-6 flex items-center justify-between gap-8">
         {/* Zone 1: Single-element Brand Wordmark */}
         <button
           type="button"

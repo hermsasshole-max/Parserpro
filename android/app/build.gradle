@@ -26,10 +26,10 @@ def envVersionCode = System.getenv("ANDROID_VERSION_CODE")?.trim()
 def envVersionName = System.getenv("ANDROID_VERSION_NAME")?.trim()
 def ghRunNumber = System.getenv("GITHUB_RUN_NUMBER")?.trim()
 def ghRunAttempt = System.getenv("GITHUB_RUN_ATTEMPT")?.trim()
-def minVersionCode = 146
+def minVersionCode = 150
 def parsedEnvVersionCode = (envVersionCode && envVersionCode.isInteger()) ? envVersionCode.toInteger() : minVersionCode
 def ghAutoVersionCode = (ghRunNumber && ghRunNumber.isInteger())
-    ? (126 + ghRunNumber.toInteger() + ((ghRunAttempt && ghRunAttempt.isInteger()) ? Math.max(0, ghRunAttempt.toInteger() - 1) : 0))
+    ? (130 + ghRunNumber.toInteger() + ((ghRunAttempt && ghRunAttempt.isInteger()) ? Math.max(0, ghRunAttempt.toInteger() - 1) : 0))
     : minVersionCode
 def resolvedVersionCode = Math.max(minVersionCode, Math.max(parsedEnvVersionCode, ghAutoVersionCode))
 def resolvedVersionName = (envVersionName && parsedEnvVersionCode == resolvedVersionCode)

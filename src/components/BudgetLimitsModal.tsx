@@ -102,7 +102,7 @@ export const BudgetLimitsModal: React.FC<BudgetLimitsModalProps> = ({
           </button>
         </div>
 
-        <form onSubmit={handleSave} className="p-6 space-y-4 overflow-y-auto">
+        <form onSubmit={handleSave} className="p-6 pb-safe-modal space-y-4 overflow-y-auto">
           <div className="space-y-3">
             {ALL_RECEIPT_CATEGORIES.map((category) => {
               const currentVal = draft[category] || 0;

@@ -142,7 +142,7 @@ export const AndroidBackupModal: React.FC<AndroidBackupModalProps> = ({
           </button>
         </div>
 
-        <div className="p-6 overflow-y-auto space-y-5 flex-1">
+        <div className="p-6 pb-safe-modal overflow-y-auto space-y-5 flex-1">
           {statusMessage && (
             <div className="rounded-xl bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800/70 px-4 py-3 text-xs sm:text-sm text-emerald-900 dark:text-emerald-200 flex items-center gap-2">
               <Check className="w-4 h-4 text-emerald-600 shrink-0" />

@@ -126,6 +126,29 @@ export async function saveReceiptsToDevice(receipts: SavedReceipt[]): Promise<vo
   }
 }
 
+const LEGACY_DEMO_ID_PREFIXES = [
+  'sample-',
+  'demo-',
+  'seed-',
+  'mock-',
+  'example-',
+  'initial-',
+];
+
+/**
+ * Ensures no pre-seeded demo or sample receipts ever appear on user installations,
+ * while preserving all real scanned (`rcpt_*`), manual (`manual_*`), and imported receipts.
+ */
+export function stripLegacyDemoReceipts(items: SavedReceipt[]): SavedReceipt[] {
+  if (!Array.isArray(items)) return [];
+  return items.filter((r) => {
+    if (!r || typeof r !== 'object') return false;
+    if ((r as any).isDemo === true || (r as any).isSample === true) return false;
+    const id = String(r.id || '').toLowerCase();
+    return !LEGACY_DEMO_ID_PREFIXES.some((prefix) => id.startsWith(prefix));
+  });
+}
+
 /**
  * Loads receipts from device, trying IndexedDB first then falling back to localStorage
  */
@@ -143,7 +166,11 @@ export async function loadReceiptsFromDevice(): Promise<SavedReceipt[]> {
     });
 
     if (Array.isArray(result) && result.length > 0) {
-      return result;
+      const cleaned = stripLegacyDemoReceipts(result);
+      if (cleaned.length !== result.length) {
+        saveReceiptsToDevice(cleaned).catch(() => {});
+      }
+      return cleaned;
     }
   } catch (e) {
     console.warn('IndexedDB load notice, falling back to localStorage:', e);
@@ -155,9 +182,10 @@ export async function loadReceiptsFromDevice(): Promise<SavedReceipt[]> {
     if (saved) {
       const parsed = JSON.parse(saved);
       if (Array.isArray(parsed) && parsed.length > 0) {
-        // Backfill to IndexedDB asynchronously
-        saveReceiptsToDevice(parsed).catch(err => console.warn('Backfill failed:', err));
-        return parsed;
+        const cleaned = stripLegacyDemoReceipts(parsed);
+        // Backfill cleaned user receipts to IndexedDB asynchronously
+        saveReceiptsToDevice(cleaned).catch(err => console.warn('Backfill failed:', err));
+        return cleaned;
       }
     }
   } catch (e) {
@@ -297,7 +325,7 @@ export async function exportDeviceBackupJSON(receipts: SavedReceipt[]): Promise<
 
   const backupPayload = {
     app: 'ParserPro Expenditure & Household Accounting',
-    version: '1.2.0',
+    version: '1.0.50',
     platform: 'Android / PWA',
     exported_at: now.toISOString(),
     receipt_count: receipts.length,

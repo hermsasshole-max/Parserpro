@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
   Camera,
   Image as ImageIcon,
@@ -54,6 +54,7 @@ interface ReceiptScannerProps {
   subscriptionState: SubscriptionState;
   currencyCode: string;
   pendingOfflineCount: number;
+  cameraLaunchTrigger?: number;
   onSaveReceipts: (newReceipts: SavedReceipt[]) => void;
   onOpenUpgrade: (reason: UpgradeTriggerReason) => void;
   onOpenSearch: () => void;
@@ -74,6 +75,7 @@ export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
   subscriptionState,
   currencyCode,
   pendingOfflineCount,
+  cameraLaunchTrigger = 0,
   onSaveReceipts,
   onOpenUpgrade,
   onOpenSearch,
@@ -95,6 +97,7 @@ export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
 
   const cameraInputRef = useRef<HTMLInputElement>(null);
   const galleryInputRef = useRef<HTMLInputElement>(null);
+  const lastHandledTriggerRef = useRef<number>(cameraLaunchTrigger);
 
   const isPlus = subscriptionState.tier === 'plus';
 
@@ -167,6 +170,14 @@ export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
     }
     cameraInputRef.current?.click();
   };
+
+  useEffect(() => {
+    if (cameraLaunchTrigger > 0 && cameraLaunchTrigger !== lastHandledTriggerRef.current) {
+      lastHandledTriggerRef.current = cameraLaunchTrigger;
+      handleTakePhotoClick();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cameraLaunchTrigger]);
 
   const handleChoosePhotoClick = async () => {
     setErrorMessage(null);

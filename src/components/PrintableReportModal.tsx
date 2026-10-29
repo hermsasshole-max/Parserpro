@@ -126,7 +126,7 @@ export const PrintableReportModal: React.FC<PrintableReportModalProps> = ({
           </div>
         </div>
 
-        <div className="px-6 py-4 border-t border-slate-200 dark:border-slate-800 flex flex-wrap items-center justify-end gap-2.5">
+        <div className="px-6 py-4 pb-safe-modal border-t border-slate-200 dark:border-slate-800 flex flex-wrap items-center justify-end gap-2.5">
           <button
             type="button"
             onClick={() => shareOrSaveSingleMonthPDF(monthYear, receipts)}

@@ -403,6 +403,10 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         </div>
       </section>
 
+      <div className="pt-1 pb-2 text-center text-xs text-slate-400 dark:text-slate-500 tabular-nums">
+        ParserPro v1.0.50 · Build 150
+      </div>
+
       {/* In-App Privacy Policy Summary Modal */}
       {showPrivacyModal && (
         <div
@@ -411,7 +415,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           aria-modal="true"
           aria-labelledby="privacy-modal-title"
         >
-          <div className="w-full sm:max-w-lg bg-white dark:bg-slate-900 rounded-t-3xl sm:rounded-3xl border border-slate-200 dark:border-slate-800 shadow-xl p-6 space-y-4 max-h-[85vh] overflow-y-auto">
+          <div className="w-full sm:max-w-lg bg-white dark:bg-slate-900 rounded-t-3xl sm:rounded-3xl border border-slate-200 dark:border-slate-800 shadow-xl p-6 pb-safe-modal space-y-4 max-h-[85vh] overflow-y-auto">
             <div className="flex items-center justify-between gap-4">
               <h2
                 id="privacy-modal-title"

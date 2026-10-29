@@ -89,7 +89,7 @@ export const OfflineOcrQueueModal: React.FC<OfflineOcrQueueModalProps> = ({
           </button>
         </div>
 
-        <div className="p-6 overflow-y-auto space-y-3 flex-1">
+        <div className="p-6 pb-safe-modal overflow-y-auto space-y-3 flex-1">
           {jobs.length === 0 ? (
             <div className="py-8 text-center space-y-2">
               <Clock className="w-8 h-8 text-slate-300 dark:text-slate-600 mx-auto" />
