@@ -8,11 +8,11 @@ on:
   workflow_dispatch:
     inputs:
       version_name:
-        description: 'Release versionName (optional, e.g. 1.0.51)'
+        description: 'Release versionName (optional, e.g. 1.1.0)'
         required: false
         type: string
       version_code:
-        description: 'Release integer versionCode (optional, auto-increments >= 151 by default)'
+        description: 'Release integer versionCode (optional, auto-increments >= 200 by default)'
         required: false
         type: string
       signing_key_preference:
@@ -155,19 +155,62 @@ jobs:
           INPUT_VERSION_NAME: ${{ inputs.version_name }}
           SIGNING_KEY_PREF: ${{ inputs.signing_key_preference }}
         run: |
-          # 1. Compute strictly increasing Play Console versionCode (>= 151, strictly > all previously used Play Console versions) & versionName
-          MIN_VERSION_CODE=151
+          # 1. Compute strictly increasing Play Console versionCode (>= 200, strictly > all previously used Play Console versions) & versionName
+          MIN_VERSION_CODE=200
           ATTEMPT_NUM="${GITHUB_RUN_ATTEMPT:-1}"
           ATTEMPT_OFFSET=$(( ATTEMPT_NUM > 1 ? ATTEMPT_NUM - 1 : 0 ))
-          AUTO_VC=$(( 131 + GITHUB_RUN_NUMBER + ATTEMPT_OFFSET ))
+          AUTO_VC=$(( 180 + GITHUB_RUN_NUMBER + ATTEMPT_OFFSET ))
           if [ "$AUTO_VC" -lt "$MIN_VERSION_CODE" ]; then
             AUTO_VC="$MIN_VERSION_CODE"
           fi
 
-          # Inspect last published GitHub Release versionCode so even manual re-runs always increment
-          LAST_REL_VC=$(gh release view "v1.0-playstore-aab" --json body -q '.body' 2>/dev/null | grep -oE 'versionCode [0-9]+' | head -n 1 | awk '{print $2}' || true)
-          if [[ "$LAST_REL_VC" =~ ^[0-9]+$ ]] && [ $((LAST_REL_VC + 1)) -gt "$AUTO_VC" ]; then
-            AUTO_VC=$((LAST_REL_VC + 1))
+          # Inspect both GitHub Releases AND all prior workflow AAB artifacts so re-runs or manual dispatches always increment strictly
+          MAX_HIST_VC=$(python3 - << 'PYHIST'
+          import json, os, re, subprocess
+
+          max_vc = 0
+          repo = os.environ.get("GITHUB_REPOSITORY", "")
+
+          try:
+              rel = subprocess.run(
+                  ["gh", "release", "view", "v1.0-playstore-aab", "--json", "title,body,assets"],
+                  capture_output=True, text=True
+              )
+              if rel.returncode == 0 and rel.stdout.strip():
+                  data = json.loads(rel.stdout)
+                  blob = f"{data.get('title', '')}\n{data.get('body', '')}\n" + "\n".join(
+                      (a.get("name") or "") for a in (data.get("assets") or [])
+                  )
+                  for m in re.findall(r"(?:versionCode\s+|ParserPro-release-v|Bundle\s+—\s+v)([0-9]+)", blob):
+                      max_vc = max(max_vc, int(m))
+          except Exception:
+              pass
+
+          if repo:
+              for page in (1, 2, 3):
+                  try:
+                      art = subprocess.run(
+                          ["gh", "api", f"repos/{repo}/actions/artifacts?per_page=100&page={page}"],
+                          capture_output=True, text=True
+                      )
+                      if art.returncode != 0 or not art.stdout.strip():
+                          break
+                      items = json.loads(art.stdout).get("artifacts") or []
+                      for item in items:
+                          m = re.match(r"^ParserPro-PlayConsole-AAB-v([0-9]+)$", item.get("name") or "")
+                          if m:
+                              max_vc = max(max_vc, int(m.group(1)))
+                      if len(items) < 100:
+                          break
+                  except Exception:
+                      break
+
+          print(max_vc)
+          PYHIST
+          )
+          MAX_HIST_VC=$(echo "$MAX_HIST_VC" | tr -dc '0-9')
+          if [[ "$MAX_HIST_VC" =~ ^[0-9]+$ ]] && [ "$MAX_HIST_VC" -gt 0 ] && [ $((MAX_HIST_VC + 1)) -gt "$AUTO_VC" ]; then
+            AUTO_VC=$((MAX_HIST_VC + 1))
           fi
 
           if [[ "$INPUT_VERSION_CODE" =~ ^[0-9]+$ ]] && [ "$INPUT_VERSION_CODE" -ge "$MIN_VERSION_CODE" ]; then
@@ -176,10 +219,10 @@ jobs:
             COMPUTED_VC="$AUTO_VC"
           fi
 
-          if [ -n "$INPUT_VERSION_NAME" ] && [[ "$INPUT_VERSION_CODE" =~ ^[0-9]+$ ]] && [ "$INPUT_VERSION_CODE" -eq "$COMPUTED_VC" ]; then
+          if [ -n "$INPUT_VERSION_NAME" ]; then
             COMPUTED_VN="$INPUT_VERSION_NAME"
           else
-            COMPUTED_VN="1.0.$((COMPUTED_VC - 100))"
+            COMPUTED_VN="1.1.$((COMPUTED_VC - 200))"
           fi
 
           echo "Resolved Play Console release version: versionName=${COMPUTED_VN} (versionCode=${COMPUTED_VC})"
@@ -623,7 +666,7 @@ jobs:
           AAB_CERT_INFO=$(keytool -printcert -jarfile "$VERSIONED_AAB" 2>/dev/null || true)
           echo "$AAB_CERT_INFO" | grep -E "Owner:|SHA1:|SHA256:" || true
 
-          echo "=== Verifying Merged Manifest Package, Version (>= 151) & Provider Authorities ==="
+          echo "=== Verifying Merged Manifest Package, Version (>= 200) & Provider Authorities ==="
           MERGED_MANIFEST=$(find android/app/build/intermediates/merged_manifests/release -name "AndroidManifest.xml" | head -n 1)
           if [ -n "$MERGED_MANIFEST" ]; then
             grep -q 'package="com.receiptscannerpro.app"' "$MERGED_MANIFEST"
@@ -635,11 +678,11 @@ jobs:
             fi
             MANIFEST_VC=$(grep -oE 'android:versionCode="[0-9]+"' "$MERGED_MANIFEST" | head -n 1 | grep -oE '[0-9]+' || true)
             echo "Merged Manifest versionCode=${MANIFEST_VC}"
-            if [ -n "$MANIFEST_VC" ] && [ "$MANIFEST_VC" -lt 151 ]; then
-              echo "ERROR: Merged Manifest versionCode (${MANIFEST_VC}) must be >= 151 (strictly greater than used Play Console versions)!"
+            if [ -n "$MANIFEST_VC" ] && [ "$MANIFEST_VC" -lt 200 ]; then
+              echo "ERROR: Merged Manifest versionCode (${MANIFEST_VC}) must be >= 200 (strictly greater than used Play Console versions)!"
               exit 1
             fi
-            echo "Verified package=com.receiptscannerpro.app, versionCode=${MANIFEST_VC} (>= 151), and unique provider authorities!"
+            echo "Verified package=com.receiptscannerpro.app, versionCode=${MANIFEST_VC} (>= 200), and unique provider authorities!"
           fi
 
           echo "=== Verifying R8 DEX Code Optimization & Deobfuscation Mapping (mapping.txt) ==="
@@ -822,7 +865,7 @@ jobs:
             echo "### Bundle & Signing Verification" >> $GITHUB_STEP_SUMMARY
             echo "- **Upload File**: \`${VERSIONED_AAB_NAME}\` (${AAB_SIZE}) — *Upload **ONLY** this file after clicking \`✕\` on old failed bundles in Play Console*" >> $GITHUB_STEP_SUMMARY
             echo "- **Package Name**: \`com.receiptscannerpro.app\`" >> $GITHUB_STEP_SUMMARY
-            echo "- **Version**: \`${VN}\` (\`versionCode ${VC}\` >= 151) ✅" >> $GITHUB_STEP_SUMMARY
+            echo "- **Version**: \`${VN}\` (\`versionCode ${VC}\` >= 200) ✅" >> $GITHUB_STEP_SUMMARY
             echo "- **Upload Signing Key Source**: \`${KEY_MODE}\` (${SIGN_NOTE})" >> $GITHUB_STEP_SUMMARY
             if [[ "$SIGN_SHA1" == ${EXPECTED_UPLOAD_PREFIX}* ]]; then
               echo "- **Upload Key Certificate SHA1**: \`${SIGN_SHA1}\` *(Matches Play Console Expected Upload Key \`F5:BA:06:8E:...\`!)* ✅" >> $GITHUB_STEP_SUMMARY
