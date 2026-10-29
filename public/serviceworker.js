@@ -1,5 +1,5 @@
 // Service Worker for ParserPro PWA & Android TWA
-const CACHE_NAME = 'parserpro-v200';
+const CACHE_NAME = 'parserpro-v210';
 const STATIC_ASSETS = [
   '/',
   '/index.html',
