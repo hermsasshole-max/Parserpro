@@ -190,3 +190,83 @@ export function formatShortDate(isoDate: string): string {
   if (Number.isNaN(dt.getTime())) return isoDate;
   return dt.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
 }
+
+export function normalizeReceiptCategory(
+  raw?: string,
+  fallback: import('../types').ReceiptCategory = 'Food & Groceries'
+): import('../types').ReceiptCategory {
+  if (!raw) return fallback;
+  const val = raw.trim().toLowerCase();
+  if (
+    val === 'food & groceries' ||
+    val.includes('grocer') ||
+    val.includes('food') ||
+    val.includes('supermarket') ||
+    val.includes('bakery') ||
+    val.includes('butcher')
+  ) {
+    return 'Food & Groceries';
+  }
+  if (
+    val === 'electricity & utilities' ||
+    val.includes('utilit') ||
+    val.includes('electric') ||
+    val.includes('water') ||
+    val.includes('municipal') ||
+    val.includes('power')
+  ) {
+    return 'Electricity & Utilities';
+  }
+  if (
+    val === 'home maintenance' ||
+    val.includes('hardware') ||
+    val.includes('home') ||
+    val.includes('diy') ||
+    val.includes('maintenance') ||
+    val.includes('garden') ||
+    val.includes('plumb')
+  ) {
+    return 'Home Maintenance';
+  }
+  if (
+    val === 'transport' ||
+    val.includes('fuel') ||
+    val.includes('petrol') ||
+    val.includes('diesel') ||
+    val.includes('transport') ||
+    val.includes('parking') ||
+    val.includes('toll')
+  ) {
+    return 'Transport';
+  }
+  if (val === 'other') {
+    return 'Other';
+  }
+  return fallback;
+}
+
+export function formatCategoryLabel(category: import('../types').ReceiptCategory | string): string {
+  if (category === 'Home Maintenance') {
+    return 'Hardware & Home Maintenance';
+  }
+  return category || 'Other';
+}
+
+export function formatPriceVarianceSummary(
+  lowest: number,
+  highest: number,
+  currencyOverride?: string
+): string {
+  const safeLow = Number.isFinite(lowest) ? lowest : 0;
+  const safeHigh = Number.isFinite(highest) ? highest : safeLow;
+  const spread = Math.max(0, Number((safeHigh - safeLow).toFixed(2)));
+  const lowStr = formatMoney(safeLow, currencyOverride);
+  const highStr = formatMoney(safeHigh, currencyOverride);
+  const spreadStr = formatMoney(spread, currencyOverride);
+
+  if (spread > 0.004) {
+    return `${lowStr} – ${highStr} (+${spreadStr} variance)`;
+  }
+  return `${lowStr} – ${highStr} (${spreadStr} variance)`;
+}
+

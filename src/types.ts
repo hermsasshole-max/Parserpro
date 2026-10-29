@@ -10,6 +10,7 @@ export interface LineItem {
   quantity: number;
   unit_price: number;
   total_price: number;
+  category?: ReceiptCategory;
 }
 
 export type OcrEngineType = 'cloud_api' | 'native_mlkit' | 'local_tesseract' | 'manual';
@@ -18,6 +19,7 @@ export type OcrEngineMode = 'auto_fallback' | 'cloud_only' | 'local_tesseract_on
 
 export interface ReceiptData {
   vendor_name: string;
+  invoice_number?: string;
   invoice_date: string;
   month_year: string;
   category: ReceiptCategory;
@@ -28,6 +30,7 @@ export interface ReceiptData {
   total_amount: number;
   notes: string;
   engine_used?: OcrEngineType;
+  image_fingerprint?: string;
 }
 
 export interface SavedReceipt extends ReceiptData {
@@ -64,14 +67,33 @@ export interface QueueStatusStats {
   failed: number;
 }
 
+export interface ItemPriceObservation {
+  receipt_id: string;
+  invoice_date: string;
+  vendor_name: string;
+  invoice_number?: string;
+  category: ReceiptCategory;
+  quantity: number;
+  unit_price: number;
+  total_price: number;
+}
+
 export interface AggregatedItem {
   name: string;
+  primary_category: ReceiptCategory;
   total_quantity: number;
   total_amount: number;
   average_unit_price: number;
+  lowest_unit_price: number;
+  highest_unit_price: number;
+  latest_unit_price: number;
+  latest_purchase_date: string;
+  latest_vendor: string;
+  price_variance: number;
   occurrences: number;
   categories: ReceiptCategory[];
   receipt_ids: string[];
+  price_history: ItemPriceObservation[];
 }
 
 export interface ItemComparison {
@@ -90,12 +112,22 @@ export interface ItemComparison {
   status: 'spent_more' | 'saved_more' | 'new_item' | 'not_purchased' | 'unchanged';
 }
 
+export interface CategorySummaryRow {
+  category: ReceiptCategory;
+  subtotal: number;
+  percentage: number;
+  receipt_count: number;
+  item_count: number;
+}
+
 export interface MonthReportData {
   month_year: string;
   total_spend: number;
   receipt_count: number;
   item_count: number;
+  total_item_purchases: number;
   category_totals: Record<ReceiptCategory, number>;
+  category_breakdown: CategorySummaryRow[];
   items_alphabetical: AggregatedItem[];
 }
 

@@ -1,8 +1,14 @@
 import React, { useState, useEffect } from 'react';
-import { X, Plus, Trash2, Check, AlertTriangle } from 'lucide-react';
+import { X, Plus, Trash2, Check, ShieldAlert } from 'lucide-react';
 import type { LineItem, ReceiptCategory, SavedReceipt } from '../types';
-import { findDuplicateForReceipt } from '../utils/duplicateDetection';
-import { formatMoney, formatShortDate, getCurrencySymbol } from '../utils/currencyFormat';
+import { findDuplicateForReceipt, getDisplayInvoiceNumber } from '../utils/duplicateDetection';
+import {
+  formatCategoryLabel,
+  formatMoney,
+  formatShortDate,
+  getCurrencySymbol,
+  normalizeReceiptCategory,
+} from '../utils/currencyFormat';
 
 interface AddReceiptModalProps {
   isOpen: boolean;
@@ -30,6 +36,7 @@ export const AddReceiptModal: React.FC<AddReceiptModalProps> = ({
   const todayIso = new Date().toISOString().substring(0, 10);
 
   const [vendorName, setVendorName] = useState('');
+  const [invoiceNumber, setInvoiceNumber] = useState('');
   const [invoiceDate, setInvoiceDate] = useState(todayIso);
   const [category, setCategory] = useState<ReceiptCategory>('Food & Groceries');
   const [totalAmount, setTotalAmount] = useState('');
@@ -37,11 +44,11 @@ export const AddReceiptModal: React.FC<AddReceiptModalProps> = ({
   const [notes, setNotes] = useState('');
   const [lineItems, setLineItems] = useState<LineItem[]>([]);
   const [validationError, setValidationError] = useState<string | null>(null);
-  const [duplicateConfirmed, setDuplicateConfirmed] = useState(false);
 
   useEffect(() => {
     if (isOpen) {
       setVendorName('');
+      setInvoiceNumber('');
       setInvoiceDate(new Date().toISOString().substring(0, 10));
       setCategory('Food & Groceries');
       setTotalAmount('');
@@ -49,7 +56,6 @@ export const AddReceiptModal: React.FC<AddReceiptModalProps> = ({
       setNotes('');
       setLineItems([]);
       setValidationError(null);
-      setDuplicateConfirmed(false);
     }
   }, [isOpen]);
 
@@ -60,7 +66,7 @@ export const AddReceiptModal: React.FC<AddReceiptModalProps> = ({
   const addEmptyItem = () => {
     setLineItems((prev) => [
       ...prev,
-      { description: '', quantity: 1, unit_price: 0, total_price: 0 },
+      { description: '', quantity: 1, unit_price: 0, total_price: 0, category },
     ]);
   };
 
@@ -90,26 +96,23 @@ export const AddReceiptModal: React.FC<AddReceiptModalProps> = ({
   const numericTotal = parseFloat(totalAmount) || 0;
   const numericTax = parseFloat(taxAmount) || 0;
 
-  const potentialDuplicate =
-    vendorName.trim() && numericTotal > 0
+  const duplicateCheck =
+    vendorName.trim() && (numericTotal > 0 || invoiceNumber.trim().length >= 2)
       ? findDuplicateForReceipt(
           {
             id: 'manual_draft_check',
-            created_at: todayIso,
             vendor_name: vendorName.trim(),
+            invoice_number: invoiceNumber.trim(),
             invoice_date: invoiceDate,
-            month_year: invoiceDate.substring(0, 7),
-            category,
-            currency: currencyCode,
-            line_items: lineItems,
-            subtotal: Math.max(0, numericTotal - numericTax),
-            tax: numericTax,
             total_amount: numericTotal,
             notes,
           },
           existingReceipts
         )
       : null;
+
+  const isDuplicateBlocked = Boolean(duplicateCheck?.isBlocked);
+  const matchedInv = duplicateCheck ? getDisplayInvoiceNumber(duplicateCheck.matchedReceipt) : '';
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -123,13 +126,20 @@ export const AddReceiptModal: React.FC<AddReceiptModalProps> = ({
       setValidationError('Please enter a receipt total greater than zero.');
       return;
     }
-
-    if (potentialDuplicate && !duplicateConfirmed) {
-      setDuplicateConfirmed(true);
+    if (isDuplicateBlocked) {
+      setValidationError(
+        'Duplicate receipt blocked — a receipt matching this Store, Date, and Invoice # is already in your ledger.'
+      );
       return;
     }
 
-    const cleanedItems = lineItems.filter((li) => li.description.trim().length > 0);
+    const cleanedItems = lineItems
+      .filter((li) => li.description.trim().length > 0)
+      .map((li) => ({
+        ...li,
+        category: normalizeReceiptCategory(li.category, category),
+      }));
+
     const finalItems: LineItem[] =
       cleanedItems.length > 0
         ? cleanedItems
@@ -139,6 +149,7 @@ export const AddReceiptModal: React.FC<AddReceiptModalProps> = ({
               quantity: 1,
               unit_price: numericTotal,
               total_price: numericTotal,
+              category,
             },
           ];
 
@@ -146,6 +157,7 @@ export const AddReceiptModal: React.FC<AddReceiptModalProps> = ({
       id: `manual_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
       created_at: new Date().toISOString(),
       vendor_name: vendorName.trim(),
+      invoice_number: invoiceNumber.trim() || undefined,
       invoice_date: invoiceDate,
       month_year: invoiceDate.substring(0, 7),
       category,
@@ -169,7 +181,7 @@ export const AddReceiptModal: React.FC<AddReceiptModalProps> = ({
       aria-modal="true"
       aria-labelledby="add-receipt-title"
     >
-      <div className="w-full sm:max-w-lg bg-white dark:bg-slate-900 rounded-t-3xl sm:rounded-3xl border border-slate-200 dark:border-slate-800 shadow-xl overflow-hidden max-h-[90vh] flex flex-col">
+      <div className="w-full sm:max-w-xl bg-white dark:bg-slate-900 rounded-t-3xl sm:rounded-3xl border border-slate-200 dark:border-slate-800 shadow-xl overflow-hidden max-h-[90vh] flex flex-col">
         <div className="sm:hidden w-10 h-1.5 bg-slate-300 dark:bg-slate-700 rounded-full mx-auto mt-3" />
 
         <div className="px-6 py-4 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between gap-4">
@@ -181,7 +193,7 @@ export const AddReceiptModal: React.FC<AddReceiptModalProps> = ({
               Add Receipt Manually
             </h2>
             <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-              Always free and unlimited — enter a quick total or individual items.
+              Note store, purchase date, and invoice number — duplicates are automatically blocked.
             </p>
           </div>
           <button
@@ -201,44 +213,61 @@ export const AddReceiptModal: React.FC<AddReceiptModalProps> = ({
             </div>
           )}
 
-          {potentialDuplicate && (
-            <div className="rounded-xl bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800/70 px-4 py-3 text-xs text-amber-900 dark:text-amber-200 flex items-start gap-2.5">
-              <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+          {duplicateCheck && isDuplicateBlocked && (
+            <div className="rounded-xl bg-rose-50 dark:bg-rose-950/35 border border-rose-200 dark:border-rose-800/80 px-4 py-3 text-xs text-rose-950 dark:text-rose-200 flex items-start gap-2.5">
+              <ShieldAlert className="w-4 h-4 text-rose-600 dark:text-rose-400 shrink-0 mt-0.5" />
               <div>
-                <p className="font-semibold">
-                  Similar receipt already saved ({potentialDuplicate.matchedReceipt.vendor_name} ·{' '}
-                  {formatShortDate(potentialDuplicate.matchedReceipt.invoice_date)} ·{' '}
-                  {formatMoney(potentialDuplicate.matchedReceipt.total_amount, currencyCode)})
+                <p className="font-bold">
+                  Duplicate Receipt Blocked ({duplicateCheck.matchedReceipt.vendor_name} ·{' '}
+                  {formatShortDate(duplicateCheck.matchedReceipt.invoice_date)}
+                  {matchedInv ? ` · #${matchedInv}` : ''} ·{' '}
+                  {formatMoney(duplicateCheck.matchedReceipt.total_amount, currencyCode)})
                 </p>
-                <p className="mt-0.5">
-                  {duplicateConfirmed
-                    ? 'Tap Save Receipt again to confirm saving this as a separate purchase.'
-                    : 'Check that this was not already recorded.'}
+                <p className="mt-0.5 text-rose-800 dark:text-rose-300">
+                  {duplicateCheck.matchReason}
                 </p>
               </div>
             </div>
           )}
 
-          <div>
-            <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">
-              Store or Provider
-            </label>
-            <input
-              type="text"
-              placeholder="e.g. Checkers, Pick n Pay, Shell, City Power"
-              value={vendorName}
-              onChange={(e) => {
-                setVendorName(e.target.value);
-                setValidationError(null);
-              }}
-              className="w-full min-h-[44px] px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50/70 dark:bg-slate-800 text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-600"
-            />
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div className="sm:col-span-2">
+              <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">
+                Store or Provider
+              </label>
+              <input
+                type="text"
+                placeholder="e.g. Checkers, Builders Warehouse, City Power"
+                value={vendorName}
+                onChange={(e) => {
+                  setVendorName(e.target.value);
+                  setValidationError(null);
+                }}
+                className="w-full min-h-[44px] px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50/70 dark:bg-slate-800 text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-600"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">
+                Invoice / Slip #
+              </label>
+              <input
+                type="text"
+                placeholder="e.g. INV-4821"
+                value={invoiceNumber}
+                onChange={(e) => {
+                  setInvoiceNumber(e.target.value);
+                  setValidationError(null);
+                }}
+                className="w-full min-h-[44px] px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50/70 dark:bg-slate-800 text-sm font-mono tabular-nums text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-600"
+              />
+            </div>
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">
-                Date
+                Purchase Date
               </label>
               <input
                 type="date"
@@ -259,7 +288,7 @@ export const AddReceiptModal: React.FC<AddReceiptModalProps> = ({
               >
                 {CATEGORIES.map((cat) => (
                   <option key={cat} value={cat}>
-                    {cat}
+                    {formatCategoryLabel(cat)}
                   </option>
                 ))}
               </select>
@@ -301,11 +330,11 @@ export const AddReceiptModal: React.FC<AddReceiptModalProps> = ({
             </div>
           </div>
 
-          {/* Optional Itemized Lines */}
+          {/* Itemized Lines */}
           <div className="pt-2 border-t border-slate-100 dark:border-slate-800 space-y-2.5">
             <div className="flex items-center justify-between">
               <span className="text-xs font-semibold text-slate-700 dark:text-slate-300">
-                Optional Line Items
+                Itemized Line Items
               </span>
               <button
                 type="button"
@@ -324,29 +353,43 @@ export const AddReceiptModal: React.FC<AddReceiptModalProps> = ({
                   placeholder="Item name"
                   value={item.description}
                   onChange={(e) => updateItem(idx, { description: e.target.value })}
-                  className="col-span-6 min-h-[40px] px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50/70 dark:bg-slate-800 text-xs sm:text-sm text-slate-900 dark:text-white"
+                  className="col-span-12 sm:col-span-4 min-h-[40px] px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50/70 dark:bg-slate-800 text-xs text-slate-900 dark:text-white"
                 />
                 <input
                   type="number"
-                  min="1"
-                  step="1"
+                  min="0.01"
+                  step="any"
                   value={item.quantity}
                   onChange={(e) =>
-                    updateItem(idx, { quantity: Math.max(1, parseFloat(e.target.value) || 1) })
+                    updateItem(idx, { quantity: Math.max(0.01, parseFloat(e.target.value) || 1) })
                   }
-                  className="col-span-2 min-h-[40px] px-2 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50/70 dark:bg-slate-800 text-center font-mono tabular-nums text-xs sm:text-sm text-slate-900 dark:text-white"
+                  className="col-span-3 sm:col-span-2 min-h-[40px] px-2 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50/70 dark:bg-slate-800 text-center font-mono tabular-nums text-xs text-slate-900 dark:text-white"
                 />
                 <input
                   type="number"
                   min="0"
                   step="0.01"
-                  placeholder="Price"
+                  placeholder="Unit price"
                   value={item.unit_price || ''}
                   onChange={(e) =>
                     updateItem(idx, { unit_price: parseFloat(e.target.value) || 0 })
                   }
-                  className="col-span-3 min-h-[40px] px-2.5 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50/70 dark:bg-slate-800 text-right font-mono tabular-nums text-xs sm:text-sm text-slate-900 dark:text-white"
+                  className="col-span-4 sm:col-span-2 min-h-[40px] px-2 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50/70 dark:bg-slate-800 text-right font-mono tabular-nums text-xs text-slate-900 dark:text-white"
                 />
+                <select
+                  aria-label="Assigned item category"
+                  value={item.category || category}
+                  onChange={(e) =>
+                    updateItem(idx, { category: e.target.value as ReceiptCategory })
+                  }
+                  className="col-span-4 sm:col-span-3 min-h-[40px] px-2 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50/70 dark:bg-slate-800 text-xs text-slate-800 dark:text-slate-200 truncate"
+                >
+                  {CATEGORIES.map((cat) => (
+                    <option key={cat} value={cat}>
+                      {formatCategoryLabel(cat)}
+                    </option>
+                  ))}
+                </select>
                 <button
                   type="button"
                   onClick={() => removeItem(idx)}
@@ -382,10 +425,20 @@ export const AddReceiptModal: React.FC<AddReceiptModalProps> = ({
             </button>
             <button
               type="submit"
-              className="min-h-[44px] px-5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold flex items-center gap-2"
+              disabled={isDuplicateBlocked}
+              className="min-h-[44px] px-5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-sm font-semibold flex items-center gap-2"
             >
-              <Check className="w-4 h-4" />
-              <span>{duplicateConfirmed ? 'Confirm & Save' : 'Save Receipt'}</span>
+              {isDuplicateBlocked ? (
+                <>
+                  <ShieldAlert className="w-4 h-4" />
+                  <span>Duplicate Blocked</span>
+                </>
+              ) : (
+                <>
+                  <Check className="w-4 h-4" />
+                  <span>Save Receipt</span>
+                </>
+              )}
             </button>
           </div>
         </form>

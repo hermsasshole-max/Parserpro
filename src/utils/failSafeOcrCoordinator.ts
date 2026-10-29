@@ -12,6 +12,7 @@ import {
   hasConfiguredCloudOcrEndpoint,
 } from './geminiVision';
 import { getPreferredCurrency } from './currencyFormat';
+import { computeImageFingerprint } from './duplicateDetection';
 
 const OCR_MODE_STORAGE_KEY = 'parserpro_ocr_engine_mode_v1';
 const OCR_TIMEOUT_STORAGE_KEY = 'parserpro_ocr_timeout_ms_v1';
@@ -84,7 +85,12 @@ async function callSmartOcrWithTimeout(
       signal: controller.signal,
     });
     clearTimeout(timeoutId);
-    return receipts.map((r) => ({ ...r, engine_used: 'cloud_api' }));
+    const fingerprint = computeImageFingerprint(base64Data);
+    return receipts.map((r) => ({
+      ...r,
+      engine_used: 'cloud_api',
+      image_fingerprint: r.image_fingerprint || fingerprint || undefined,
+    }));
   } finally {
     clearTimeout(timeoutId);
   }
@@ -103,6 +109,7 @@ async function performBestOnDeviceOcr(params: {
   onStage?: (stage: string) => void;
 }): Promise<{ receipts: ReceiptData[]; engineUsed: 'native_mlkit' | 'local_tesseract'; hadText: boolean }> {
   const { base64Data, mimeType, fileName, preferredCurrency, onStage } = params;
+  const fingerprint = computeImageFingerprint(base64Data);
 
   // Tier A: Native Android ML Kit
   if (await isNativeMlKitAvailable()) {
@@ -112,7 +119,10 @@ async function performBestOnDeviceOcr(params: {
         const parsed = parseLocalOcrTextToReceipts(mlText, fileName, {
           preferredCurrency,
           engineLabel: 'native_mlkit',
-        });
+        }).map((r) => ({
+          ...r,
+          image_fingerprint: r.image_fingerprint || fingerprint || undefined,
+        }));
         return {
           receipts: parsed,
           engineUsed: 'native_mlkit',
@@ -131,7 +141,10 @@ async function performBestOnDeviceOcr(params: {
   const parsed = parseLocalOcrTextToReceipts(tessText, fileName, {
     preferredCurrency,
     engineLabel: 'local_tesseract',
-  });
+  }).map((r) => ({
+    ...r,
+    image_fingerprint: r.image_fingerprint || fingerprint || undefined,
+  }));
 
   return {
     receipts: parsed,

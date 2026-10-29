@@ -1,5 +1,5 @@
 // Service Worker for ParserPro PWA (GitHub Pages & Standalone Mobile PWA)
-const CACHE_NAME = 'parserpro-v150';
+const CACHE_NAME = 'parserpro-v151';
 
 // Install: pre-cache critical shell assets using registration scope
 self.addEventListener('install', (event) => {

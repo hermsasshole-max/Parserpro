@@ -2,6 +2,8 @@ import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import type { SavedReceipt } from '../types';
 import { compareMonths, generateMonthReport } from './reportUtils';
+import { formatCategoryLabel } from './currencyFormat';
+import { getDisplayInvoiceNumber } from './duplicateDetection';
 import { 
   isNativeContainer, 
   savePDFToNativeDevice, 
@@ -440,18 +442,21 @@ export function buildSingleMonthPDFDoc(month: string, receipts: SavedReceipt[]):
   doc.text('CATEGORY EXPENDITURE BREAKDOWN', 14, y);
   y += 3;
 
-  const categoryRows = categoriesSorted.map(([cat, amt]) => {
-    const pct = report.total_spend > 0 ? ((amt / report.total_spend) * 100).toFixed(1) : '0.0';
-    return [cat, `R ${amt.toFixed(2)}`, `${pct} %`];
-  });
+  const categoryRows = report.category_breakdown.map((row) => [
+    formatCategoryLabel(row.category),
+    `R ${row.subtotal.toFixed(2)}`,
+    `${row.percentage.toFixed(1)} %`,
+  ]);
 
   autoTable(doc, {
     startY: y,
-    head: [['Category', 'Total Spend (ZAR)', '% of Monthly Budget']],
+    head: [['Category', 'Subtotal (ZAR)', '% of Monthly Spend']],
     body: categoryRows.length > 0 ? categoryRows : [['No categories', 'R 0.00', '0%']],
+    foot: [['GRAND TOTAL', `R ${report.total_spend.toFixed(2)}`, '100.0 %']],
     theme: 'grid',
     styles: { fontSize: 8, cellPadding: 2, font: 'helvetica' },
     headStyles: { fillColor: [30, 41, 59], textColor: [255, 255, 255], fontStyle: 'bold' },
+    footStyles: { fillColor: [241, 245, 249], textColor: [15, 23, 42], fontStyle: 'bold', fontSize: 8 },
     columnStyles: {
       0: { cellWidth: 92, fontStyle: 'bold' },
       1: { cellWidth: 50, halign: 'right' },
@@ -463,7 +468,7 @@ export function buildSingleMonthPDFDoc(month: string, receipts: SavedReceipt[]):
   let lastTable = (doc as any).lastAutoTable;
   y = (lastTable ? lastTable.finalY : y) + 8;
 
-  // Merged Item-by-Item Breakdown
+  // Grouped Item Frequency & Unit Price Variance Breakdown
   if (y > pageHeight - 35) {
     doc.addPage();
     y = 16;
@@ -472,33 +477,43 @@ export function buildSingleMonthPDFDoc(month: string, receipts: SavedReceipt[]):
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(9.5);
   doc.setTextColor(primaryNavy[0], primaryNavy[1], primaryNavy[2]);
-  doc.text(`MERGED ITEM-BY-ITEM LEDGER (A-Z)  •  ${report.items_alphabetical.length} Items`, 14, y);
+  doc.text(`GROUPED ITEM FREQUENCY & PRICE VARIANCE (A-Z)  •  ${report.items_alphabetical.length} Items`, 14, y);
   y += 3;
 
-  const itemRows = report.items_alphabetical.map(item => [
-    item.name,
-    item.categories.join(', ') || 'Uncategorized',
-    `${item.total_quantity}`,
-    `R ${item.average_unit_price.toFixed(2)}`,
-    `R ${item.total_amount.toFixed(2)}`
-  ]);
+  const itemRows = report.items_alphabetical.map((item) => {
+    const freqText = `${item.occurrences}x (Qty ${item.total_quantity})`;
+    const varianceStr =
+      item.price_variance > 0.004
+        ? `R ${item.lowest_unit_price.toFixed(2)} - R ${item.highest_unit_price.toFixed(2)} (+R ${item.price_variance.toFixed(2)})`
+        : `R ${item.lowest_unit_price.toFixed(2)} (R 0.00 var)`;
+    return [
+      item.name,
+      formatCategoryLabel(item.primary_category),
+      freqText,
+      varianceStr,
+      `R ${item.latest_unit_price.toFixed(2)}`,
+      `R ${item.total_amount.toFixed(2)}`,
+    ];
+  });
 
+  // Total width = 182mm: 44 + 32 + 24 + 42 + 18 + 22 = 182mm
   autoTable(doc, {
     startY: y,
     showHead: 'everyPage',
-    head: [['Item Description (A-Z)', 'Category', 'Quantity', 'Avg Unit Price', 'Total Cost (ZAR)']],
-    body: itemRows.length > 0 ? itemRows : [['No items recorded for this month', '-', '0', 'R 0.00', 'R 0.00']],
-    foot: [['TOTAL ITEMIZED EXPENDITURE', '', '', '', `R ${report.total_spend.toFixed(2)}`]],
+    head: [['Item (A-Z)', 'Category', 'Purchased', 'Low - High (Variance)', 'Latest', 'Subtotal']],
+    body: itemRows.length > 0 ? itemRows : [['No items recorded for this month', '-', '0x', 'R 0.00', 'R 0.00', 'R 0.00']],
+    foot: [['TOTAL ITEMIZED EXPENDITURE', '', '', '', '', `R ${report.total_spend.toFixed(2)}`]],
     theme: 'striped',
-    styles: { fontSize: 7.5, cellPadding: 1.8, font: 'helvetica' },
+    styles: { fontSize: 7, cellPadding: 1.8, font: 'helvetica' },
     headStyles: { fillColor: [15, 23, 42], textColor: [255, 255, 255], fontStyle: 'bold' },
     footStyles: { fillColor: [241, 245, 249], textColor: [15, 23, 42], fontStyle: 'bold', fontSize: 8 },
     columnStyles: {
-      0: { cellWidth: 66, fontStyle: 'bold' },
-      1: { cellWidth: 42 },
-      2: { cellWidth: 20, halign: 'center' },
-      3: { cellWidth: 26, halign: 'right' },
-      4: { cellWidth: 28, halign: 'right' },
+      0: { cellWidth: 44, fontStyle: 'bold' },
+      1: { cellWidth: 32 },
+      2: { cellWidth: 24, halign: 'center' },
+      3: { cellWidth: 42, halign: 'right' },
+      4: { cellWidth: 18, halign: 'right' },
+      5: { cellWidth: 22, halign: 'right' },
     },
     margin: { left: 14, right: 14, bottom: 16 },
   });
@@ -518,30 +533,30 @@ export function buildSingleMonthPDFDoc(month: string, receipts: SavedReceipt[]):
   doc.text(`INVOICE & RECEIPT REGISTER  •  ${monthReceipts.length} Documents`, 14, y);
   y += 3;
 
-  const invoiceRows = monthReceipts.map(r => [
+  const invoiceRows = monthReceipts.map((r) => [
     r.invoice_date,
     r.vendor_name,
-    r.category,
-    `${r.line_items.length} items`,
-    `R ${Number(r.total_amount).toFixed(2)}`
+    getDisplayInvoiceNumber(r) || '—',
+    formatCategoryLabel(r.category),
+    `R ${Number(r.total_amount).toFixed(2)}`,
   ]);
 
   autoTable(doc, {
     startY: y,
     showHead: 'everyPage',
-    head: [['Date', 'Vendor / Store', 'Category', 'Items Count', 'Total Paid (ZAR)']],
-    body: invoiceRows.length > 0 ? invoiceRows : [['No invoices recorded', '-', '-', '0', 'R 0.00']],
+    head: [['Date', 'Vendor / Store', 'Invoice #', 'Category', 'Total Paid (ZAR)']],
+    body: invoiceRows.length > 0 ? invoiceRows : [['No invoices recorded', '-', '-', '-', 'R 0.00']],
     foot: [['MONTHLY REGISTER TOTAL', '', '', '', `R ${report.total_spend.toFixed(2)}`]],
     theme: 'grid',
     styles: { fontSize: 7.5, cellPadding: 2, font: 'helvetica' },
     headStyles: { fillColor: [30, 41, 59], textColor: [255, 255, 255], fontStyle: 'bold' },
     footStyles: { fillColor: [241, 245, 249], textColor: [15, 23, 42], fontStyle: 'bold', fontSize: 8 },
     columnStyles: {
-      0: { cellWidth: 28 },
-      1: { cellWidth: 54, fontStyle: 'bold' },
-      2: { cellWidth: 42 },
-      3: { cellWidth: 26, halign: 'center' },
-      4: { cellWidth: 32, halign: 'right' },
+      0: { cellWidth: 26 },
+      1: { cellWidth: 50, fontStyle: 'bold' },
+      2: { cellWidth: 32 },
+      3: { cellWidth: 44 },
+      4: { cellWidth: 30, halign: 'right' },
     },
     margin: { left: 14, right: 14, bottom: 16 },
   });
@@ -598,13 +613,19 @@ export function buildSingleReceiptPDFDoc(receipt: SavedReceipt): jsPDF {
   doc.setFontSize(14);
   doc.text('OFFICIAL INVOICE & RECEIPT RECORD', 20, y + 10);
 
+  const displayInv = getDisplayInvoiceNumber(receipt);
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(9);
   doc.setTextColor(203, 213, 225);
-  doc.text(`Vendor: ${receipt.vendor_name}  •  Category: ${receipt.category}`, 20, y + 18);
+  doc.text(`Vendor: ${receipt.vendor_name}  •  Category: ${formatCategoryLabel(receipt.category)}`, 20, y + 18);
 
   doc.setFontSize(8);
-  doc.text(`Invoice ID: ${receipt.id.slice(0, 12)}`, pageWidth - 20, y + 10, { align: 'right' });
+  doc.text(
+    displayInv ? `Invoice #: ${displayInv}` : `Record ID: ${receipt.id.slice(0, 12)}`,
+    pageWidth - 20,
+    y + 10,
+    { align: 'right' }
+  );
   doc.text(`Date: ${receipt.invoice_date}`, pageWidth - 20, y + 18, { align: 'right' });
 
   y += 30;
@@ -649,35 +670,38 @@ export function buildSingleReceiptPDFDoc(receipt: SavedReceipt): jsPDF {
   const tableRows = receipt.line_items.map((item, idx) => [
     idx + 1,
     item.description,
+    formatCategoryLabel(item.category || receipt.category),
     item.quantity,
     `${receipt.currency} ${Number(item.unit_price).toFixed(2)}`,
     `${receipt.currency} ${Number(item.total_price).toFixed(2)}`,
   ]);
 
+  // Total width = 182mm: 10 + 68 + 38 + 14 + 26 + 26 = 182mm
   autoTable(doc, {
     startY: y,
-    head: [['#', 'Description', 'Qty', 'Unit Price', 'Line Total']],
+    head: [['#', 'Item Name', 'Category', 'Qty', 'Unit Price', 'Line Total']],
     body: tableRows,
     theme: 'grid',
     headStyles: {
       fillColor: [15, 23, 42],
       textColor: [255, 255, 255],
       fontStyle: 'bold',
-      fontSize: 8.5,
+      fontSize: 8,
       halign: 'left',
     },
     styles: {
-      fontSize: 8,
-      cellPadding: 2.5,
+      fontSize: 7.5,
+      cellPadding: 2.2,
       textColor: [30, 41, 59],
       valign: 'middle',
     },
     columnStyles: {
-      0: { cellWidth: 12, halign: 'center' },
-      1: { cellWidth: 90 },
-      2: { cellWidth: 20, halign: 'center' },
-      3: { cellWidth: 30, halign: 'right' },
-      4: { cellWidth: 30, halign: 'right', fontStyle: 'bold' },
+      0: { cellWidth: 10, halign: 'center' },
+      1: { cellWidth: 68 },
+      2: { cellWidth: 38 },
+      3: { cellWidth: 14, halign: 'center' },
+      4: { cellWidth: 26, halign: 'right' },
+      5: { cellWidth: 26, halign: 'right', fontStyle: 'bold' },
     },
   });
 

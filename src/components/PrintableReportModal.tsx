@@ -5,12 +5,16 @@ import { generateMonthReport } from '../utils/reportUtils';
 import {
   downloadSingleMonthPDF,
   shareOrSaveSingleMonthPDF,
+  triggerSystemPrint,
 } from '../utils/pdfGenerator';
 import {
+  formatCategoryLabel,
   formatMoney,
   formatMonthLabel,
+  formatPriceVarianceSummary,
   formatShortDate,
 } from '../utils/currencyFormat';
+import { getDisplayInvoiceNumber } from '../utils/duplicateDetection';
 
 interface PrintableReportModalProps {
   isOpen: boolean;
@@ -42,6 +46,12 @@ export const PrintableReportModal: React.FC<PrintableReportModalProps> = ({
 
   if (!isOpen) return null;
 
+  const handlePrint = () => {
+    if (!triggerSystemPrint()) {
+      shareOrSaveSingleMonthPDF(monthYear, receipts);
+    }
+  };
+
   return (
     <div
       className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4"
@@ -49,7 +59,7 @@ export const PrintableReportModal: React.FC<PrintableReportModalProps> = ({
       aria-modal="true"
       aria-labelledby="statement-modal-title"
     >
-      <div className="w-full sm:max-w-2xl bg-white dark:bg-slate-900 rounded-t-3xl sm:rounded-3xl border border-slate-200 dark:border-slate-800 shadow-xl overflow-hidden max-h-[90vh] flex flex-col">
+      <div className="w-full sm:max-w-3xl bg-white dark:bg-slate-900 rounded-t-3xl sm:rounded-3xl border border-slate-200 dark:border-slate-800 shadow-xl overflow-hidden max-h-[90vh] flex flex-col">
         <div className="px-6 py-4 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between gap-4">
           <div>
             <h2
@@ -75,28 +85,83 @@ export const PrintableReportModal: React.FC<PrintableReportModalProps> = ({
         </div>
 
         <div className="p-6 overflow-y-auto space-y-6 flex-1">
-          {/* Category Breakdown */}
+          {/* Category Breakdown Subtotals */}
           <div className="space-y-2">
             <h3 className="text-xs font-semibold text-slate-500 dark:text-slate-400">
-              Summary by Category
+              Category Breakdown & Subtotals
             </h3>
             <div className="divide-y divide-slate-100 dark:divide-slate-800">
-              {Object.entries(report.category_totals).map(([cat, amount]) => {
-                if (amount <= 0) return null;
+              {report.category_breakdown.map((row) => {
+                if (row.subtotal <= 0 && row.item_count === 0) return null;
                 return (
                   <div
-                    key={cat}
-                    className="py-2 flex items-center justify-between text-xs sm:text-sm"
+                    key={row.category}
+                    className="py-2 flex items-center justify-between gap-4 text-xs sm:text-sm"
                   >
-                    <span className="text-slate-800 dark:text-slate-200 font-medium">{cat}</span>
+                    <div>
+                      <span className="text-slate-800 dark:text-slate-200 font-medium">
+                        {formatCategoryLabel(row.category)}
+                      </span>
+                      <span className="text-xs text-slate-500 dark:text-slate-400 ml-2 tabular-nums">
+                        {row.percentage.toFixed(1)}%
+                      </span>
+                    </div>
                     <span className="font-mono tabular-nums font-semibold text-slate-900 dark:text-white">
-                      {formatMoney(amount, currencyCode)}
+                      {formatMoney(row.subtotal, currencyCode)}
                     </span>
                   </div>
                 );
               })}
+              <div className="pt-2.5 flex items-center justify-between text-xs sm:text-sm font-bold text-slate-900 dark:text-white">
+                <span>Total Expenditure</span>
+                <span className="font-mono tabular-nums text-emerald-700 dark:text-emerald-400">
+                  {formatMoney(report.total_spend, currencyCode)}
+                </span>
+              </div>
             </div>
           </div>
+
+          {/* Grouped Item Purchase Frequency & Price Variance */}
+          {report.items_alphabetical.length > 0 && (
+            <div className="space-y-2">
+              <h3 className="text-xs font-semibold text-slate-500 dark:text-slate-400">
+                Grouped Item Frequency & Price Variance
+              </h3>
+              <div className="divide-y divide-slate-100 dark:divide-slate-800">
+                {report.items_alphabetical.map((item) => (
+                  <div
+                    key={item.name}
+                    className="py-2.5 flex flex-col sm:flex-row sm:items-center justify-between gap-1.5 text-xs sm:text-sm"
+                  >
+                    <div className="min-w-0">
+                      <p className="font-semibold text-slate-900 dark:text-white">
+                        {item.name}:{' '}
+                        <span className="text-emerald-700 dark:text-emerald-400 tabular-nums">
+                          Purchased {item.occurrences} {item.occurrences === 1 ? 'time' : 'times'}
+                        </span>
+                      </p>
+                      <p className="text-xs text-slate-500 dark:text-slate-400 font-mono tabular-nums mt-0.5">
+                        <span>
+                          {formatPriceVarianceSummary(
+                            item.lowest_unit_price,
+                            item.highest_unit_price,
+                            currencyCode
+                          )}
+                        </span>
+                        <span aria-hidden="true" className="mx-1.5">
+                          ·
+                        </span>
+                        <span>Latest: {formatMoney(item.latest_unit_price, currencyCode)}</span>
+                      </p>
+                    </div>
+                    <span className="font-mono tabular-nums font-semibold text-slate-900 dark:text-white shrink-0">
+                      {formatMoney(item.total_amount, currencyCode)}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* Receipt Register */}
           <div className="space-y-2">
@@ -104,24 +169,39 @@ export const PrintableReportModal: React.FC<PrintableReportModalProps> = ({
               Receipts Included
             </h3>
             <div className="divide-y divide-slate-100 dark:divide-slate-800">
-              {monthReceipts.map((r) => (
-                <div
-                  key={r.id}
-                  className="py-2.5 flex items-center justify-between gap-4 text-xs sm:text-sm"
-                >
-                  <div className="min-w-0">
-                    <p className="font-semibold text-slate-900 dark:text-white truncate">
-                      {r.vendor_name}
-                    </p>
-                    <p className="text-xs text-slate-500 dark:text-slate-400">
-                      {formatShortDate(r.invoice_date)} · {r.category}
-                    </p>
+              {monthReceipts.map((r) => {
+                const invNum = getDisplayInvoiceNumber(r);
+                return (
+                  <div
+                    key={r.id}
+                    className="py-2.5 flex items-center justify-between gap-4 text-xs sm:text-sm"
+                  >
+                    <div className="min-w-0">
+                      <p className="font-semibold text-slate-900 dark:text-white truncate">
+                        {r.vendor_name}
+                      </p>
+                      <p className="text-xs text-slate-500 dark:text-slate-400 tabular-nums">
+                        <span>{formatShortDate(r.invoice_date)}</span>
+                        {invNum && (
+                          <>
+                            <span aria-hidden="true" className="mx-1.5">
+                              ·
+                            </span>
+                            <span className="font-mono">#{invNum}</span>
+                          </>
+                        )}
+                        <span aria-hidden="true" className="mx-1.5">
+                          ·
+                        </span>
+                        <span>{formatCategoryLabel(r.category)}</span>
+                      </p>
+                    </div>
+                    <span className="font-mono tabular-nums font-semibold text-slate-900 dark:text-white shrink-0">
+                      {formatMoney(r.total_amount, currencyCode)}
+                    </span>
                   </div>
-                  <span className="font-mono tabular-nums font-semibold text-slate-900 dark:text-white shrink-0">
-                    {formatMoney(r.total_amount, currencyCode)}
-                  </span>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
         </div>
@@ -137,7 +217,7 @@ export const PrintableReportModal: React.FC<PrintableReportModalProps> = ({
           </button>
           <button
             type="button"
-            onClick={() => window.print()}
+            onClick={handlePrint}
             className="min-h-[44px] px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-xs sm:text-sm font-semibold text-slate-700 dark:text-slate-200 flex items-center gap-2"
           >
             <Printer className="w-4 h-4" />

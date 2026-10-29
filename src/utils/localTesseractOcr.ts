@@ -245,7 +245,10 @@ export function parseLocalOcrTextToReceipts(
     vendorName = 'Local Store Purchase';
   }
 
-  // 2. Detect Invoice Date
+  // 2. Detect Unique Printed Invoice / Receipt / Slip Number (excluding Merchant VAT Reg / Tel numbers)
+  const invoiceNumber = extractInvoiceNumberFromText(rawText);
+
+  // 3. Detect Invoice Date
   let invoiceDate = new Date().toISOString().split('T')[0];
   let monthYear = invoiceDate.substring(0, 7);
 
@@ -280,7 +283,7 @@ export function parseLocalOcrTextToReceipts(
     monthYear = `${y}-${m}`;
   }
 
-  // 3. Detect Amounts & Total (prefer explicit TOTAL keywords over payment tender lines)
+  // 4. Detect Amounts & Total (prefer explicit TOTAL keywords over payment tender lines)
   let totalAmount = 0;
   let subtotal = 0;
   let tax = 0;
@@ -338,20 +341,44 @@ export function parseLocalOcrTextToReceipts(
     totalAmount = Math.max(...paymentTotals);
   }
 
-  // 4. Extract Line Items (handles dots like 1.5L, parentheses, VAT suffixes A/Z/V/*, and 2-line thermal rows)
+  // 5. Overall Receipt Category
+  const category = classifyReceiptCategory(vendorName, rawText);
+
+  // 6. Extract Line Items (handles qty @ unit_price, 1.5L, VAT suffixes A/Z/V/*, and 2-line thermal rows)
   const lineItems: LineItem[] = [];
-  const skipLineRegex = /\b(?:total|totaal|subtotal|sub\s*total|balance|amount\s*due|vat|tax|gst|cashier|invoice|date|change|rounding|tender|cash|card|debit|credit|eft|auth|aid:|rrn:|stan:|slip|tel:|vat\s*no|loyalty|savings|points)\b/i;
+  const skipLineRegex = /\b(?:total|totaal|subtotal|sub\s*total|balance|amount\s*due|vat|tax|gst|cashier|invoice|receipt\s*no|slip\s*no|date|change|rounding|tender|cash|card|debit|credit|eft|auth|aid:|rrn:|stan:|tel:|vat\s*no|loyalty|savings|points)\b/i;
+  const inlineQtyUnitRegex = new RegExp(
+    `^([A-Za-z0-9#&%*+/'().,:\\s-]{2,55}?)\\s+(\\d{1,3})\\s*[xX@]\\s*${CURRENCY_PREFIX_PATTERN}\\s*([0-9]{1,5}[.,][0-9]{2})\\s+${CURRENCY_PREFIX_PATTERN}\\s*([0-9]{1,5}[.,][0-9]{2})(?:\\s*[*#A-Za-z]{1,2})?$`
+  );
   const inlineItemRegex = new RegExp(
     `^([A-Za-z0-9#&%*+/'().,:\\s-]{2,60}?)\\s+${CURRENCY_PREFIX_PATTERN}\\s*([0-9]{1,5}[.,][0-9]{2})(?:\\s*[*#A-Za-z]{1,2})?$`
   );
   const standalonePriceRegex = new RegExp(
-    `^(?:(\\d+)\\s*[xX@]\\s*[0-9]+[.,][0-9]{2}\\s+)?${CURRENCY_PREFIX_PATTERN}\\s*([0-9]{1,5}[.,][0-9]{2})(?:\\s*[*#A-Za-z]{1,2})?$`
+    `^(?:(\\d{1,3})\\s*[xX@]\\s*${CURRENCY_PREFIX_PATTERN}\\s*([0-9]{1,5}[.,][0-9]{2})\\s+)?${CURRENCY_PREFIX_PATTERN}\\s*([0-9]{1,5}[.,][0-9]{2})(?:\\s*[*#A-Za-z]{1,2})?$`
   );
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
     if (skipLineRegex.test(line)) {
       continue;
+    }
+
+    const qtyUnitMatch = line.match(inlineQtyUnitRegex);
+    if (qtyUnitMatch) {
+      const cleanDesc = qtyUnitMatch[1].replace(/^[\d*#\s-]+(?=[A-Za-z])/, '').trim();
+      const qty = Math.max(1, parseInt(qtyUnitMatch[2], 10) || 1);
+      const unitP = parseFloat(qtyUnitMatch[3].replace(',', '.'));
+      const totalP = parseFloat(qtyUnitMatch[4].replace(',', '.'));
+      if (cleanDesc.length >= 2 && /[A-Za-z]{2,}/.test(cleanDesc) && !isNaN(totalP) && totalP > 0) {
+        lineItems.push({
+          description: cleanDesc,
+          quantity: qty,
+          unit_price: !isNaN(unitP) && unitP > 0 ? unitP : parseFloat((totalP / qty).toFixed(2)),
+          total_price: totalP,
+          category: classifyItemCategory(cleanDesc, category),
+        });
+        continue;
+      }
     }
 
     const itemMatch = line.match(inlineItemRegex);
@@ -361,7 +388,7 @@ export function parseLocalOcrTextToReceipts(
       if (desc.length >= 2 && /[A-Za-z]{2,}/.test(desc) && !isNaN(price) && price > 0 && price < 50000) {
         let qty = 1;
         let finalDesc = desc;
-        const qtyPrefix = desc.match(/^(\d{1,3})\s*[xX]\s+(.+)$/);
+        const qtyPrefix = desc.match(/^(\d{1,3})\s*[xX@]\s+(.+)$/);
         if (qtyPrefix) {
           qty = parseInt(qtyPrefix[1], 10) || 1;
           finalDesc = qtyPrefix[2].trim();
@@ -371,7 +398,8 @@ export function parseLocalOcrTextToReceipts(
           description: finalDesc,
           quantity: qty,
           unit_price: parseFloat((price / qty).toFixed(2)),
-          total_price: price
+          total_price: price,
+          category: classifyItemCategory(finalDesc, category),
         });
         continue;
       }
@@ -387,14 +415,16 @@ export function parseLocalOcrTextToReceipts(
       const nextPriceMatch = lines[i + 1].match(standalonePriceRegex);
       if (nextPriceMatch) {
         const qty = nextPriceMatch[1] ? parseInt(nextPriceMatch[1], 10) || 1 : 1;
-        const price = parseFloat(nextPriceMatch[2].replace(',', '.'));
+        const explicitUnit = nextPriceMatch[2] ? parseFloat(nextPriceMatch[2].replace(',', '.')) : NaN;
+        const price = parseFloat(nextPriceMatch[3].replace(',', '.'));
         const cleanDesc = line.replace(/^[\d*#\s-]+(?=[A-Za-z])/, '').trim();
         if (cleanDesc.length >= 2 && !isNaN(price) && price > 0 && price < 50000) {
           lineItems.push({
             description: cleanDesc,
             quantity: qty,
-            unit_price: parseFloat((price / qty).toFixed(2)),
-            total_price: price
+            unit_price: !isNaN(explicitUnit) && explicitUnit > 0 ? explicitUnit : parseFloat((price / qty).toFixed(2)),
+            total_price: price,
+            category: classifyItemCategory(cleanDesc, category),
           });
           i += 1;
         }
@@ -411,20 +441,19 @@ export function parseLocalOcrTextToReceipts(
     subtotal = tax > 0 && totalAmount > tax ? parseFloat((totalAmount - tax).toFixed(2)) : totalAmount;
   }
 
-  // 5. Automatic Categorization
-  const category = classifyReceiptCategory(vendorName, rawText);
-
   if (lineItems.length === 0 && totalAmount > 0) {
     lineItems.push({
       description: `${vendorName} Purchase`,
       quantity: 1,
       unit_price: totalAmount,
-      total_price: totalAmount
+      total_price: totalAmount,
+      category,
     });
   }
 
   const receipt: ReceiptData = {
     vendor_name: vendorName,
+    invoice_number: invoiceNumber,
     invoice_date: invoiceDate,
     month_year: monthYear,
     category,
@@ -441,6 +470,80 @@ export function parseLocalOcrTextToReceipts(
   };
 
   return [receipt];
+}
+
+/**
+ * Extracts unique printed invoice, receipt, slip, or transaction numbers while
+ * ignoring static merchant VAT registration, company reg, and phone numbers.
+ */
+export function extractInvoiceNumberFromText(rawText: string): string {
+  if (!rawText) return '';
+  const lines = rawText.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+
+  const labelPatterns = [
+    /\b(?:tax\s*invoice|invoice|inv)\s*(?:no\.?|nr\.?|number|#|:)\s*([A-Z0-9][A-Z0-9/-]{2,22})\b/i,
+    /\b(?:receipt|rcpt|slip|doc|document|trans|transaction|txn|till\s*slip)\s*(?:no\.?|nr\.?|id|number|#|:)\s*([A-Z0-9][A-Z0-9/-]{2,22})\b/i,
+    /\b(?:ref|reference|token)\s*(?:no\.?|nr\.?|#|:)\s*([A-Z0-9][A-Z0-9/-]{3,24})\b/i,
+  ];
+
+  for (const line of lines) {
+    if (/\b(?:vat\s*(?:no|nr|reg)|reg\s*(?:no|nr)|company\s*reg|tel|phone|fax|cell|mer\s*id)\b/i.test(line)) {
+      continue;
+    }
+    for (const pattern of labelPatterns) {
+      const m = line.match(pattern);
+      if (m && m[1] && /\d/.test(m[1])) {
+        const candidate = m[1].replace(/[.,:;]+$/, '').trim();
+        if (candidate.length >= 3) {
+          return candidate;
+        }
+      }
+    }
+  }
+
+  return '';
+}
+
+/**
+ * Assigns an item-level category for mixed receipts (e.g. hardware or utility tokens bought at a supermarket)
+ */
+function classifyItemCategory(
+  itemDescription: string,
+  fallbackCategory: ReceiptCategory
+): ReceiptCategory {
+  const text = itemDescription.toLowerCase();
+
+  if (
+    /\b(electricity|kwh|prepaid\s*power|power\s*token|water\s*bill|municipal|gas\s*refill|lpg)\b/.test(
+      text
+    )
+  ) {
+    return 'Electricity & Utilities';
+  }
+
+  if (
+    /\b(unleaded|petrol|diesel|fuel|motor\s*oil|car\s*wash|parking|toll)\b/.test(text)
+  ) {
+    return 'Transport';
+  }
+
+  if (
+    /\b(bulb|led\s*lamp|battery|batteries|extension\s*cord|plug\s*top|adapter|screw|screws|nails|drill|hammer|tape\s*measure|paint|brush|sealant|silicone|glue|adhesive|epoxy|sandpaper|padlock|hinge|plumbing|pvc|garden\s*hose|fertilizer|hardware)\b/.test(
+      text
+    )
+  ) {
+    return 'Home Maintenance';
+  }
+
+  if (
+    /\b(bread|milk|eggs|butter|margarine|cheese|yoghurt|yogurt|chicken|beef|mince|pork|boerewors|fish|rice|maize|pasta|flour|sugar|salt|oil|cereal|oats|coffee|tea|juice|water\s*\d|soda|cola|apple|banana|potato|onion|tomato|veg|fruit|soap|toothpaste|detergent|bleach|tissue|toilet\s*paper)\b/.test(
+      text
+    )
+  ) {
+    return 'Food & Groceries';
+  }
+
+  return fallbackCategory;
 }
 
 /**
@@ -510,6 +613,7 @@ function createDefaultReceipt(
   const today = new Date().toISOString().split('T')[0];
   return {
     vendor_name: vendor,
+    invoice_number: '',
     invoice_date: today,
     month_year: today.substring(0, 7),
     category,
@@ -518,12 +622,13 @@ function createDefaultReceipt(
       description: fileName ? `Scanned Slip (${fileName})` : 'Household Expense',
       quantity: 1,
       unit_price: 0,
-      total_price: 0
+      total_price: 0,
+      category,
     }],
     subtotal: 0,
     tax: 0,
     total_amount: 0,
-    notes: 'Photo captured on device — confirm store name and total below.',
+    notes: 'Photo captured on device — confirm store, date, invoice # and total below.',
     engine_used: engineUsed
   };
 }

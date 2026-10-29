@@ -1,7 +1,8 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { Search, X, ArrowRight } from 'lucide-react';
 import type { SavedReceipt } from '../types';
-import { formatMoney, formatShortDate } from '../utils/currencyFormat';
+import { formatCategoryLabel, formatMoney, formatShortDate } from '../utils/currencyFormat';
+import { getDisplayInvoiceNumber } from '../utils/duplicateDetection';
 
 interface GlobalSearchModalProps {
   isOpen: boolean;
@@ -35,7 +36,9 @@ export const GlobalSearchModal: React.FC<GlobalSearchModalProps> = ({
     return receipts
       .filter((r) => {
         if (r.vendor_name.toLowerCase().includes(q)) return true;
+        if (getDisplayInvoiceNumber(r).toLowerCase().includes(q)) return true;
         if (r.category.toLowerCase().includes(q)) return true;
+        if (formatCategoryLabel(r.category).toLowerCase().includes(q)) return true;
         if (r.invoice_date.includes(q)) return true;
         if ((r.notes || '').toLowerCase().includes(q)) return true;
         return (r.line_items || []).some((li) => li.description.toLowerCase().includes(q));
@@ -60,7 +63,7 @@ export const GlobalSearchModal: React.FC<GlobalSearchModalProps> = ({
             type="text"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search any store, grocery item, date, or note..."
+            placeholder="Search any store, invoice #, item, date, or note..."
             className="w-full min-h-[44px] bg-transparent text-sm sm:text-base text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none"
           />
           <button
@@ -82,6 +85,7 @@ export const GlobalSearchModal: React.FC<GlobalSearchModalProps> = ({
             </div>
           ) : (
             matches.map((rcpt) => {
+              const inv = getDisplayInvoiceNumber(rcpt);
               const matchedItem =
                 query.trim().length > 1
                   ? (rcpt.line_items || []).find((li) =>
@@ -105,10 +109,18 @@ export const GlobalSearchModal: React.FC<GlobalSearchModalProps> = ({
                     </p>
                     <p className="text-xs text-slate-500 dark:text-slate-400 truncate mt-0.5">
                       <span>{formatShortDate(rcpt.invoice_date)}</span>
+                      {inv && (
+                        <>
+                          <span aria-hidden="true" className="mx-1.5">
+                            ·
+                          </span>
+                          <span className="font-mono tabular-nums">#{inv}</span>
+                        </>
+                      )}
                       <span aria-hidden="true" className="mx-1.5">
                         ·
                       </span>
-                      <span>{rcpt.category}</span>
+                      <span>{formatCategoryLabel(rcpt.category)}</span>
                       {matchedItem && (
                         <>
                           <span aria-hidden="true" className="mx-1.5">

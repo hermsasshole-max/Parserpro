@@ -35,8 +35,12 @@ const singleReceiptSchema = {
   type: Type.OBJECT,
   properties: {
     vendor_name: { type: Type.STRING, description: "Store or utility provider name (e.g. Rayton Express, Pick n Pay, Checkers, Eskom)" },
-    invoice_date: { type: Type.STRING, description: "Date in YYYY-MM-DD format (e.g. 2026-09-25)" },
-    month_year: { type: Type.STRING, description: "Month in YYYY-MM format (e.g. 2026-09)" },
+    invoice_number: {
+      type: Type.STRING,
+      description: "Unique printed receipt, tax invoice, slip, till, doc, or transaction reference number (e.g. INV-004821, 0842/03/9912, #48192). Do NOT use the merchant's VAT registration number. Empty string if none printed."
+    },
+    invoice_date: { type: Type.STRING, description: "Purchase date in YYYY-MM-DD format (e.g. 2026-10-25)" },
+    month_year: { type: Type.STRING, description: "Month in YYYY-MM format (e.g. 2026-10)" },
     category: {
       type: Type.STRING,
       description: "One of: Food & Groceries, Electricity & Utilities, Home Maintenance, Transport, Other"
@@ -47,20 +51,24 @@ const singleReceiptSchema = {
       items: {
         type: Type.OBJECT,
         properties: {
-          description: { type: Type.STRING, description: "Item description" },
-          quantity: { type: Type.NUMBER, description: "Item quantity" },
-          unit_price: { type: Type.NUMBER, description: "Unit price" },
-          total_price: { type: Type.NUMBER, description: "Total price" },
+          description: { type: Type.STRING, description: "Clean item name (e.g. Albany Superior White Bread 700g)" },
+          quantity: { type: Type.NUMBER, description: "Quantity purchased (default 1)" },
+          unit_price: { type: Type.NUMBER, description: "Price per single unit" },
+          total_price: { type: Type.NUMBER, description: "Total line price (quantity * unit_price)" },
+          category: {
+            type: Type.STRING,
+            description: "Assigned item category — one of: Food & Groceries, Electricity & Utilities, Home Maintenance (use for Hardware/DIY), Transport, Other"
+          },
         },
-        required: ["description", "total_price"]
+        required: ["description", "quantity", "unit_price", "total_price", "category"]
       }
     },
     subtotal: { type: Type.NUMBER, description: "Subtotal amount" },
     tax: { type: Type.NUMBER, description: "Tax or VAT amount" },
     total_amount: { type: Type.NUMBER, description: "Total receipt spend amount" },
-    notes: { type: Type.STRING, description: "Slip notes, tax invoice number, or slip index (e.g. Slip 1 of 3: Tax Invoice COPY)" }
+    notes: { type: Type.STRING, description: "Slip notes or slip index (e.g. Slip 1 of 3)" }
   },
-  required: ["vendor_name", "total_amount", "category"]
+  required: ["vendor_name", "invoice_date", "total_amount", "category"]
 };
 
 const multiReceiptBatchSchema = {
@@ -123,10 +131,10 @@ async function parseReceiptWithRetry(
   const ai = getAiClient();
   const cleanedData = cleanBase64(base64Data);
 
-  // Modern Gemini models - prioritizing fast flash models
+  // Modern Gemini models - prioritizing gemini-3.8-flash per SDK guidelines
   const models = [
-    "gemini-flash-latest",
     "gemini-3.8-flash",
+    "gemini-flash-latest",
     "gemini-3.1-flash-lite"
   ];
   let lastError: any = null;
@@ -468,30 +476,36 @@ self.addEventListener('fetch', (e) => {
           ? req.body.preferredCurrency.trim().toUpperCase()
           : "ZAR";
 
-      const prompt = `You are an expert receipt and tax invoice parser designed for a household grocery and expenditure tracking app.
+      const prompt = `You are an expert itemized receipt parser and financial data aggregator designed for a household expenditure tracking app.
 
 IMPORTANT INSTRUCTION FOR MULTIPLE RECEIPTS:
 The uploaded photo may contain:
 - A SINGLE receipt/invoice, OR
-- MULTIPLE separate receipts/slips laid side-by-side or photographed on a table/counter (for example, two or three separate store slips in one picture).
+- MULTIPLE separate receipts/slips laid side-by-side or photographed on a table/counter.
 
 You MUST inspect the entire image and detect EVERY distinct receipt, tax invoice, or cash slip visible.
 For EACH separate receipt identified in the image, extract:
-- "vendor_name": Store or provider name (e.g., "Pick n Pay", "Checkers", "Woolworths", "Walmart", "Tesco", "Target", "Eskom").
-- "invoice_date": Date found on that specific receipt formatted strictly as YYYY-MM-DD. If year is 2 digits like 26, format as 2026.
-- "month_year": The YYYY-MM month derived from the invoice date (e.g. "2026-10").
-- "category": Choose one of: "Food & Groceries", "Electricity & Utilities", "Home Maintenance", "Transport", "Other".
+- "vendor_name": Store or provider name (e.g., "Pick n Pay", "Checkers", "Woolworths", "Builders Warehouse", "Shell", "Eskom").
+- "invoice_number": The unique printed receipt number, tax invoice number, slip number, doc number, or till/transaction reference number (e.g., "INV-004821", "0842/03/9912", "#48192"). IMPORTANT: Do NOT put the store's VAT registration number or telephone number here. Return "" if no unique invoice/slip number is printed.
+- "invoice_date": Purchase date found on that specific receipt formatted strictly as YYYY-MM-DD. If year is 2 digits like 26, format as 2026.
+- "month_year": The YYYY-MM billing month derived from the invoice date (e.g. "2026-10").
+- "category": Overall receipt category — choose one of: "Food & Groceries", "Electricity & Utilities", "Home Maintenance", "Transport", "Other".
 - "currency": "${preferredCurrency}" by default unless another currency symbol or code is clearly printed on the receipt.
-- "line_items": Array of item descriptions, quantity, unit_price, total_price on that receipt.
+- "line_items": Every individual purchased item on the receipt. For EACH item extract:
+  - "description": Standardized, readable item name (expand cryptic thermal abbreviations where obvious, e.g., "Bread White 700g", "Full Cream Milk 2L", "AA Batteries 4pk").
+  - "quantity": Numeric quantity purchased (e.g., 1, 2, 0.85).
+  - "unit_price": Price paid per single unit as a float (e.g., 18.50). If a receipt shows "2 @ 18.50 = 37.00", quantity is 2, unit_price is 18.50, total_price is 37.00.
+  - "total_price": Total line item price as a float.
+  - "category": Assigned category for this specific item — choose one of: "Food & Groceries", "Electricity & Utilities", "Home Maintenance", "Transport", "Other" (e.g. if a supermarket receipt includes lightbulbs/screws, assign those items to "Home Maintenance" while food items get "Food & Groceries").
 - "subtotal": Subtotal before tax if available.
 - "tax": VAT/Tax amount if printed.
 - "total_amount": Grand total amount of that specific receipt as a clean float (e.g., 122.30, 47.50, 292.17).
 - "notes": Mention slip position or detail if multiple slips are present (e.g. "Slip 1 of 3").
 
 Categorization Rules:
-1. "Food & Groceries": Supermarkets, grocery stores, bakeries, butcheries, restaurants.
+1. "Food & Groceries": Groceries, supermarkets, bakeries, butcheries, beverages, household consumables, restaurants.
 2. "Electricity & Utilities": Power tokens, electricity, water, rates, municipal services, internet/gas.
-3. "Home Maintenance": Hardware, DIY, construction, repair services, garden.
+3. "Home Maintenance": Hardware, DIY, tools, paint, bulbs, plumbing, construction, repair services, garden.
 4. "Transport": Fuel stations, diesel/petrol, vehicle services, toll gates, parking.
 5. "Other": Any household expense that does not fit the above categories.
 
@@ -522,36 +536,76 @@ Strictly return JSON conforming to the schema with the "receipts" array containi
         rawReceipts = [parsed];
       }
 
+      const normalizeCat = (rawCat: any, fallback = "Food & Groceries"): string => {
+        const val = String(rawCat || "").trim().toLowerCase();
+        if (!val) return fallback;
+        if (val === "food & groceries" || val.includes("grocer") || val.includes("food") || val.includes("supermarket")) {
+          return "Food & Groceries";
+        }
+        if (val === "electricity & utilities" || val.includes("utilit") || val.includes("electric") || val.includes("water") || val.includes("power")) {
+          return "Electricity & Utilities";
+        }
+        if (val === "home maintenance" || val.includes("hardware") || val.includes("home") || val.includes("diy") || val.includes("maintenance") || val.includes("garden")) {
+          return "Home Maintenance";
+        }
+        if (val === "transport" || val.includes("fuel") || val.includes("petrol") || val.includes("diesel") || val.includes("transport")) {
+          return "Transport";
+        }
+        if (val === "other") return "Other";
+        return fallback;
+      };
+
       const todayStr = new Date().toISOString().split("T")[0];
       const todayMonth = todayStr.substring(0, 7);
 
       const normalizedReceipts = rawReceipts.map((r: any, idx: number) => {
         let vendorName = (r.vendor_name || "").trim() || `Store Receipt ${idx + 1}`;
-        let category = (r.category || "").trim() || "Food & Groceries";
+        let category = normalizeCat(r.category, "Food & Groceries");
         let currency = (r.currency || "").trim() || preferredCurrency;
+        let invoiceNumber = String(r.invoice_number || "").trim();
+        if (/^vat\b/i.test(invoiceNumber)) {
+          invoiceNumber = "";
+        }
         let invoiceDate = (r.invoice_date || "").trim() || todayStr;
         
         // Normalize 2-digit years or non-standard dates if needed
-        if (invoiceDate.length < 10) {
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(invoiceDate)) {
           invoiceDate = todayStr;
         }
-        let monthYear = r.month_year || invoiceDate.substring(0, 7) || todayMonth;
+        let monthYear = /^\d{4}-\d{2}$/.test(String(r.month_year || ""))
+          ? String(r.month_year)
+          : invoiceDate.substring(0, 7) || todayMonth;
         let totalAmount = typeof r.total_amount === "number" ? r.total_amount : parseFloat(r.total_amount) || 0;
         let subtotal = typeof r.subtotal === "number" ? r.subtotal : (parseFloat(r.subtotal) || totalAmount);
         let tax = typeof r.tax === "number" ? r.tax : (parseFloat(r.tax) || 0);
 
         let lineItems: any[] = [];
         if (Array.isArray(r.line_items)) {
-          lineItems = r.line_items.map((item: any) => ({
-            description: String(item.description || "Item").trim(),
-            quantity: Number(item.quantity) || 1,
-            unit_price: Number(item.unit_price) || Number(item.total_price) || 0,
-            total_price: Number(item.total_price) || 0,
-          }));
+          lineItems = r.line_items.map((item: any) => {
+            const qty = Number(item.quantity) > 0 ? Number(item.quantity) : 1;
+            const rawUnit = Number(item.unit_price) || 0;
+            const rawTotal = Number(item.total_price) || 0;
+            const totalPrice = rawTotal > 0 ? rawTotal : Number((qty * rawUnit).toFixed(2));
+            const unitPrice = rawUnit > 0 ? rawUnit : (qty > 0 ? Number((totalPrice / qty).toFixed(2)) : totalPrice);
+            return {
+              description: String(item.description || "Item").trim(),
+              quantity: qty,
+              unit_price: Number(unitPrice.toFixed(2)),
+              total_price: Number(totalPrice.toFixed(2)),
+              category: normalizeCat(item.category, category),
+            };
+          });
+        }
+
+        if (totalAmount <= 0 && lineItems.length > 0) {
+          totalAmount = Number(
+            lineItems.reduce((sum, li) => sum + (Number(li.total_price) || 0), 0).toFixed(2)
+          );
         }
 
         return {
           vendor_name: vendorName,
+          invoice_number: invoiceNumber,
           invoice_date: invoiceDate,
           month_year: monthYear,
           category,
@@ -559,7 +613,7 @@ Strictly return JSON conforming to the schema with the "receipts" array containi
           line_items: lineItems,
           subtotal,
           tax,
-          total_amount: totalAmount,
+          total_amount: Number(totalAmount.toFixed(2)),
           notes: r.notes || (rawReceipts.length > 1 ? `Slip ${idx + 1} of ${rawReceipts.length}` : "")
         };
       });
@@ -567,6 +621,7 @@ Strictly return JSON conforming to the schema with the "receipts" array containi
       console.log(`[Gemini API] Successfully parsed ${normalizedReceipts.length} receipt(s) from image`);
       const primary = normalizedReceipts[0] || {
         vendor_name: "Store Receipt",
+        invoice_number: "",
         invoice_date: todayStr,
         month_year: todayMonth,
         category: "Food & Groceries",

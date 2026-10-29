@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import {
   Camera,
   Image as ImageIcon,
@@ -7,6 +7,8 @@ import {
   Trash2,
   Search,
   AlertTriangle,
+  ShieldAlert,
+  ShieldCheck,
   Clock,
   Loader2,
   X,
@@ -14,7 +16,7 @@ import {
   WifiOff,
   FilePlus2,
 } from 'lucide-react';
-import type { ReceiptCategory, ReceiptData, SavedReceipt } from '../types';
+import type { LineItem, ReceiptCategory, ReceiptData, SavedReceipt } from '../types';
 import { compressAndPrepareImage } from '../utils/imageUtils';
 import {
   isCapacitorPlatform,
@@ -23,7 +25,10 @@ import {
 } from '../utils/nativeCamera';
 import { executeFailSafeOcr } from '../utils/failSafeOcrCoordinator';
 import {
+  computeImageFingerprint,
+  getDisplayInvoiceNumber,
   identifyBatchDuplicates,
+  isDuplicateQueuedFile,
   type DuplicateMatch,
 } from '../utils/duplicateDetection';
 import {
@@ -32,7 +37,12 @@ import {
   type SubscriptionState,
   type UpgradeTriggerReason,
 } from '../utils/subscriptionManager';
-import { formatMoney, formatShortDate } from '../utils/currencyFormat';
+import {
+  formatCategoryLabel,
+  formatMoney,
+  formatShortDate,
+  normalizeReceiptCategory,
+} from '../utils/currencyFormat';
 
 interface QueuedPhoto {
   id: string;
@@ -40,6 +50,7 @@ interface QueuedPhoto {
   previewUrl: string;
   base64Data: string;
   mimeType: string;
+  fingerprint: string;
 }
 
 interface ExtractedDraft extends ReceiptData {
@@ -91,7 +102,6 @@ export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
   const [showLimitFallbackPrompt, setShowLimitFallbackPrompt] = useState(false);
 
   const [drafts, setDrafts] = useState<ExtractedDraft[]>([]);
-  const [duplicateMap, setDuplicateMap] = useState<Map<string, DuplicateMatch>>(new Map());
   const [savedBannerCount, setSavedBannerCount] = useState<number | null>(null);
   const [isDragging, setIsDragging] = useState(false);
 
@@ -101,6 +111,17 @@ export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
 
   const isPlus = subscriptionState.tier === 'plus';
 
+  // Live duplicate evaluation whenever Store, Date, Invoice #, Total, or saved receipts change
+  const duplicateMap = useMemo<Map<string, DuplicateMatch>>(() => {
+    if (drafts.length === 0) return new Map();
+    const asSavedForCheck: SavedReceipt[] = drafts.map((d) => ({
+      ...d,
+      id: d.draftId,
+      created_at: new Date().toISOString(),
+    }));
+    return identifyBatchDuplicates(asSavedForCheck, existingReceipts);
+  }, [drafts, existingReceipts]);
+
   const processSelectedFiles = async (files: File[]) => {
     if (!files.length) return;
     setErrorMessage(null);
@@ -108,7 +129,7 @@ export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
 
     let allowedFiles = files;
 
-    // Gate multi-photo batch scanning on Free Starter while keeping the first photo queued!
+    // Gate multi-photo batch scanning on Free Starter while keeping the first photo queued
     if (!isPlus) {
       if (queuedPhotos.length >= 1) {
         onOpenUpgrade('batch_multi_photo');
@@ -129,8 +150,23 @@ export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
     setIsPreparingPhoto(true);
     try {
       const preparedItems: QueuedPhoto[] = [];
+      let skippedSameTrayCount = 0;
+
       for (const file of allowedFiles) {
         const compressed = await compressAndPrepareImage(file, 1800, 0.84);
+        const fingerprint = computeImageFingerprint(compressed.base64Data);
+
+        if (
+          isDuplicateQueuedFile(
+            compressed.file,
+            [...queuedPhotos, ...preparedItems],
+            fingerprint
+          )
+        ) {
+          skippedSameTrayCount += 1;
+          continue;
+        }
+
         const previewUrl = URL.createObjectURL(compressed.file);
         preparedItems.push({
           id: `photo_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
@@ -138,9 +174,17 @@ export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
           previewUrl,
           base64Data: compressed.base64Data,
           mimeType: compressed.mimeType,
+          fingerprint,
         });
       }
-      setQueuedPhotos((prev) => [...prev, ...preparedItems]);
+
+      if (skippedSameTrayCount > 0) {
+        setScanNotice('Duplicate photo skipped — that receipt image is already in your scan tray.');
+      }
+
+      if (preparedItems.length > 0) {
+        setQueuedPhotos((prev) => [...prev, ...preparedItems]);
+      }
     } catch (err: any) {
       setErrorMessage(
         err?.message || 'Could not load that image. Please try another photo.'
@@ -240,7 +284,7 @@ export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
         const prefix =
           queuedPhotos.length > 1 ? `Photo ${i + 1} of ${queuedPhotos.length}: ` : '';
 
-        setScanStage(`${prefix}Reading store, date & items...`);
+        setScanStage(`${prefix}Reading store, date, invoice # & items...`);
 
         const result = await executeFailSafeOcr({
           base64Data: photo.base64Data,
@@ -269,12 +313,27 @@ export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
               ? slip.invoice_date
               : todayIso;
           const safeMonth = safeDate.substring(0, 7);
+          const normalizedCat = normalizeReceiptCategory(slip.category, 'Food & Groceries');
+          const normalizedItems: LineItem[] = (slip.line_items || []).map((li) => ({
+            description: li.description || 'Receipt Item',
+            quantity: Number(li.quantity) > 0 ? Number(li.quantity) : 1,
+            unit_price: Number(li.unit_price) || 0,
+            total_price:
+              Number(li.total_price) > 0
+                ? Number(li.total_price)
+                : Number(((Number(li.quantity) || 1) * (Number(li.unit_price) || 0)).toFixed(2)),
+            category: normalizeReceiptCategory(li.category, normalizedCat),
+          }));
 
           extractedList.push({
             ...slip,
+            invoice_number: (slip.invoice_number || getDisplayInvoiceNumber(slip) || '').trim(),
             invoice_date: safeDate,
             month_year: safeMonth,
+            category: normalizedCat,
+            line_items: normalizedItems,
             currency: slip.currency || currencyCode,
+            image_fingerprint: slip.image_fingerprint || photo.fingerprint,
             draftId: `draft_${Date.now()}_${i}_${idx}_${Math.random()
               .toString(36)
               .substring(2, 6)}`,
@@ -290,30 +349,34 @@ export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
         recordSmartScanUsed(cloudPhotosScanned);
       }
 
-      // Run duplicate detection against existing saved receipts
+      // Evaluate duplicates immediately against historical ledger + current batch
       const asSavedForCheck: SavedReceipt[] = extractedList.map((d) => ({
         ...d,
         id: d.draftId,
         created_at: new Date().toISOString(),
       }));
-      const dupes = identifyBatchDuplicates(asSavedForCheck, existingReceipts);
+      const initialDupes = identifyBatchDuplicates(asSavedForCheck, existingReceipts);
 
-      // Automatically uncheck high-confidence duplicates so users don't double-count by accident,
-      // while still letting them check the box if it really was a second purchase!
       const finalDrafts = extractedList.map((d) => ({
         ...d,
-        selected: !dupes.has(d.draftId),
+        selected: !initialDupes.get(d.draftId)?.isBlocked,
       }));
 
-      setDuplicateMap(dupes);
       setDrafts(finalDrafts);
       setQueuedPhotos([]);
 
-      if (warnings.length > 0) {
+      const blockedCount = Array.from(initialDupes.values()).filter((m) => m.isBlocked).length;
+      if (blockedCount > 0) {
+        setScanNotice(
+          blockedCount === extractedList.length
+            ? 'Duplicate receipt detected and blocked — verify Store, Date, and Invoice # below.'
+            : `${blockedCount} duplicate ${blockedCount === 1 ? 'receipt was' : 'receipts were'} automatically blocked.`
+        );
+      } else if (warnings.length > 0) {
         setScanNotice(warnings[0]);
       } else if (extractedList.length > 1) {
         setScanNotice(
-          `Found ${extractedList.length} separate receipts. Review below and tap Save.`
+          `Found ${extractedList.length} separate receipts. Confirm Store, Date & Invoice # below before accepting.`
         );
       }
     } catch (err: any) {
@@ -344,42 +407,151 @@ export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
     );
   };
 
+  const updateDraftLineItem = (
+    draftId: string,
+    itemIndex: number,
+    patch: Partial<LineItem>
+  ) => {
+    setDrafts((prev) =>
+      prev.map((d) => {
+        if (d.draftId !== draftId) return d;
+        const updatedItems = (d.line_items || []).map((item, idx) => {
+          if (idx !== itemIndex) return item;
+          const merged = { ...item, ...patch };
+          if ('quantity' in patch || 'unit_price' in patch) {
+            const qty = Math.max(0.01, Number(merged.quantity) || 1);
+            const unit = Math.max(0, Number(merged.unit_price) || 0);
+            merged.total_price = Number((qty * unit).toFixed(2));
+          }
+          return merged;
+        });
+
+        const sumItems = updatedItems.reduce(
+          (sum, li) => sum + (Number(li.total_price) || 0),
+          0
+        );
+        return {
+          ...d,
+          line_items: updatedItems,
+          total_amount: sumItems > 0 ? Number(sumItems.toFixed(2)) : d.total_amount,
+          subtotal:
+            sumItems > 0
+              ? Number(Math.max(0, sumItems - (Number(d.tax) || 0)).toFixed(2))
+              : d.subtotal,
+        };
+      })
+    );
+  };
+
+  const addDraftLineItem = (draftId: string) => {
+    setDrafts((prev) =>
+      prev.map((d) => {
+        if (d.draftId !== draftId) return d;
+        const nextItems: LineItem[] = [
+          ...(d.line_items || []),
+          {
+            description: '',
+            quantity: 1,
+            unit_price: 0,
+            total_price: 0,
+            category: d.category,
+          },
+        ];
+        return { ...d, line_items: nextItems };
+      })
+    );
+  };
+
+  const removeDraftLineItem = (draftId: string, itemIndex: number) => {
+    setDrafts((prev) =>
+      prev.map((d) => {
+        if (d.draftId !== draftId) return d;
+        const nextItems = (d.line_items || []).filter((_, idx) => idx !== itemIndex);
+        const sumItems = nextItems.reduce(
+          (sum, li) => sum + (Number(li.total_price) || 0),
+          0
+        );
+        return {
+          ...d,
+          line_items: nextItems,
+          total_amount: sumItems > 0 ? Number(sumItems.toFixed(2)) : d.total_amount,
+        };
+      })
+    );
+  };
+
+  const acceptedDrafts = drafts.filter(
+    (d) => d.selected && !duplicateMap.get(d.draftId)?.isBlocked
+  );
+  const blockedDraftCount = drafts.filter(
+    (d) => Boolean(duplicateMap.get(d.draftId)?.isBlocked)
+  ).length;
+  const selectedDraftCount = acceptedDrafts.length;
+  const selectedTotalSpend = acceptedDrafts.reduce(
+    (sum, d) => sum + (Number(d.total_amount) || 0),
+    0
+  );
+
   const handleSaveSelectedDrafts = () => {
-    const chosen = drafts.filter((d) => d.selected);
-    if (chosen.length === 0) {
-      setErrorMessage('Select at least one receipt below to save.');
+    setErrorMessage(null);
+
+    if (acceptedDrafts.length === 0) {
+      setErrorMessage(
+        blockedDraftCount > 0
+          ? 'Duplicate receipt scans are blocked from saving to prevent double-counting.'
+          : 'Select at least one verified receipt below to accept.'
+      );
       return;
     }
 
-    const toSave: SavedReceipt[] = chosen.map((d) => ({
-      id: `rcpt_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`,
-      created_at: new Date().toISOString(),
-      vendor_name: d.vendor_name.trim() || 'Store Receipt',
-      invoice_date: d.invoice_date,
-      month_year: d.invoice_date.substring(0, 7),
-      category: d.category,
-      currency: d.currency || currencyCode,
-      line_items: d.line_items || [],
-      subtotal: Number(d.subtotal) || Number(d.total_amount) || 0,
-      tax: Number(d.tax) || 0,
-      total_amount: Number(d.total_amount) || 0,
-      notes: d.notes || '',
-      engine_used: d.engine_used,
-      file_name: d.sourceFileName,
-      image_preview: d.previewUrl,
-    }));
+    const toSave: SavedReceipt[] = acceptedDrafts.map((d) => {
+      const cleanedItems = (d.line_items || [])
+        .filter((li) => li.description.trim().length > 0)
+        .map((li) => ({
+          ...li,
+          category: normalizeReceiptCategory(li.category, d.category),
+        }));
+
+      const numericTotal = Number(d.total_amount) || 0;
+      const finalItems: LineItem[] =
+        cleanedItems.length > 0
+          ? cleanedItems
+          : [
+              {
+                description: `${d.vendor_name.trim() || 'Store'} purchase`,
+                quantity: 1,
+                unit_price: numericTotal,
+                total_price: numericTotal,
+                category: d.category,
+              },
+            ];
+
+      return {
+        id: `rcpt_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`,
+        created_at: new Date().toISOString(),
+        vendor_name: d.vendor_name.trim() || 'Store Receipt',
+        invoice_number: (d.invoice_number || '').trim() || undefined,
+        invoice_date: d.invoice_date,
+        month_year: d.invoice_date.substring(0, 7),
+        category: d.category,
+        currency: d.currency || currencyCode,
+        line_items: finalItems,
+        subtotal: Number(d.subtotal) || numericTotal,
+        tax: Number(d.tax) || 0,
+        total_amount: numericTotal,
+        notes: d.notes || '',
+        engine_used: d.engine_used,
+        image_fingerprint: d.image_fingerprint,
+        file_name: d.sourceFileName,
+        image_preview: d.previewUrl,
+      };
+    });
 
     onSaveReceipts(toSave);
     setDrafts([]);
-    setDuplicateMap(new Map());
     setScanNotice(null);
     setSavedBannerCount(toSave.length);
   };
-
-  const selectedDraftCount = drafts.filter((d) => d.selected).length;
-  const selectedTotalSpend = drafts
-    .filter((d) => d.selected)
-    .reduce((sum, d) => sum + (Number(d.total_amount) || 0), 0);
 
   return (
     <div className="space-y-6">
@@ -453,8 +625,8 @@ export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
           <div className="flex items-center gap-2.5 text-sm font-medium text-emerald-900 dark:text-emerald-200">
             <Check className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
             <span>
-              Saved {savedBannerCount} {savedBannerCount === 1 ? 'receipt' : 'receipts'} to your
-              monthly ledger.
+              Accepted & saved {savedBannerCount}{' '}
+              {savedBannerCount === 1 ? 'receipt' : 'receipts'} to your monthly ledger.
             </span>
           </div>
           <button
@@ -495,11 +667,11 @@ export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
           <div className="max-w-xl mx-auto text-center space-y-5">
             <div className="space-y-2">
               <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-slate-900 dark:text-white text-balance">
-                Snap a receipt and let ParserPro do the typing
+                Snap a receipt and let ParserPro extract every item
               </h1>
               <p className="text-sm sm:text-base text-slate-600 dark:text-slate-400 leading-relaxed">
-                Point your camera at a grocery slip, utility bill, or fuel receipt. Even multiple
-                slips in a single photo are separated automatically.
+                Extracts store, purchase date, invoice number, unit prices, quantities, and
+                categories — while automatically blocking duplicate receipt scans.
               </p>
             </div>
 
@@ -702,23 +874,25 @@ export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
         </div>
       )}
 
-      {/* Extracted Receipt Review List */}
+      {/* Pre-Acceptance Receipt Verification & Itemized Review */}
       {drafts.length > 0 && (
         <section className="space-y-4">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div>
               <h2 className="text-lg sm:text-xl font-bold text-slate-900 dark:text-white">
-                Review extracted {drafts.length === 1 ? 'receipt' : `receipts (${drafts.length})`}
+                Verify Store, Date & Invoice # Before Accepting
               </h2>
               <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400">
-                Check the store name, date, and total below before saving to your ledger.
+                Confirm the receipt details and itemized lines below. Duplicate receipts are
+                automatically blocked.
               </p>
             </div>
             <button
               type="button"
               onClick={() => {
                 setDrafts([]);
-                setDuplicateMap(new Map());
+                setErrorMessage(null);
+                setScanNotice(null);
               }}
               className="min-h-[44px] px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-800 text-xs sm:text-sm font-medium text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white whitespace-nowrap self-start sm:self-auto"
             >
@@ -729,46 +903,135 @@ export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
           <div className="space-y-4">
             {drafts.map((draft, index) => {
               const dupeMatch = duplicateMap.get(draft.draftId);
+              const isBlocked = Boolean(dupeMatch?.isBlocked);
+              const isIncluded = draft.selected && !isBlocked;
+              const notedInvoiceNum =
+                (draft.invoice_number || '').trim() || getDisplayInvoiceNumber(draft);
+              const matchedSavedInvoiceNum = dupeMatch
+                ? getDisplayInvoiceNumber(dupeMatch.matchedReceipt)
+                : '';
+
               return (
                 <div
                   key={draft.draftId}
-                  className={`rounded-2xl bg-white dark:bg-slate-900 border p-5 sm:p-6 space-y-4 transition-opacity ${
-                    draft.selected
+                  className={`rounded-2xl bg-white dark:bg-slate-900 border p-5 sm:p-6 space-y-5 transition-opacity ${
+                    isBlocked
+                      ? 'border-rose-300 dark:border-rose-800/80'
+                      : isIncluded
                       ? 'border-slate-200 dark:border-slate-800'
                       : 'border-slate-200/60 dark:border-slate-800/60 opacity-65'
                   }`}
                 >
-                  {/* Duplicate Warning Callout */}
-                  {dupeMatch && (
-                    <div className="rounded-xl bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800/70 px-3.5 py-2.5 flex items-start gap-2.5 text-xs text-amber-900 dark:text-amber-200">
-                      <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
-                      <div>
-                        <p className="font-semibold">
-                          Looks similar to an existing receipt ({dupeMatch.matchedReceipt.vendor_name} ·{' '}
-                          {formatShortDate(dupeMatch.matchedReceipt.invoice_date)} ·{' '}
-                          {formatMoney(dupeMatch.matchedReceipt.total_amount, currencyCode)})
+                  {/* Pre-Acceptance Store, Date & Invoice Number Verification Strip */}
+                  <div className="pb-4 border-b border-slate-100 dark:border-slate-800 flex flex-col md:flex-row md:items-center justify-between gap-3">
+                    <div className="space-y-1">
+                      <p className="text-xs font-medium text-slate-500 dark:text-slate-400">
+                        Pre-Acceptance Receipt Verification
+                      </p>
+                      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs sm:text-sm text-slate-800 dark:text-slate-200">
+                        <span>
+                          <span className="text-slate-500 dark:text-slate-400">Store:</span>{' '}
+                          <strong className="font-semibold text-slate-900 dark:text-white">
+                            {draft.vendor_name.trim() || 'Unspecified Store'}
+                          </strong>
+                        </span>
+                        <span aria-hidden="true" className="text-slate-400">
+                          ·
+                        </span>
+                        <span>
+                          <span className="text-slate-500 dark:text-slate-400">Date:</span>{' '}
+                          <strong className="font-semibold font-mono tabular-nums text-slate-900 dark:text-white">
+                            {formatShortDate(draft.invoice_date)}
+                          </strong>
+                        </span>
+                        <span aria-hidden="true" className="text-slate-400">
+                          ·
+                        </span>
+                        <span>
+                          <span className="text-slate-500 dark:text-slate-400">Invoice #:</span>{' '}
+                          <strong className="font-semibold font-mono tabular-nums text-slate-900 dark:text-white">
+                            {notedInvoiceNum || 'Not printed on slip'}
+                          </strong>
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-1.5 text-xs sm:text-sm font-semibold shrink-0">
+                      {isBlocked ? (
+                        <span className="inline-flex items-center gap-1.5 text-rose-600 dark:text-rose-400">
+                          <ShieldAlert className="w-4 h-4 shrink-0" />
+                          <span>Duplicate Blocked</span>
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1.5 text-emerald-700 dark:text-emerald-400">
+                          <ShieldCheck className="w-4 h-4 shrink-0" />
+                          <span>Verified Unique</span>
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Hard-Blocked Duplicate Failsafe Callout */}
+                  {dupeMatch && isBlocked && (
+                    <div className="rounded-xl bg-rose-50 dark:bg-rose-950/35 border border-rose-200 dark:border-rose-800/80 px-4 py-3 flex items-start gap-3 text-xs sm:text-sm text-rose-950 dark:text-rose-200">
+                      <ShieldAlert className="w-5 h-5 text-rose-600 dark:text-rose-400 shrink-0 mt-0.5" />
+                      <div className="space-y-1">
+                        <p className="font-bold">
+                          Duplicate Receipt Scan Blocked — Cannot Be Accepted
                         </p>
-                        <p className="text-amber-800 dark:text-amber-300/90 mt-0.5">
-                          We unchecked this slip to prevent double-counting. Check the box below if
-                          this was a separate purchase.
+                        <p className="text-rose-800 dark:text-rose-300 leading-relaxed">
+                          Matches saved receipt:{' '}
+                          <strong className="font-semibold">
+                            {dupeMatch.matchedReceipt.vendor_name}
+                          </strong>{' '}
+                          ·{' '}
+                          <span className="font-mono tabular-nums">
+                            {formatShortDate(dupeMatch.matchedReceipt.invoice_date)}
+                          </span>
+                          {matchedSavedInvoiceNum ? (
+                            <>
+                              {' '}
+                              · Invoice{' '}
+                              <span className="font-mono tabular-nums font-semibold">
+                                #{matchedSavedInvoiceNum}
+                              </span>
+                            </>
+                          ) : null}{' '}
+                          ·{' '}
+                          <span className="font-mono tabular-nums font-semibold">
+                            {formatMoney(dupeMatch.matchedReceipt.total_amount, currencyCode)}
+                          </span>
+                          .
+                        </p>
+                        <p className="text-xs text-rose-700 dark:text-rose-300/90">
+                          {dupeMatch.matchReason}
                         </p>
                       </div>
                     </div>
                   )}
 
-                  {/* Top Row: Include Checkbox + Slip Metadata */}
+                  {/* Top Row: Accept Checkbox + Total Summary */}
                   <div className="flex items-center justify-between gap-3">
-                    <label className="min-h-[44px] flex items-center gap-3 cursor-pointer select-none">
+                    <label
+                      className={`min-h-[44px] flex items-center gap-3 select-none ${
+                        isBlocked ? 'cursor-not-allowed opacity-70' : 'cursor-pointer'
+                      }`}
+                    >
                       <input
                         type="checkbox"
-                        checked={draft.selected}
+                        checked={isIncluded}
+                        disabled={isBlocked}
                         onChange={(e) =>
                           updateDraftField(draft.draftId, 'selected', e.target.checked)
                         }
-                        className="w-5 h-5 rounded border-slate-300 text-emerald-600 focus:ring-emerald-600"
+                        className="w-5 h-5 rounded border-slate-300 text-emerald-600 focus:ring-emerald-600 disabled:opacity-50"
                       />
                       <span className="text-sm font-semibold text-slate-900 dark:text-white">
-                        {drafts.length > 1 ? `Receipt ${index + 1}` : 'Include this receipt'}
+                        {isBlocked
+                          ? 'Blocked duplicate receipt'
+                          : drafts.length > 1
+                          ? `Accept Receipt ${index + 1}`
+                          : 'Accept this receipt'}
                       </span>
                     </label>
 
@@ -783,9 +1046,9 @@ export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
                     </div>
                   </div>
 
-                  {/* Editable Fields Grid */}
-                  <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
-                    <div className="sm:col-span-2">
+                  {/* Editable Receipt Header Fields (Store, Date, Invoice #, Total) */}
+                  <div className="grid grid-cols-1 sm:grid-cols-12 gap-3">
+                    <div className="sm:col-span-4">
                       <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">
                         Store or Provider
                       </label>
@@ -799,9 +1062,9 @@ export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
                       />
                     </div>
 
-                    <div>
+                    <div className="sm:col-span-3">
                       <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">
-                        Date
+                        Purchase Date
                       </label>
                       <input
                         type="date"
@@ -813,7 +1076,22 @@ export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
                       />
                     </div>
 
-                    <div>
+                    <div className="sm:col-span-3">
+                      <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">
+                        Invoice / Slip #
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="e.g. INV-4821"
+                        value={draft.invoice_number || ''}
+                        onChange={(e) =>
+                          updateDraftField(draft.draftId, 'invoice_number', e.target.value)
+                        }
+                        className="w-full min-h-[44px] px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50/60 dark:bg-slate-800/60 text-sm font-mono tabular-nums text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-600"
+                      />
+                    </div>
+
+                    <div className="sm:col-span-2">
                       <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">
                         Total Amount
                       </label>
@@ -829,7 +1107,7 @@ export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
                             parseFloat(e.target.value) || 0
                           )
                         }
-                        className="w-full min-h-[44px] px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50/60 dark:bg-slate-800/60 text-sm font-mono tabular-nums font-semibold text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-600"
+                        className="w-full min-h-[44px] px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50/60 dark:bg-slate-800/60 text-sm font-mono tabular-nums font-semibold text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-600"
                       />
                     </div>
                   </div>
@@ -837,7 +1115,7 @@ export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div>
                       <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">
-                        Category
+                        Primary Receipt Category
                       </label>
                       <select
                         value={draft.category}
@@ -852,7 +1130,7 @@ export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
                       >
                         {CATEGORIES.map((cat) => (
                           <option key={cat} value={cat}>
-                            {cat}
+                            {formatCategoryLabel(cat)}
                           </option>
                         ))}
                       </select>
@@ -864,7 +1142,7 @@ export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
                       </label>
                       <input
                         type="text"
-                        placeholder="e.g. Weekly groceries"
+                        placeholder="e.g. Weekly household groceries"
                         value={draft.notes || ''}
                         onChange={(e) =>
                           updateDraftField(draft.draftId, 'notes', e.target.value)
@@ -874,55 +1152,155 @@ export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
                     </div>
                   </div>
 
-                  {/* Extracted Line Items Preview */}
-                  {draft.line_items && draft.line_items.length > 0 && (
-                    <div className="pt-2 border-t border-slate-100 dark:border-slate-800">
-                      <p className="text-xs font-medium text-slate-500 dark:text-slate-400 mb-2">
-                        Extracted items
-                      </p>
-                      <div className="divide-y divide-slate-100 dark:divide-slate-800/80 max-h-48 overflow-y-auto pr-1">
+                  {/* Itemized Line-Item Extraction & Category Assignment */}
+                  <div className="pt-3 border-t border-slate-100 dark:border-slate-800 space-y-3">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div>
+                        <p className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+                          Extracted Line Items ({draft.line_items?.length || 0})
+                        </p>
+                        <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                          Purchase Date: {formatShortDate(draft.invoice_date)} · Item name, qty,
+                          unit price & category
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => addDraftLineItem(draft.draftId)}
+                        className="min-h-[38px] px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-semibold text-emerald-700 dark:text-emerald-400 hover:bg-slate-50 dark:hover:bg-slate-800 flex items-center gap-1 whitespace-nowrap"
+                      >
+                        <Plus className="w-3.5 h-3.5" />
+                        <span>Add Item</span>
+                      </button>
+                    </div>
+
+                    {draft.line_items && draft.line_items.length > 0 ? (
+                      <div className="divide-y divide-slate-100 dark:divide-slate-800/80 max-h-72 overflow-y-auto pr-1 space-y-2">
                         {draft.line_items.map((item, idx) => (
                           <div
                             key={idx}
-                            className="py-1.5 flex items-center justify-between gap-3 text-xs sm:text-sm"
+                            className="pt-2 first:pt-0 grid grid-cols-12 gap-2 items-center text-xs"
                           >
-                            <span className="text-slate-700 dark:text-slate-300 truncate">
-                              {item.quantity > 1 ? `${item.quantity} × ` : ''}
-                              {item.description}
-                            </span>
-                            <span className="font-mono tabular-nums text-slate-900 dark:text-white shrink-0">
-                              {formatMoney(item.total_price, currencyCode)}
-                            </span>
+                            <input
+                              type="text"
+                              placeholder="Item name"
+                              aria-label="Item name"
+                              value={item.description}
+                              onChange={(e) =>
+                                updateDraftLineItem(draft.draftId, idx, {
+                                  description: e.target.value,
+                                })
+                              }
+                              className="col-span-12 sm:col-span-4 min-h-[40px] px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50/70 dark:bg-slate-800/70 text-slate-900 dark:text-white"
+                            />
+                            <input
+                              type="number"
+                              min="0.01"
+                              step="any"
+                              aria-label="Quantity"
+                              title="Quantity"
+                              value={item.quantity}
+                              onChange={(e) =>
+                                updateDraftLineItem(draft.draftId, idx, {
+                                  quantity: Math.max(0.01, parseFloat(e.target.value) || 1),
+                                })
+                              }
+                              className="col-span-3 sm:col-span-1 min-h-[40px] px-2 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50/70 dark:bg-slate-800/70 text-center font-mono tabular-nums text-slate-900 dark:text-white"
+                            />
+                            <input
+                              type="number"
+                              min="0"
+                              step="0.01"
+                              aria-label="Unit price"
+                              title="Unit price"
+                              placeholder="Unit price"
+                              value={item.unit_price}
+                              onChange={(e) =>
+                                updateDraftLineItem(draft.draftId, idx, {
+                                  unit_price: Math.max(0, parseFloat(e.target.value) || 0),
+                                })
+                              }
+                              className="col-span-4 sm:col-span-2 min-h-[40px] px-2.5 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50/70 dark:bg-slate-800/70 text-right font-mono tabular-nums text-slate-900 dark:text-white"
+                            />
+                            <select
+                              aria-label="Assigned item category"
+                              value={item.category || draft.category}
+                              onChange={(e) =>
+                                updateDraftLineItem(draft.draftId, idx, {
+                                  category: e.target.value as ReceiptCategory,
+                                })
+                              }
+                              className="col-span-5 sm:col-span-3 min-h-[40px] px-2.5 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50/70 dark:bg-slate-800/70 text-slate-800 dark:text-slate-200 truncate"
+                            >
+                              {CATEGORIES.map((cat) => (
+                                <option key={cat} value={cat}>
+                                  {formatCategoryLabel(cat)}
+                                </option>
+                              ))}
+                            </select>
+                            <div className="col-span-12 sm:col-span-2 flex items-center justify-end gap-1.5">
+                              <span className="font-mono tabular-nums font-semibold text-slate-900 dark:text-white">
+                                {formatMoney(item.total_price, currencyCode)}
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => removeDraftLineItem(draft.draftId, idx)}
+                                aria-label="Remove line item"
+                                className="min-h-[36px] min-w-[36px] flex items-center justify-center text-slate-400 hover:text-rose-600"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
                           </div>
                         ))}
                       </div>
-                    </div>
-                  )}
+                    ) : (
+                      <p className="text-xs text-slate-500 dark:text-slate-400">
+                        No individual items detected yet — tap Add Item to itemize manually.
+                      </p>
+                    )}
+                  </div>
                 </div>
               );
             })}
           </div>
 
-          {/* Save Bar */}
+          {/* Accept & Save Bar */}
           <div className="rounded-2xl bg-slate-900 dark:bg-slate-900 border border-slate-800 p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4 text-white">
             <div className="space-y-0.5">
               <p className="text-sm font-semibold">
-                {selectedDraftCount} {selectedDraftCount === 1 ? 'receipt' : 'receipts'} selected
+                {selectedDraftCount} verified{' '}
+                {selectedDraftCount === 1 ? 'receipt' : 'receipts'} ready to accept
+                {blockedDraftCount > 0
+                  ? ` · ${blockedDraftCount} duplicate ${
+                      blockedDraftCount === 1 ? 'blocked' : 'blocked'
+                    }`
+                  : ''}
               </p>
               <p className="text-xs text-slate-300 tabular-nums">
-                Combined total: {formatMoney(selectedTotalSpend, currencyCode)}
+                Accepted total: {formatMoney(selectedTotalSpend, currencyCode)}
               </p>
             </div>
             <button
               type="button"
               disabled={selectedDraftCount === 0}
               onClick={handleSaveSelectedDrafts}
-              className="min-h-[48px] px-6 py-3 rounded-xl bg-emerald-500 hover:bg-emerald-400 disabled:opacity-50 text-slate-950 font-bold text-sm sm:text-base flex items-center justify-center gap-2 whitespace-nowrap"
+              className="min-h-[48px] px-6 py-3 rounded-xl bg-emerald-500 hover:bg-emerald-400 disabled:bg-slate-700 disabled:text-slate-400 text-slate-950 font-bold text-sm sm:text-base flex items-center justify-center gap-2 whitespace-nowrap transition-colors"
             >
-              <Check className="w-5 h-5" />
-              <span>
-                Save {selectedDraftCount === 1 ? 'Receipt' : `${selectedDraftCount} Receipts`}
-              </span>
+              {selectedDraftCount === 0 && blockedDraftCount > 0 ? (
+                <>
+                  <ShieldAlert className="w-5 h-5" />
+                  <span>Duplicate Receipt Blocked</span>
+                </>
+              ) : (
+                <>
+                  <Check className="w-5 h-5" />
+                  <span>
+                    Accept & Save{' '}
+                    {selectedDraftCount === 1 ? 'Receipt' : `${selectedDraftCount} Receipts`}
+                  </span>
+                </>
+              )}
             </button>
           </div>
         </section>
@@ -936,36 +1314,48 @@ export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
               Recently saved
             </h2>
             <span className="text-xs text-slate-500 dark:text-slate-400 tabular-nums">
-              {existingReceipts.length} total {existingReceipts.length === 1 ? 'receipt' : 'receipts'}
+              {existingReceipts.length} total{' '}
+              {existingReceipts.length === 1 ? 'receipt' : 'receipts'}
             </span>
           </div>
           <div className="rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800 divide-y divide-slate-100 dark:divide-slate-800">
-            {existingReceipts.slice(0, 3).map((rcpt) => (
-              <div
-                key={rcpt.id}
-                className="px-4 py-3.5 flex items-center justify-between gap-4"
-              >
-                <div className="min-w-0">
-                  <p className="text-sm font-semibold text-slate-900 dark:text-white truncate">
-                    {rcpt.vendor_name}
-                  </p>
-                  <p className="text-xs text-slate-500 dark:text-slate-400 truncate mt-0.5">
-                    <span>{formatShortDate(rcpt.invoice_date)}</span>
-                    <span aria-hidden="true" className="mx-1.5">
-                      ·
-                    </span>
-                    <span>{rcpt.category}</span>
-                    <span aria-hidden="true" className="mx-1.5">
-                      ·
-                    </span>
-                    <span className="tabular-nums">{rcpt.line_items?.length || 0} items</span>
-                  </p>
+            {existingReceipts.slice(0, 3).map((rcpt) => {
+              const inv = getDisplayInvoiceNumber(rcpt);
+              return (
+                <div
+                  key={rcpt.id}
+                  className="px-4 py-3.5 flex items-center justify-between gap-4"
+                >
+                  <div className="min-w-0">
+                    <p className="text-sm font-semibold text-slate-900 dark:text-white truncate">
+                      {rcpt.vendor_name}
+                    </p>
+                    <p className="text-xs text-slate-500 dark:text-slate-400 truncate mt-0.5">
+                      <span>{formatShortDate(rcpt.invoice_date)}</span>
+                      {inv && (
+                        <>
+                          <span aria-hidden="true" className="mx-1.5">
+                            ·
+                          </span>
+                          <span className="font-mono tabular-nums">#{inv}</span>
+                        </>
+                      )}
+                      <span aria-hidden="true" className="mx-1.5">
+                        ·
+                      </span>
+                      <span>{formatCategoryLabel(rcpt.category)}</span>
+                      <span aria-hidden="true" className="mx-1.5">
+                        ·
+                      </span>
+                      <span className="tabular-nums">{rcpt.line_items?.length || 0} items</span>
+                    </p>
+                  </div>
+                  <span className="text-sm font-mono tabular-nums font-semibold text-slate-900 dark:text-white shrink-0">
+                    {formatMoney(rcpt.total_amount, currencyCode)}
+                  </span>
                 </div>
-                <span className="text-sm font-mono tabular-nums font-semibold text-slate-900 dark:text-white shrink-0">
-                  {formatMoney(rcpt.total_amount, currencyCode)}
-                </span>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </section>
       )}

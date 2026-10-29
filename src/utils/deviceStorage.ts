@@ -2,6 +2,8 @@ import type { SavedReceipt } from '../types';
 import { Filesystem, Directory } from '@capacitor/filesystem';
 import { Share } from '@capacitor/share';
 import { isNativeContainer, requestNativeStoragePermissions } from './nativeAndroidExport';
+import { getDisplayInvoiceNumber } from './duplicateDetection';
+import { formatCategoryLabel } from './currencyFormat';
 
 const STORAGE_KEY = 'parserpro_saved_receipts_v1';
 const SNAPSHOTS_KEY = 'parserpro_device_snapshots_v1';
@@ -325,7 +327,7 @@ export async function exportDeviceBackupJSON(receipts: SavedReceipt[]): Promise<
 
   const backupPayload = {
     app: 'ParserPro Expenditure & Household Accounting',
-    version: '1.0.50',
+    version: '1.0.51',
     platform: 'Android / PWA',
     exported_at: now.toISOString(),
     receipt_count: receipts.length,
@@ -492,32 +494,37 @@ export async function parseBackupFile(file: File): Promise<{
  */
 export function exportAllInvoicesToCSV(receipts: SavedReceipt[]): void {
   const headers = [
-    'Invoice ID',
-    'Invoice Date',
+    'Record ID',
+    'Invoice / Slip Number',
+    'Purchase Date',
     'Month-Year',
     'Vendor / Store',
-    'Store Category',
-    'Line Item Description',
+    'Receipt Category',
+    'Item Name',
+    'Assigned Item Category',
     'Quantity',
-    'Unit Price (ZAR)',
-    'Line Item Total (ZAR)',
-    'Invoice Subtotal (ZAR)',
-    'Invoice Tax (ZAR)',
-    'Invoice Total (ZAR)',
+    'Unit Price',
+    'Line Item Total',
+    'Invoice Subtotal',
+    'Invoice Tax',
+    'Invoice Total',
     'Notes'
   ];
 
   const rows: string[][] = [];
 
   receipts.forEach(r => {
+    const invNum = getDisplayInvoiceNumber(r);
     if (r.line_items.length === 0) {
       rows.push([
         `"${r.id}"`,
+        `"${invNum.replace(/"/g, '""')}"`,
         `"${r.invoice_date}"`,
         `"${r.month_year}"`,
         `"${r.vendor_name.replace(/"/g, '""')}"`,
-        `"${r.category}"`,
+        `"${formatCategoryLabel(r.category)}"`,
         `"No items itemized"`,
+        `"${formatCategoryLabel(r.category)}"`,
         '1',
         r.total_amount.toFixed(2),
         r.total_amount.toFixed(2),
@@ -530,11 +537,13 @@ export function exportAllInvoicesToCSV(receipts: SavedReceipt[]): void {
       r.line_items.forEach(item => {
         rows.push([
           `"${r.id}"`,
+          `"${invNum.replace(/"/g, '""')}"`,
           `"${r.invoice_date}"`,
           `"${r.month_year}"`,
           `"${r.vendor_name.replace(/"/g, '""')}"`,
-          `"${r.category}"`,
+          `"${formatCategoryLabel(r.category)}"`,
           `"${item.description.replace(/"/g, '""')}"`,
+          `"${formatCategoryLabel(item.category || r.category)}"`,
           `${item.quantity}`,
           item.unit_price.toFixed(2),
           item.total_price.toFixed(2),

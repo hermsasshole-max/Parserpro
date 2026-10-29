@@ -20,10 +20,12 @@ import {
   shareOrSaveSingleMonthPDF,
 } from '../utils/pdfGenerator';
 import {
+  formatCategoryLabel,
   formatMoney,
   formatMonthLabel,
   formatShortDate,
 } from '../utils/currencyFormat';
+import { getDisplayInvoiceNumber } from '../utils/duplicateDetection';
 
 interface MonthlyReceiptsListProps {
   receipts: SavedReceipt[];
@@ -74,11 +76,12 @@ export const MonthlyReceiptsList: React.FC<MonthlyReceiptsListProps> = ({
         if (!localQuery.trim()) return true;
         const q = localQuery.toLowerCase();
         const inVendor = r.vendor_name.toLowerCase().includes(q);
+        const inInv = getDisplayInvoiceNumber(r).toLowerCase().includes(q);
         const inNotes = (r.notes || '').toLowerCase().includes(q);
         const inItems = (r.line_items || []).some((li) =>
           li.description.toLowerCase().includes(q)
         );
-        return inVendor || inNotes || inItems;
+        return inVendor || inInv || inNotes || inItems;
       })
       .sort((a, b) => b.invoice_date.localeCompare(a.invoice_date));
   }, [receipts, selectedMonth, categoryFilter, localQuery]);
@@ -252,7 +255,7 @@ export const MonthlyReceiptsList: React.FC<MonthlyReceiptsListProps> = ({
                   : cat === 'Food & Groceries'
                   ? 'Groceries'
                   : cat === 'Home Maintenance'
-                  ? 'Home'
+                  ? 'Hardware & Home'
                   : cat}
               </button>
             );
@@ -265,7 +268,7 @@ export const MonthlyReceiptsList: React.FC<MonthlyReceiptsListProps> = ({
             type="text"
             value={localQuery}
             onChange={(e) => setLocalQuery(e.target.value)}
-            placeholder="Filter store or item..."
+            placeholder="Filter store, invoice #, item..."
             className="w-full min-h-[42px] pl-9 pr-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-600"
           />
         </div>
@@ -302,6 +305,7 @@ export const MonthlyReceiptsList: React.FC<MonthlyReceiptsListProps> = ({
           {monthReceipts.map((rcpt) => {
             const isExpanded = expandedId === rcpt.id;
             const isConfirmingDelete = confirmDeleteId === rcpt.id;
+            const displayInv = getDisplayInvoiceNumber(rcpt);
 
             return (
               <div key={rcpt.id} className="transition-colors">
@@ -322,10 +326,18 @@ export const MonthlyReceiptsList: React.FC<MonthlyReceiptsListProps> = ({
                       </p>
                       <p className="text-xs text-slate-500 dark:text-slate-400 truncate mt-0.5">
                         <span>{formatShortDate(rcpt.invoice_date)}</span>
+                        {displayInv && (
+                          <>
+                            <span aria-hidden="true" className="mx-1.5">
+                              ·
+                            </span>
+                            <span className="font-mono tabular-nums">#{displayInv}</span>
+                          </>
+                        )}
                         <span aria-hidden="true" className="mx-1.5">
                           ·
                         </span>
-                        <span>{rcpt.category}</span>
+                        <span>{formatCategoryLabel(rcpt.category)}</span>
                         <span aria-hidden="true" className="mx-1.5">
                           ·
                         </span>
@@ -345,11 +357,21 @@ export const MonthlyReceiptsList: React.FC<MonthlyReceiptsListProps> = ({
                 {/* Expanded Line-Item Detail & Actions */}
                 {isExpanded && (
                   <div className="px-4 sm:px-6 pb-5 pt-2 bg-slate-50/60 dark:bg-slate-950/40 border-t border-slate-100 dark:border-slate-800/80 space-y-4">
-                    {rcpt.notes && (
-                      <p className="text-xs text-slate-600 dark:text-slate-400">
-                        Note: {rcpt.notes}
-                      </p>
-                    )}
+                    <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-slate-500 dark:text-slate-400">
+                      <span>Store: {rcpt.vendor_name}</span>
+                      <span aria-hidden="true">·</span>
+                      <span>Purchase Date: {formatShortDate(rcpt.invoice_date)}</span>
+                      <span aria-hidden="true">·</span>
+                      <span className="font-mono tabular-nums">
+                        Invoice #: {displayInv || 'Not printed'}
+                      </span>
+                      {rcpt.notes && (
+                        <>
+                          <span aria-hidden="true">·</span>
+                          <span>Note: {rcpt.notes}</span>
+                        </>
+                      )}
+                    </div>
 
                     {/* Line Items Table */}
                     {rcpt.line_items && rcpt.line_items.length > 0 ? (
@@ -357,17 +379,27 @@ export const MonthlyReceiptsList: React.FC<MonthlyReceiptsListProps> = ({
                         {rcpt.line_items.map((item, idx) => (
                           <div
                             key={idx}
-                            className="py-2 flex items-center justify-between gap-4 text-xs sm:text-sm"
+                            className="py-2.5 flex items-center justify-between gap-4 text-xs sm:text-sm"
                           >
                             <div className="min-w-0">
-                              <span className="text-slate-800 dark:text-slate-200">
+                              <p className="font-medium text-slate-800 dark:text-slate-200 truncate">
                                 {item.description}
-                              </span>
-                              <span className="text-xs text-slate-500 dark:text-slate-400 ml-2 tabular-nums">
-                                {item.quantity} × {formatMoney(item.unit_price, currencyCode)}
-                              </span>
+                              </p>
+                              <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 tabular-nums">
+                                <span className="font-mono">
+                                  Qty {item.quantity} × {formatMoney(item.unit_price, currencyCode)}
+                                </span>
+                                <span aria-hidden="true" className="mx-1.5">
+                                  ·
+                                </span>
+                                <span>{formatCategoryLabel(item.category || rcpt.category)}</span>
+                                <span aria-hidden="true" className="mx-1.5">
+                                  ·
+                                </span>
+                                <span>{formatShortDate(rcpt.invoice_date)}</span>
+                              </p>
                             </div>
-                            <span className="font-mono tabular-nums font-medium text-slate-900 dark:text-white shrink-0">
+                            <span className="font-mono tabular-nums font-semibold text-slate-900 dark:text-white shrink-0">
                               {formatMoney(item.total_price, currencyCode)}
                             </span>
                           </div>

@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { X, Check, Trash2, Clock } from 'lucide-react';
+import { X, Check, Trash2, Clock, ShieldAlert } from 'lucide-react';
 import type { CachedReceiptJob, SavedReceipt } from '../types';
 import {
   subscribeToQueue,
@@ -7,10 +7,16 @@ import {
   clearCompletedQueueJobs,
 } from '../utils/offlineOcrQueue';
 import { formatMoney, formatShortDate } from '../utils/currencyFormat';
+import {
+  computeImageFingerprint,
+  findDuplicateForReceipt,
+  getDisplayInvoiceNumber,
+} from '../utils/duplicateDetection';
 
 interface OfflineOcrQueueModalProps {
   isOpen: boolean;
   onClose: () => void;
+  existingReceipts: SavedReceipt[];
   currencyCode: string;
   onSaveExtractedReceipts: (receipts: SavedReceipt[]) => void;
 }
@@ -18,6 +24,7 @@ interface OfflineOcrQueueModalProps {
 export const OfflineOcrQueueModal: React.FC<OfflineOcrQueueModalProps> = ({
   isOpen,
   onClose,
+  existingReceipts,
   currencyCode,
   onSaveExtractedReceipts,
 }) => {
@@ -32,10 +39,9 @@ export const OfflineOcrQueueModal: React.FC<OfflineOcrQueueModalProps> = ({
 
   if (!isOpen) return null;
 
-  const handleSaveJobReceipts = async (job: CachedReceiptJob) => {
-    if (!job.extractedReceipts || job.extractedReceipts.length === 0) return;
-
-    const toSave: SavedReceipt[] = job.extractedReceipts.map((r, idx) => {
+  const buildJobCandidates = (job: CachedReceiptJob): SavedReceipt[] => {
+    const fingerprint = computeImageFingerprint(job.base64Data);
+    return (job.extractedReceipts || []).map((r, idx) => {
       const todayIso = new Date().toISOString().substring(0, 10);
       const safeDate =
         r.invoice_date && /^\d{4}-\d{2}-\d{2}$/.test(r.invoice_date)
@@ -48,12 +54,28 @@ export const OfflineOcrQueueModal: React.FC<OfflineOcrQueueModalProps> = ({
         invoice_date: safeDate,
         month_year: safeDate.substring(0, 7),
         currency: r.currency || currencyCode,
+        image_fingerprint: r.image_fingerprint || fingerprint || undefined,
         file_name: job.fileName,
         image_preview: job.previewUrl,
       };
     });
+  };
 
-    onSaveExtractedReceipts(toSave);
+  const handleSaveJobReceipts = async (job: CachedReceiptJob) => {
+    if (!job.extractedReceipts || job.extractedReceipts.length === 0) return;
+
+    const candidates = buildJobCandidates(job);
+    const uniqueToSave: SavedReceipt[] = [];
+    for (const c of candidates) {
+      const dupe = findDuplicateForReceipt(c, existingReceipts, uniqueToSave);
+      if (!dupe?.isBlocked) {
+        uniqueToSave.push(c);
+      }
+    }
+
+    if (uniqueToSave.length > 0) {
+      onSaveExtractedReceipts(uniqueToSave);
+    }
     await removeQueueJob(job.id);
   };
 
@@ -76,7 +98,7 @@ export const OfflineOcrQueueModal: React.FC<OfflineOcrQueueModalProps> = ({
               Pending Offline Scans
             </h2>
             <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-              Photos captured while offline are finished automatically when signal returns.
+              Photos captured while offline are verified for Store, Date & Invoice # before saving.
             </p>
           </div>
           <button
@@ -107,10 +129,19 @@ export const OfflineOcrQueueModal: React.FC<OfflineOcrQueueModalProps> = ({
                 (s, r) => s + (Number(r.total_amount) || 0),
                 0
               );
+              const firstSlip = job.extractedReceipts?.[0];
+              const invNum = firstSlip ? getDisplayInvoiceNumber(firstSlip) : '';
+
+              const candidates = extractedCount > 0 ? buildJobCandidates(job) : [];
+              const blockedMatches = candidates.filter((c) =>
+                Boolean(findDuplicateForReceipt(c, existingReceipts)?.isBlocked)
+              );
+              const allDuplicates =
+                candidates.length > 0 && blockedMatches.length === candidates.length;
 
               const statusText =
                 job.status === 'completed'
-                  ? 'Ready to save'
+                  ? 'Ready to verify & accept'
                   : job.status === 'fallback_extracted'
                   ? 'Read offline on phone'
                   : job.status === 'processing'
@@ -125,14 +156,24 @@ export const OfflineOcrQueueModal: React.FC<OfflineOcrQueueModalProps> = ({
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
                       <p className="text-sm font-semibold text-slate-900 dark:text-white truncate">
-                        {job.extractedReceipts?.[0]?.vendor_name || job.fileName}
+                        {firstSlip?.vendor_name || job.fileName}
                       </p>
                       <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
                         <span>{statusText}</span>
                         <span aria-hidden="true" className="mx-1.5">
                           ·
                         </span>
-                        <span>{formatShortDate(job.createdAt.substring(0, 10))}</span>
+                        <span className="font-mono tabular-nums">
+                          {formatShortDate(
+                            firstSlip?.invoice_date || job.createdAt.substring(0, 10)
+                          )}
+                        </span>
+                        <span aria-hidden="true" className="mx-1.5">
+                          ·
+                        </span>
+                        <span className="font-mono tabular-nums">
+                          {invNum ? `Invoice #${invNum}` : 'No invoice #'}
+                        </span>
                         {extractedCount > 0 && (
                           <>
                             <span aria-hidden="true" className="mx-1.5">
@@ -156,18 +197,35 @@ export const OfflineOcrQueueModal: React.FC<OfflineOcrQueueModalProps> = ({
                     </button>
                   </div>
 
-                  {extractedCount > 0 && (
-                    <button
-                      type="button"
-                      onClick={() => handleSaveJobReceipts(job)}
-                      className="w-full min-h-[44px] px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs sm:text-sm font-semibold flex items-center justify-center gap-2"
-                    >
-                      <Check className="w-4 h-4" />
-                      <span>
-                        Save {extractedCount === 1 ? 'Receipt' : `${extractedCount} Receipts`} to
-                        Ledger
+                  {allDuplicates ? (
+                    <div className="rounded-xl bg-rose-50 dark:bg-rose-950/35 border border-rose-200 dark:border-rose-800/80 p-3 flex items-center justify-between gap-3 text-xs text-rose-900 dark:text-rose-200">
+                      <span className="inline-flex items-center gap-1.5 font-semibold">
+                        <ShieldAlert className="w-4 h-4 text-rose-600 shrink-0" />
+                        <span>Duplicate receipt already in ledger — blocked</span>
                       </span>
-                    </button>
+                      <button
+                        type="button"
+                        onClick={() => removeQueueJob(job.id)}
+                        className="min-h-[36px] px-3 py-1 rounded-lg bg-white dark:bg-slate-900 border border-rose-200 dark:border-rose-700 font-semibold whitespace-nowrap"
+                      >
+                        Dismiss
+                      </button>
+                    </div>
+                  ) : (
+                    extractedCount > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => handleSaveJobReceipts(job)}
+                        className="w-full min-h-[44px] px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs sm:text-sm font-semibold flex items-center justify-center gap-2"
+                      >
+                        <Check className="w-4 h-4" />
+                        <span>
+                          Accept & Save{' '}
+                          {extractedCount === 1 ? 'Receipt' : `${extractedCount} Receipts`} to
+                          Ledger
+                        </span>
+                      </button>
+                    )
                   )}
                 </div>
               );

@@ -34,6 +34,7 @@ import {
 import { getPreferredCurrency } from './utils/currencyFormat';
 import { subscribeToQueue } from './utils/offlineOcrQueue';
 import { startBackgroundQueueWorker } from './utils/failSafeOcrCoordinator';
+import { findDuplicateForReceipt } from './utils/duplicateDetection';
 
 function getCurrentMonthIso(): string {
   return new Date().toISOString().substring(0, 7);
@@ -199,15 +200,26 @@ export function App() {
 
   const handleSaveBatchReceipts = (newReceipts: SavedReceipt[]) => {
     if (!newReceipts.length) return;
-    const updated = [...newReceipts, ...receipts];
+    const acceptedUnique: SavedReceipt[] = [];
+    for (const candidate of newReceipts) {
+      const dupe = findDuplicateForReceipt(candidate, receipts, acceptedUnique);
+      if (!dupe?.isBlocked) {
+        acceptedUnique.push(candidate);
+      }
+    }
+    if (acceptedUnique.length === 0) return;
+
+    const updated = [...acceptedUnique, ...receipts];
     persistReceipts(updated);
-    const newestMonth = newReceipts[0]?.month_year;
+    const newestMonth = acceptedUnique[0]?.month_year;
     if (newestMonth) {
       setSelectedMonth(newestMonth);
     }
   };
 
   const handleSaveSingleManualReceipt = (newReceipt: SavedReceipt) => {
+    const dupe = findDuplicateForReceipt(newReceipt, receipts);
+    if (dupe?.isBlocked) return;
     const updated = [newReceipt, ...receipts];
     persistReceipts(updated);
     setSelectedMonth(newReceipt.month_year);
@@ -362,6 +374,7 @@ export function App() {
       <EditReceiptModal
         isOpen={Boolean(editingReceipt)}
         receipt={editingReceipt}
+        existingReceipts={receipts}
         currencyCode={currencyCode}
         onClose={() => setEditingReceipt(null)}
         onUpdateReceipt={handleUpdateReceipt}
@@ -410,6 +423,7 @@ export function App() {
       <OfflineOcrQueueModal
         isOpen={isOfflineQueueOpen}
         onClose={() => setIsOfflineQueueOpen(false)}
+        existingReceipts={receipts}
         currencyCode={currencyCode}
         onSaveExtractedReceipts={handleSaveBatchReceipts}
       />
