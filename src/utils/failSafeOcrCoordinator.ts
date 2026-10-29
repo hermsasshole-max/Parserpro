@@ -1,6 +1,14 @@
 import type { ReceiptData, OcrEngineType, OcrEngineMode, CachedReceiptJob } from '../types';
-import { performLocalTesseractOcr, parseLocalOcrTextToReceipts } from './localTesseractOcr';
-import { isNativeMlKitAvailable, performNativeMlKitOcr } from './nativeReceiptOcr';
+import { performLocalTesseractStructuredScan } from './localTesseractOcr';
+import { isNativeMlKitAvailable, performNativeMlKitStructuredOcr } from './nativeReceiptOcr';
+import {
+  parseReceiptFromSpatialOrText,
+  reconcileAndCleanReceiptItems,
+  scoreParsedReceiptCandidate,
+  selectBestParsedReceipts,
+  type ParsedReceiptCandidate,
+} from './receiptLayoutParser';
+import { createFoldFlattenedOcrImage } from './imageUtils';
 import {
   enqueueUnprocessedReceipt,
   updateQueueJob,
@@ -41,7 +49,7 @@ export function getStoredApiTimeoutMs(): number {
       if (!isNaN(num) && num >= 5000 && num <= 60000) return num;
     }
   } catch {}
-  return 12000;
+  return 14000;
 }
 
 export function setStoredApiTimeoutMs(timeoutMs: number): void {
@@ -86,20 +94,24 @@ async function callSmartOcrWithTimeout(
     });
     clearTimeout(timeoutId);
     const fingerprint = computeImageFingerprint(base64Data);
-    return receipts.map((r) => ({
-      ...r,
-      engine_used: 'cloud_api',
-      image_fingerprint: r.image_fingerprint || fingerprint || undefined,
-    }));
+    return receipts.map((r) => {
+      const { receipt: cleaned } = reconcileAndCleanReceiptItems(r);
+      return {
+        ...cleaned,
+        engine_used: 'cloud_api',
+        image_fingerprint: cleaned.image_fingerprint || fingerprint || undefined,
+      };
+    });
   } finally {
     clearTimeout(timeoutId);
   }
 }
 
 /**
- * Runs the fastest, highest-accuracy on-device OCR engine available:
- * 1. Bundled Android Google ML Kit Text Recognition (native C++/JNI, ~200ms, row-reconstructed)
- * 2. Bundled WebAssembly Tesseract.js fallback (works in any browser/WebView offline)
+ * Runs the fastest, highest-accuracy curvature-aware on-device OCR engine available:
+ * 1. Bundled Android Google ML Kit Dual-Pass Spatial OCR (compares crisp original vs shadow-flattened fold pass,
+ *    using 2D bounding boxes + corner baseline slopes + monotonic DP price-to-item locking)
+ * 2. Bundled WebAssembly Tesseract.js Dual-Pass Spatial OCR (illumination-flattened + curvature-rectified rows)
  */
 async function performBestOnDeviceOcr(params: {
   base64Data: string;
@@ -111,53 +123,116 @@ async function performBestOnDeviceOcr(params: {
   const { base64Data, mimeType, fileName, preferredCurrency, onStage } = params;
   const fingerprint = computeImageFingerprint(base64Data);
 
-  // Tier A: Native Android ML Kit
+  // Tier A: Native Android ML Kit with 2D Spatial Geometry + Native Shadow-Flattened Pass
   if (await isNativeMlKitAvailable()) {
     try {
-      const mlText = await performNativeMlKitOcr(base64Data, onStage);
-      if (mlText && mlText.trim().length > 0) {
-        const parsed = parseLocalOcrTextToReceipts(mlText, fileName, {
-          preferredCurrency,
-          engineLabel: 'native_mlkit',
-        }).map((r) => ({
-          ...r,
-          image_fingerprint: r.image_fingerprint || fingerprint || undefined,
-        }));
-        return {
-          receipts: parsed,
-          engineUsed: 'native_mlkit',
-          hadText: true,
-        };
+      const mlRes = await performNativeMlKitStructuredOcr(base64Data, onStage);
+      if (mlRes) {
+        const candidates: ParsedReceiptCandidate[] = [];
+
+        if (mlRes.primary) {
+          candidates.push(
+            parseReceiptFromSpatialOrText({
+              rawText: mlRes.primary.text || mlRes.text || mlRes.rawText || '',
+              spatialPage: mlRes.primary,
+              originalFileName: fileName,
+              preferredCurrency,
+              engineLabel: 'native_mlkit',
+            })
+          );
+        }
+
+        if (mlRes.enhanced) {
+          candidates.push(
+            parseReceiptFromSpatialOrText({
+              rawText: mlRes.enhanced.text || mlRes.enhanced.rawText || '',
+              spatialPage: mlRes.enhanced,
+              originalFileName: fileName,
+              preferredCurrency,
+              engineLabel: 'native_mlkit',
+            })
+          );
+        }
+
+        if (candidates.length === 0 && (mlRes.text || mlRes.rawText)) {
+          candidates.push(
+            parseReceiptFromSpatialOrText({
+              rawText: mlRes.text || mlRes.rawText,
+              spatialPage: null,
+              originalFileName: fileName,
+              preferredCurrency,
+              engineLabel: 'native_mlkit',
+            })
+          );
+        }
+
+        // If native ML Kit didn't return an enhanced pass and primary wasn't reconciled, try JS fold-flattened image in ML Kit
+        const bestSoFar = selectBestParsedReceipts(candidates);
+        if (!bestSoFar.reconciled && !mlRes.enhanced) {
+          const jsFlattened = await createFoldFlattenedOcrImage(base64Data, mimeType);
+          const mlFlatRes = await performNativeMlKitStructuredOcr(jsFlattened, onStage);
+          if (mlFlatRes?.primary || mlFlatRes?.text) {
+            candidates.push(
+              parseReceiptFromSpatialOrText({
+                rawText: mlFlatRes.primary?.text || mlFlatRes.text || '',
+                spatialPage: mlFlatRes.primary || null,
+                originalFileName: fileName,
+                preferredCurrency,
+                engineLabel: 'native_mlkit',
+              })
+            );
+          }
+        }
+
+        const bestNative = selectBestParsedReceipts(candidates);
+        const hadAnyNativeText = Boolean(
+          (mlRes.text && mlRes.text.trim()) ||
+            (mlRes.rawText && mlRes.rawText.trim()) ||
+            (mlRes.enhanced?.text && mlRes.enhanced.text.trim())
+        );
+
+        if (hadAnyNativeText && bestNative.qualityScore > 0) {
+          return {
+            receipts: bestNative.receipts.map((r) => ({
+              ...r,
+              image_fingerprint: r.image_fingerprint || fingerprint || undefined,
+            })),
+            engineUsed: 'native_mlkit',
+            hadText: true,
+          };
+        }
       }
     } catch (mlErr) {
-      console.warn('[FailSafeOCR] Native ML Kit encountered an issue, trying Tesseract fallback:', mlErr);
+      console.warn('[FailSafeOCR] Native ML Kit encountered an issue, trying spatial Tesseract fallback:', mlErr);
     }
   }
 
-  // Tier B: Bundled WebAssembly Tesseract.js
-  const tessText = await performLocalTesseractOcr(base64Data, mimeType, (stage) => {
-    if (onStage) onStage(stage || 'Reading items on your device...');
-  });
-  const parsed = parseLocalOcrTextToReceipts(tessText, fileName, {
+  // Tier B: Bundled WebAssembly Tesseract.js Dual-Pass Spatial OCR
+  const tessScan = await performLocalTesseractStructuredScan({
+    base64Data,
+    mimeType,
+    fileName,
     preferredCurrency,
-    engineLabel: 'local_tesseract',
-  }).map((r) => ({
-    ...r,
-    image_fingerprint: r.image_fingerprint || fingerprint || undefined,
-  }));
+    onProgress: (stage) => {
+      if (onStage) onStage(stage || 'Reading folded lines & item amounts...');
+    },
+  });
 
   return {
-    receipts: parsed,
+    receipts: tessScan.receipts.map((r) => ({
+      ...r,
+      image_fingerprint: r.image_fingerprint || fingerprint || undefined,
+    })),
     engineUsed: 'local_tesseract',
-    hadText: Boolean(tessText && tessText.trim().length > 0),
+    hadText: tessScan.hadText,
   };
 }
 
 /**
- * 3-Tier Fail-Safe Receipt Scanner:
- * 1. Smart Cloud Scanner (when online and a backend API endpoint is configured)
- * 2. Bundled Android Google ML Kit On-Device OCR (instant offline native extraction)
- * 3. Bundled WebAssembly Tesseract.js On-Device OCR (universal offline fallback)
+ * 3-Tier Fail-Safe Receipt Scanner with Automatic Fold-Shadow & Curl Recovery:
+ * 1. Smart Cloud Scanner (with automatic fold-flattened re-verification if crease shadows obscure items)
+ * 2. Bundled Android Google ML Kit Dual-Pass 2D Spatial OCR
+ * 3. Bundled WebAssembly Tesseract.js Dual-Pass 2D Spatial OCR
  */
 export async function executeFailSafeOcr(params: {
   base64Data: string;
@@ -185,7 +260,7 @@ export async function executeFailSafeOcr(params: {
   // Direct on-device path when standalone Android (no cloud URL), offline, or user-forced offline
   if (!cloudAvailable || mode === 'local_tesseract_only' || !isOnline) {
     if (options.onStage) {
-      options.onStage('Reading receipt on your phone...');
+      options.onStage('Flattening fold shadows & reading items...');
     }
 
     const onDevice = await performBestOnDeviceOcr({
@@ -206,7 +281,6 @@ export async function executeFailSafeOcr(params: {
     }
 
     let cachedJobId: string | undefined;
-    // Only queue for background cloud retry if a cloud endpoint exists, we were temporarily offline, and total was unreadable
     if (
       cloudAvailable &&
       !isOnline &&
@@ -232,25 +306,70 @@ export async function executeFailSafeOcr(params: {
       engineUsed: onDevice.engineUsed,
       fallbackTriggered: !cloudAvailable ? false : true,
       warning: onDevice.hadText
-        ? 'Scanned on your device — please confirm the store name and total below before saving.'
+        ? 'Scanned on your device with fold & curve alignment — confirm items and total below before saving.'
         : 'Receipt photo captured. Please enter or confirm the store name and total below.',
       cachedJobId,
     };
   }
 
-  // Online smart scan with automatic instant failover to ML Kit / Tesseract
+  // Online smart scan with automatic fold-shadow enhancement retry + on-device spatial failover
   try {
     if (options.onStage) {
-      options.onStage('Reading store name, date & line items...');
+      options.onStage('Reading store, date, descriptions & item amounts...');
     }
 
-    const cloudReceipts = await callSmartOcrWithTimeout(
+    let cloudReceipts = await callSmartOcrWithTimeout(
       base64Data,
       mimeType,
       timeoutMs,
       preferredCurrency,
       options.onStage
     );
+
+    // Check if severe fold shadows or paper curl caused missing/unreconciled items on Pass 1
+    const primaryEval = scoreParsedReceiptCandidate(cloudReceipts);
+    const hasWeakSingleSlip =
+      cloudReceipts.length === 1 &&
+      !primaryEval.reconciled &&
+      (cloudReceipts[0].total_amount <= 0 ||
+        (cloudReceipts[0].line_items?.length || 0) <= 1 ||
+        reconcileAndCleanReceiptItems(cloudReceipts[0]).diffRatio > 0.16);
+
+    if (hasWeakSingleSlip) {
+      try {
+        if (options.onStage) {
+          options.onStage('Enhancing folded & curved lines for exact item matching...');
+        }
+        const flattenedB64 = await createFoldFlattenedOcrImage(base64Data, mimeType);
+        const enhancedCloudReceipts = await callSmartOcrWithTimeout(
+          flattenedB64,
+          'image/jpeg',
+          timeoutMs,
+          preferredCurrency,
+          options.onStage
+        );
+        const enhancedEval = scoreParsedReceiptCandidate(enhancedCloudReceipts);
+        const bestCloud = selectBestParsedReceipts([
+          {
+            receipts: cloudReceipts,
+            qualityScore: primaryEval.score,
+            reconciled: primaryEval.reconciled,
+          },
+          {
+            receipts: enhancedCloudReceipts,
+            qualityScore: enhancedEval.score,
+            reconciled: enhancedEval.reconciled,
+          },
+        ]);
+        const origFp = computeImageFingerprint(base64Data);
+        cloudReceipts = bestCloud.receipts.map((r) => ({
+          ...r,
+          image_fingerprint: origFp || r.image_fingerprint,
+        }));
+      } catch {
+        // Keep primary cloudReceipts if secondary enhancement pass times out
+      }
+    }
 
     return {
       receipts: cloudReceipts,
@@ -276,7 +395,7 @@ export async function executeFailSafeOcr(params: {
       );
     }
 
-    const switchMessage = 'Finishing scan directly on your phone...';
+    const switchMessage = 'Finishing scan with on-device fold & curve alignment...';
     if (options.onStage) {
       options.onStage(switchMessage);
     }
@@ -314,7 +433,7 @@ export async function executeFailSafeOcr(params: {
       engineUsed: onDevice.engineUsed,
       fallbackTriggered: true,
       warning: onDevice.hadText
-        ? 'Scanned on your device while cloud service was busy — please check the total before saving.'
+        ? 'Scanned on your device with fold & curve alignment — please check the items and total before saving.'
         : 'Receipt photo captured. Please confirm the store name and amount below.',
       cachedJobId,
     };
@@ -353,7 +472,7 @@ export function startBackgroundQueueWorker(
           const receipts = await callSmartOcrWithTimeout(
             job.base64Data,
             job.mimeType,
-            15000,
+            16000,
             getPreferredCurrency()
           );
 

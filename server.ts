@@ -156,7 +156,6 @@ async function parseReceiptWithRetry(
         config: {
           responseMimeType: "application/json",
           responseSchema: multiReceiptBatchSchema,
-          temperature: 0.1,
         }
       });
 
@@ -478,39 +477,34 @@ self.addEventListener('fetch', (e) => {
 
       const prompt = `You are an expert itemized receipt parser and financial data aggregator designed for a household expenditure tracking app.
 
-IMPORTANT INSTRUCTION FOR MULTIPLE RECEIPTS:
-The uploaded photo may contain:
-- A SINGLE receipt/invoice, OR
-- MULTIPLE separate receipts/slips laid side-by-side or photographed on a table/counter.
+CRITICAL GEOMETRIC RULES FOR FOLDED, CREASED & ROLLED/CURLED RECEIPTS:
+1. Thermal paper receipts frequently have horizontal folds, diagonal creases, shadow troughs, or cylindrical "rolling/curl" distortion where the right-hand price column curves upward or downward relative to the left-hand item descriptions.
+2. NEVER pair an item description on the left with a price on the right using flat image Y-coordinates alone. Instead, visually trace the continuous curved or folded paper baseline of each printed row from the left margin across any crease or curl to the right-margin amount column so EVERY amount stays locked to its exact item.
+3. SEPARATING ITEMS & MULTI-LINE ROWS ACCURATELY:
+   - Keep each distinct purchased product as its own separate entry in "line_items" — never merge two adjacent items into one description even if a fold pinches two lines close together.
+   - If a single long product name wraps across 2 lines (e.g. Line 1: "WOOLWORTHS FREE RANGE LARGE", Line 2: "EGGS 18 PACK   64.99"), combine both lines into one clean "description" ("Woolworths Free Range Large Eggs 18 Pack") with price 64.99.
+   - Strip 5–14 digit EAN/UPC/SKU/PLU barcodes (e.g. "6001007012345") out of "description", while keeping useful product sizes/weights (e.g. "700g", "2L", "500ml", "18pk").
+   - When quantity/weight and unit price appear on a sub-line above or below the item name (e.g. "2 @ 18.50   37.00" or "0.845 kg @ 24.99/kg   21.12"), attach that exact quantity (2 or 0.845), unit_price (18.50 or 24.99), and total_price (37.00 or 21.12) to that item.
+   - If an item is immediately followed by a negative promo/loyalty discount line (e.g. "LESS XTRA SAVINGS -25.00" or "PROMO DISC 25.00-"), subtract that discount from that item's total_price and recalculate unit_price = total_price / quantity so the item reflects the true net price paid. Do NOT output negative discount lines, voided lines, subtotals, VAT breakdown rows (e.g. "A 15% ..."), payment/card tender rows, or change rows inside "line_items".
+4. TOTAL RECONCILIATION CHECK:
+   - Cross-check that the sum of "line_items.total_price" reconciles with "total_amount" (or "subtotal" + "tax"). If an item's amount seems shifted by 1 row due to paper curl, re-trace each row from the top item down and from the bottom item (just above SUBTOTAL/TOTAL) up so every item count and amount aligns 1-to-1.
 
-You MUST inspect the entire image and detect EVERY distinct receipt, tax invoice, or cash slip visible.
-For EACH separate receipt identified in the image, extract:
+IMPORTANT INSTRUCTION FOR MULTIPLE RECEIPTS:
+The uploaded photo may contain a SINGLE receipt/invoice OR MULTIPLE separate receipts/slips laid side-by-side. Detect EVERY distinct receipt visible.
+For EACH separate receipt extract:
 - "vendor_name": Store or provider name (e.g., "Pick n Pay", "Checkers", "Woolworths", "Builders Warehouse", "Shell", "Eskom").
-- "invoice_number": The unique printed receipt number, tax invoice number, slip number, doc number, or till/transaction reference number (e.g., "INV-004821", "0842/03/9912", "#48192"). IMPORTANT: Do NOT put the store's VAT registration number or telephone number here. Return "" if no unique invoice/slip number is printed.
-- "invoice_date": Purchase date found on that specific receipt formatted strictly as YYYY-MM-DD. If year is 2 digits like 26, format as 2026.
-- "month_year": The YYYY-MM billing month derived from the invoice date (e.g. "2026-10").
-- "category": Overall receipt category — choose one of: "Food & Groceries", "Electricity & Utilities", "Home Maintenance", "Transport", "Other".
-- "currency": "${preferredCurrency}" by default unless another currency symbol or code is clearly printed on the receipt.
-- "line_items": Every individual purchased item on the receipt. For EACH item extract:
-  - "description": Standardized, readable item name (expand cryptic thermal abbreviations where obvious, e.g., "Bread White 700g", "Full Cream Milk 2L", "AA Batteries 4pk").
-  - "quantity": Numeric quantity purchased (e.g., 1, 2, 0.85).
-  - "unit_price": Price paid per single unit as a float (e.g., 18.50). If a receipt shows "2 @ 18.50 = 37.00", quantity is 2, unit_price is 18.50, total_price is 37.00.
-  - "total_price": Total line item price as a float.
-  - "category": Assigned category for this specific item — choose one of: "Food & Groceries", "Electricity & Utilities", "Home Maintenance", "Transport", "Other" (e.g. if a supermarket receipt includes lightbulbs/screws, assign those items to "Home Maintenance" while food items get "Food & Groceries").
+- "invoice_number": Unique printed receipt/tax invoice/slip/doc/transaction reference number. Do NOT use the store's VAT registration number or phone number. Return "" if none printed.
+- "invoice_date": Purchase date formatted strictly as YYYY-MM-DD (convert 2-digit year like 26 to 2026).
+- "month_year": YYYY-MM derived from invoice_date.
+- "category": Overall receipt category — one of: "Food & Groceries", "Electricity & Utilities", "Home Maintenance", "Transport", "Other".
+- "currency": "${preferredCurrency}" by default unless another currency symbol/code is clearly printed.
+- "line_items": Array of purchased items, each with "description", "quantity", "unit_price", "total_price", and item-level "category" ("Food & Groceries", "Electricity & Utilities", "Home Maintenance", "Transport", or "Other").
 - "subtotal": Subtotal before tax if available.
 - "tax": VAT/Tax amount if printed.
-- "total_amount": Grand total amount of that specific receipt as a clean float (e.g., 122.30, 47.50, 292.17).
-- "notes": Mention slip position or detail if multiple slips are present (e.g. "Slip 1 of 3").
+- "total_amount": Grand total amount of that receipt as a float.
+- "notes": Mention slip position if multiple slips are present (e.g. "Slip 1 of 2").
 
-Categorization Rules:
-1. "Food & Groceries": Groceries, supermarkets, bakeries, butcheries, beverages, household consumables, restaurants.
-2. "Electricity & Utilities": Power tokens, electricity, water, rates, municipal services, internet/gas.
-3. "Home Maintenance": Hardware, DIY, tools, paint, bulbs, plumbing, construction, repair services, garden.
-4. "Transport": Fuel stations, diesel/petrol, vehicle services, toll gates, parking.
-5. "Other": Any household expense that does not fit the above categories.
-
-Output:
-Strictly return JSON conforming to the schema with the "receipts" array containing all detected receipts.`;
+Strictly return JSON conforming to the schema with the "receipts" array.`;
 
       let responseText = await parseReceiptWithRetry(base64Data, mimeType, prompt);
       
@@ -581,20 +575,45 @@ Strictly return JSON conforming to the schema with the "receipts" array containi
 
         let lineItems: any[] = [];
         if (Array.isArray(r.line_items)) {
-          lineItems = r.line_items.map((item: any) => {
+          for (const item of r.line_items) {
+            const rawDesc = String(item.description || "")
+              .replace(/^(?:[*#]?\d{5,14}\b[\s-]*)+/, "")
+              .replace(/\s+\b\d{7,14}$/, "")
+              .trim();
             const qty = Number(item.quantity) > 0 ? Number(item.quantity) : 1;
             const rawUnit = Number(item.unit_price) || 0;
             const rawTotal = Number(item.total_price) || 0;
+
+            // Fold negative promo discount lines into the preceding item if AI emitted one separately
+            if ((rawTotal < 0 || rawUnit < 0) && lineItems.length > 0) {
+              const disc = Math.abs(rawTotal !== 0 ? rawTotal : rawUnit * qty);
+              const prev = lineItems[lineItems.length - 1];
+              if (disc > 0 && disc < prev.total_price) {
+                prev.total_price = Number((prev.total_price - disc).toFixed(2));
+                prev.unit_price = Number((prev.total_price / Math.max(0.001, prev.quantity)).toFixed(2));
+              }
+              continue;
+            }
+
+            if (
+              !rawDesc ||
+              /\b(?:subtotal|sub\s*total|grand\s*total|amount\s*due|change|cash\s*tender|debit\s*card|credit\s*card|vat\s*rate|zero\s*rated|standard\s*rated)\b/i.test(rawDesc)
+            ) {
+              continue;
+            }
+
             const totalPrice = rawTotal > 0 ? rawTotal : Number((qty * rawUnit).toFixed(2));
             const unitPrice = rawUnit > 0 ? rawUnit : (qty > 0 ? Number((totalPrice / qty).toFixed(2)) : totalPrice);
-            return {
-              description: String(item.description || "Item").trim(),
-              quantity: qty,
+            if (totalPrice <= 0) continue;
+
+            lineItems.push({
+              description: rawDesc,
+              quantity: Number(qty.toFixed(3)),
               unit_price: Number(unitPrice.toFixed(2)),
               total_price: Number(totalPrice.toFixed(2)),
               category: normalizeCat(item.category, category),
-            };
-          });
+            });
+          }
         }
 
         if (totalAmount <= 0 && lineItems.length > 0) {

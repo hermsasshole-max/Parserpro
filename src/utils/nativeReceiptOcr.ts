@@ -1,9 +1,12 @@
 import { Capacitor, registerPlugin } from '@capacitor/core';
+import type { OcrSpatialPage } from './receiptLayoutParser';
 
 export interface NativeReceiptOcrResult {
   text: string;
   rawText: string;
   engine: 'native_mlkit';
+  primary?: OcrSpatialPage;
+  enhanced?: OcrSpatialPage;
   blocks?: string[];
 }
 
@@ -42,22 +45,23 @@ export async function isNativeMlKitAvailable(): Promise<boolean> {
 }
 
 /**
- * Runs on-device bundled Google ML Kit Latin Text Recognition with horizontal receipt row reconstruction.
+ * Runs on-device bundled Google ML Kit Latin Text Recognition returning both
+ * primary and fold-shadow-flattened spatial 2D geometry passes.
  */
-export async function performNativeMlKitOcr(
+export async function performNativeMlKitStructuredOcr(
   base64Data: string,
   onProgress?: (stage: string) => void
-): Promise<string> {
+): Promise<NativeReceiptOcrResult | null> {
   if (!Capacitor.isNativePlatform() || Capacitor.getPlatform() !== 'android') {
-    return '';
+    return null;
   }
 
   if (onProgress) {
-    onProgress('Reading receipt on your phone...');
+    onProgress('Reading folded & curved lines on your phone...');
   }
 
   const timeoutPromise = new Promise<never>((_, reject) =>
-    setTimeout(() => reject(new Error('Native ML Kit OCR timed out after 15s')), 15000)
+    setTimeout(() => reject(new Error('Native ML Kit OCR timed out after 18s')), 18000)
   );
 
   const result = await Promise.race([
@@ -65,5 +69,16 @@ export async function performNativeMlKitOcr(
     timeoutPromise,
   ]);
 
-  return (result?.text || result?.rawText || '').trim();
+  return result || null;
+}
+
+/**
+ * Backwards-compatible text wrapper for on-device ML Kit OCR.
+ */
+export async function performNativeMlKitOcr(
+  base64Data: string,
+  onProgress?: (stage: string) => void
+): Promise<string> {
+  const res = await performNativeMlKitStructuredOcr(base64Data, onProgress);
+  return (res?.text || res?.rawText || '').trim();
 }

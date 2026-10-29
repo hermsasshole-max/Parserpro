@@ -15,6 +15,8 @@ import {
   Sparkles,
   WifiOff,
   FilePlus2,
+  Eye,
+  EyeOff,
 } from 'lucide-react';
 import type { LineItem, ReceiptCategory, ReceiptData, SavedReceipt } from '../types';
 import { compressAndPrepareImage } from '../utils/imageUtils';
@@ -102,6 +104,7 @@ export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
   const [showLimitFallbackPrompt, setShowLimitFallbackPrompt] = useState(false);
 
   const [drafts, setDrafts] = useState<ExtractedDraft[]>([]);
+  const [expandedPreviewIds, setExpandedPreviewIds] = useState<Record<string, boolean>>({});
   const [savedBannerCount, setSavedBannerCount] = useState<number | null>(null);
   const [isDragging, setIsDragging] = useState(false);
 
@@ -153,7 +156,7 @@ export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
       let skippedSameTrayCount = 0;
 
       for (const file of allowedFiles) {
-        const compressed = await compressAndPrepareImage(file, 1800, 0.84);
+        const compressed = await compressAndPrepareImage(file, 2200, 0.86);
         const fingerprint = computeImageFingerprint(compressed.base64Data);
 
         if (
@@ -725,8 +728,8 @@ export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
             </div>
 
             <p className="text-xs text-slate-500 dark:text-slate-400">
-              Works offline too — if you lose signal in a shop, your receipt is read right on your
-              phone at no credit cost.
+              Automatic fold-shadow & paper-curl alignment keeps every item matched to its exact
+              amount — online or offline.
             </p>
           </div>
 
@@ -1154,25 +1157,109 @@ export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
 
                   {/* Itemized Line-Item Extraction & Category Assignment */}
                   <div className="pt-3 border-t border-slate-100 dark:border-slate-800 space-y-3">
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <div>
-                        <p className="text-xs font-semibold text-slate-700 dark:text-slate-300">
-                          Extracted Line Items ({draft.line_items?.length || 0})
-                        </p>
-                        <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                          Purchase Date: {formatShortDate(draft.invoice_date)} · Item name, qty,
-                          unit price & category
-                        </p>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => addDraftLineItem(draft.draftId)}
-                        className="min-h-[38px] px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-semibold text-emerald-700 dark:text-emerald-400 hover:bg-slate-50 dark:hover:bg-slate-800 flex items-center gap-1 whitespace-nowrap"
-                      >
-                        <Plus className="w-3.5 h-3.5" />
-                        <span>Add Item</span>
-                      </button>
-                    </div>
+                    {(() => {
+                      const itemsSum = Number(
+                        (draft.line_items || [])
+                          .reduce((acc, li) => acc + (Number(li.total_price) || 0), 0)
+                          .toFixed(2)
+                      );
+                      const receiptTotal = Number(draft.total_amount) || 0;
+                      const receiptTax = Number(draft.tax) || 0;
+                      const matchesTotal =
+                        receiptTotal > 0 &&
+                        itemsSum > 0 &&
+                        (Math.abs(itemsSum - receiptTotal) <= 0.15 ||
+                          (receiptTax > 0 && Math.abs(itemsSum + receiptTax - receiptTotal) <= 0.15));
+                      const hasMismatch =
+                        receiptTotal > 0 && itemsSum > 0 && !matchesTotal;
+                      const isPreviewOpen = Boolean(expandedPreviewIds[draft.draftId]);
+
+                      return (
+                        <>
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <div className="space-y-0.5">
+                              <div className="flex flex-wrap items-center gap-2">
+                                <p className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+                                  Extracted Line Items ({draft.line_items?.length || 0})
+                                </p>
+                                {matchesTotal && (
+                                  <span className="inline-flex items-center gap-1 text-[11px] font-medium text-emerald-700 dark:text-emerald-400">
+                                    <Check className="w-3 h-3" />
+                                    <span>Items match total</span>
+                                  </span>
+                                )}
+                                {hasMismatch && (
+                                  <span className="inline-flex items-center gap-1.5 text-[11px] font-medium text-amber-700 dark:text-amber-400 tabular-nums">
+                                    <span>
+                                      Items sum: {formatMoney(itemsSum, currencyCode)}
+                                    </span>
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        updateDraftField(draft.draftId, 'total_amount', itemsSum)
+                                      }
+                                      className="underline font-semibold hover:opacity-80"
+                                    >
+                                      Use items sum
+                                    </button>
+                                  </span>
+                                )}
+                              </div>
+                              <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                                Purchase Date: {formatShortDate(draft.invoice_date)} · Item name,
+                                qty, unit price & category
+                              </p>
+                            </div>
+
+                            <div className="flex items-center gap-2">
+                              {draft.previewUrl && (
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    setExpandedPreviewIds((prev) => ({
+                                      ...prev,
+                                      [draft.draftId]: !prev[draft.draftId],
+                                    }))
+                                  }
+                                  className="min-h-[38px] px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 flex items-center gap-1.5 whitespace-nowrap"
+                                >
+                                  {isPreviewOpen ? (
+                                    <>
+                                      <EyeOff className="w-3.5 h-3.5" />
+                                      <span>Hide Slip</span>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <Eye className="w-3.5 h-3.5" />
+                                      <span>Check Slip Photo</span>
+                                    </>
+                                  )}
+                                </button>
+                              )}
+                              <button
+                                type="button"
+                                onClick={() => addDraftLineItem(draft.draftId)}
+                                className="min-h-[38px] px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-semibold text-emerald-700 dark:text-emerald-400 hover:bg-slate-50 dark:hover:bg-slate-800 flex items-center gap-1 whitespace-nowrap"
+                              >
+                                <Plus className="w-3.5 h-3.5" />
+                                <span>Add Item</span>
+                              </button>
+                            </div>
+                          </div>
+
+                          {isPreviewOpen && draft.previewUrl && (
+                            <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/60 p-2 max-h-72 overflow-y-auto">
+                              <img
+                                src={draft.previewUrl}
+                                alt="Scanned receipt slip reference"
+                                referrerPolicy="no-referrer"
+                                className="w-full h-auto rounded-lg object-contain"
+                              />
+                            </div>
+                          )}
+                        </>
+                      );
+                    })()}
 
                     {draft.line_items && draft.line_items.length > 0 ? (
                       <div className="divide-y divide-slate-100 dark:divide-slate-800/80 max-h-72 overflow-y-auto pr-1 space-y-2">
