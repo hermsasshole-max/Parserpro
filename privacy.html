@@ -1,0 +1,591 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Privacy Policy — ParserPro (com.receiptscannerpro.app)</title>
+  <meta name="description" content="Official Privacy Policy for ParserPro (com.receiptscannerpro.app), the household receipt scanner and expenditure tracker for Android and web." />
+  <meta name="robots" content="index, follow" />
+  <meta property="og:title" content="Privacy Policy — ParserPro" />
+  <meta property="og:description" content="How ParserPro handles camera permissions, receipt image processing, and local on-device expenditure storage." />
+  <meta property="og:type" content="website" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600&family=JetBrains+Mono:wght@400;500&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg-paper: #fbf9f5;
+      --bg-surface: #ffffff;
+      --ink-primary: #1c1917;
+      --ink-secondary: #57534e;
+      --ink-muted: #78716c;
+      --border-hairline: #e7e2da;
+      --accent-forest: #065f46;
+      --accent-forest-hover: #047857;
+      --font-display: 'Fraunces', Georgia, serif;
+      --font-body: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+      --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, monospace;
+    }
+
+    *, *::before, *::after {
+      box-sizing: border-box;
+    }
+
+    html {
+      scroll-behavior: smooth;
+      background-color: var(--bg-paper);
+      color: var(--ink-primary);
+      font-family: var(--font-body);
+      font-size: 16px;
+      line-height: 1.75;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    body {
+      margin: 0;
+      padding: 0;
+      background-color: var(--bg-paper);
+      color: var(--ink-primary);
+    }
+
+    /* Top Bar Contract: 1 row, 3 zones separated cleanly */
+    .site-header {
+      position: sticky;
+      top: 0;
+      z-index: 30;
+      background-color: rgba(251, 249, 245, 0.94);
+      backdrop-filter: blur(8px);
+      border-bottom: 1px solid var(--border-hairline);
+    }
+
+    .header-inner {
+      max-width: 1160px;
+      margin: 0 auto;
+      padding: 0.875rem 1.5rem;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 2rem;
+    }
+
+    .brand-wordmark {
+      font-family: var(--font-display);
+      font-size: 1.25rem;
+      font-weight: 600;
+      color: var(--ink-primary);
+      text-decoration: none;
+      letter-spacing: -0.01em;
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
+
+    .header-nav {
+      display: none;
+      align-items: center;
+      gap: 1.75rem;
+    }
+
+    @media (min-width: 768px) {
+      .header-nav {
+        display: flex;
+      }
+    }
+
+    .header-nav a {
+      font-size: 0.875rem;
+      font-weight: 500;
+      color: var(--ink-secondary);
+      text-decoration: none;
+      white-space: nowrap;
+      flex-shrink: 0;
+      transition: color 150ms cubic-bezier(0.16, 1, 0.3, 1);
+    }
+
+    .header-nav a:hover,
+    .header-nav a:focus-visible {
+      color: var(--ink-primary);
+      text-decoration: underline;
+      text-underline-offset: 4px;
+    }
+
+    .btn-primary {
+      appearance: none;
+      border: 1px solid var(--accent-forest);
+      background-color: var(--accent-forest);
+      color: #ffffff;
+      font-family: var(--font-body);
+      font-size: 0.8125rem;
+      font-weight: 600;
+      line-height: 1.2;
+      padding: 0.55rem 1rem;
+      border-radius: 0.5rem;
+      cursor: pointer;
+      white-space: nowrap;
+      flex-shrink: 0;
+      min-height: 40px;
+      transition: background-color 150ms cubic-bezier(0.16, 1, 0.3, 1), transform 150ms cubic-bezier(0.16, 1, 0.3, 1);
+    }
+
+    .btn-primary:hover {
+      background-color: var(--accent-forest-hover);
+    }
+
+    .btn-primary:focus-visible {
+      outline: 2px solid var(--accent-forest);
+      outline-offset: 2px;
+    }
+
+    /* Editorial Hero */
+    .hero {
+      max-width: 1160px;
+      margin: 0 auto;
+      padding: 3.5rem 1.5rem 2.5rem;
+      border-bottom: 1px solid var(--border-hairline);
+    }
+
+    .meta-line {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 0.5rem;
+      font-size: 0.8125rem;
+      color: var(--ink-muted);
+      margin-bottom: 1rem;
+    }
+
+    .hero h1 {
+      font-family: var(--font-display);
+      font-size: clamp(2.125rem, 4vw, 3.25rem);
+      font-weight: 600;
+      line-height: 1.15;
+      letter-spacing: -0.02em;
+      margin: 0 0 1rem;
+      max-width: 22ch;
+      text-wrap: balance;
+    }
+
+    .hero-lead {
+      font-size: 1.0625rem;
+      color: var(--ink-secondary);
+      max-width: 66ch;
+      margin: 0;
+    }
+
+    /* Two-Column Asymmetric Reading Canvas */
+    .canvas {
+      max-width: 1160px;
+      margin: 0 auto;
+      padding: 3rem 1.5rem 5rem;
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 3rem;
+      align-items: start;
+    }
+
+    @media (min-width: 960px) {
+      .canvas {
+        grid-template-columns: minmax(0, 1fr) 320px;
+        gap: 4rem;
+      }
+    }
+
+    .prose-column {
+      max-width: 68ch;
+    }
+
+    .policy-section {
+      padding-bottom: 2.5rem;
+      margin-bottom: 2.5rem;
+      border-bottom: 1px solid var(--border-hairline);
+      scroll-margin-top: 5rem;
+    }
+
+    .policy-section:last-child {
+      border-bottom: none;
+      margin-bottom: 0;
+      padding-bottom: 0;
+    }
+
+    .policy-section h2 {
+      font-family: var(--font-display);
+      font-size: 1.5rem;
+      font-weight: 600;
+      line-height: 1.3;
+      color: var(--ink-primary);
+      margin: 0 0 1rem;
+      text-wrap: balance;
+    }
+
+    .policy-section p {
+      margin: 0 0 1rem;
+      color: var(--ink-secondary);
+    }
+
+    .policy-section p:last-child {
+      margin-bottom: 0;
+    }
+
+    .policy-section ul {
+      margin: 0.75rem 0 1rem;
+      padding-left: 1.25rem;
+      color: var(--ink-secondary);
+    }
+
+    .policy-section li {
+      margin-bottom: 0.625rem;
+    }
+
+    .policy-section strong {
+      color: var(--ink-primary);
+      font-weight: 600;
+    }
+
+    .mono {
+      font-family: var(--font-mono);
+      font-size: 0.875em;
+      font-variant-numeric: tabular-nums;
+      color: var(--ink-primary);
+    }
+
+    /* Clean Data Table */
+    .table-wrap {
+      overflow-x: auto;
+      margin: 1.25rem 0;
+      border: 1px solid var(--border-hairline);
+      border-radius: 0.625rem;
+      background-color: var(--bg-surface);
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      text-align: left;
+      font-size: 0.875rem;
+      font-variant-numeric: tabular-nums;
+    }
+
+    th {
+      padding: 0.75rem 1rem;
+      font-weight: 600;
+      color: var(--ink-primary);
+      border-bottom: 1px solid var(--border-hairline);
+      background-color: var(--bg-paper);
+    }
+
+    td {
+      padding: 0.75rem 1rem;
+      color: var(--ink-secondary);
+      border-bottom: 1px solid var(--border-hairline);
+      vertical-align: top;
+    }
+
+    tr:last-child td {
+      border-bottom: none;
+    }
+
+    /* Reference Summary Rail */
+    .summary-rail {
+      background-color: var(--bg-surface);
+      border: 1px solid var(--border-hairline);
+      border-radius: 0.75rem;
+      padding: 1.5rem;
+    }
+
+    @media (min-width: 960px) {
+      .summary-rail {
+        position: sticky;
+        top: 5.25rem;
+      }
+    }
+
+    .summary-rail h3 {
+      font-family: var(--font-display);
+      font-size: 1.125rem;
+      font-weight: 600;
+      margin: 0 0 1rem;
+      color: var(--ink-primary);
+    }
+
+    .summary-dl {
+      margin: 0;
+    }
+
+    .summary-row {
+      padding: 0.75rem 0;
+      border-top: 1px solid var(--border-hairline);
+    }
+
+    .summary-row:first-child {
+      border-top: none;
+      padding-top: 0;
+    }
+
+    .summary-row:last-child {
+      padding-bottom: 0;
+    }
+
+    .summary-row dt {
+      font-size: 0.75rem;
+      font-weight: 600;
+      color: var(--ink-muted);
+      margin-bottom: 0.2rem;
+    }
+
+    .summary-row dd {
+      margin: 0;
+      font-size: 0.875rem;
+      color: var(--ink-primary);
+      word-break: break-word;
+    }
+
+    .contact-link {
+      color: var(--accent-forest);
+      font-weight: 600;
+      text-decoration: underline;
+      text-underline-offset: 3px;
+    }
+
+    .contact-link:hover {
+      color: var(--accent-forest-hover);
+    }
+
+    /* Quiet Footer */
+    .site-footer {
+      border-top: 1px solid var(--border-hairline);
+      padding: 2rem 1.5rem;
+      font-size: 0.8125rem;
+      color: var(--ink-muted);
+    }
+
+    .footer-inner {
+      max-width: 1160px;
+      margin: 0 auto;
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: space-between;
+      gap: 1rem;
+    }
+
+    @media print {
+      .site-header {
+        position: static;
+        background: #ffffff;
+      }
+      .btn-primary, .header-nav {
+        display: none !important;
+      }
+      body, html {
+        background: #ffffff;
+      }
+      .canvas {
+        display: block;
+      }
+      .summary-rail {
+        margin-top: 2rem;
+      }
+    }
+  </style>
+</head>
+<body>
+  <header class="site-header">
+    <div class="header-inner">
+      <a href="#top" class="brand-wordmark">ParserPro</a>
+      <nav class="header-nav" aria-label="Privacy policy sections">
+        <a href="#permissions">Permissions</a>
+        <a href="#processing">Image Processing</a>
+        <a href="#storage">Data Storage</a>
+        <a href="#retention">Retention</a>
+        <a href="#rights">Your Rights</a>
+      </nav>
+      <button type="button" class="btn-primary" onclick="window.print()">Print Policy</button>
+    </div>
+  </header>
+
+  <main id="top">
+    <section class="hero">
+      <div class="meta-line">
+        <span>Official Privacy Policy</span>
+        <span aria-hidden="true">·</span>
+        <span>Effective October 26, 2026</span>
+        <span aria-hidden="true">·</span>
+        <span class="mono">com.receiptscannerpro.app</span>
+      </div>
+      <h1>Privacy Policy for ParserPro</h1>
+      <p class="hero-lead">
+        ParserPro is a local-first household receipt scanner and expenditure tracker. You do not need an account to use the app, your saved receipts remain stored locally on your own device, and we never sell, rent, or monetize your personal or financial data.
+      </p>
+    </section>
+
+    <div class="canvas">
+      <div class="prose-column">
+        <section class="policy-section" id="overview">
+          <h2>01. Overview &amp; Scope</h2>
+          <p>
+            This Privacy Policy explains how <strong>ParserPro</strong> (Android package identifier <span class="mono">com.receiptscannerpro.app</span>, also accessible as a web application) handles information when you photograph receipts, extract line items, track monthly household budgets, and export backups.
+          </p>
+          <p>
+            ParserPro is designed around a <strong>local-first architecture</strong>: we do not operate user accounts, cloud receipt databases, advertising SDKs, or cross-app behavioral trackers.
+          </p>
+        </section>
+
+        <section class="policy-section" id="permissions">
+          <h2>02. Android Permissions We Request</h2>
+          <p>
+            ParserPro requests only the Android system permissions strictly required for scanning receipts and exporting your backups:
+          </p>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Permission</th>
+                  <th>Purpose</th>
+                  <th>When Triggered</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><span class="mono">android.permission.CAMERA</span></td>
+                  <td>Captures photos of paper receipts, slips, and utility invoices for item extraction.</td>
+                  <td>Only when you tap the Scan / Camera button. Never accessed in the background.</td>
+                </tr>
+                <tr>
+                  <td><span class="mono">READ_EXTERNAL_STORAGE</span> / <span class="mono">WRITE_EXTERNAL_STORAGE</span> (Android 12 &amp; below, <span class="mono">maxSdkVersion="32"</span>)</td>
+                  <td>Allows importing receipt photos from your gallery and saving JSON, CSV, or PDF expenditure backups to your device Downloads or Documents folder.</td>
+                  <td>Only when you explicitly import a file or export a backup report.</td>
+                </tr>
+                <tr>
+                  <td><span class="mono">android.permission.INTERNET</span></td>
+                  <td>Transmits a receipt image over encrypted HTTPS when cloud OCR extraction is selected.</td>
+                  <td>Only during active receipt extraction when online OCR mode is enabled.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <p>
+            You may revoke camera or storage permissions at any time in your Android system settings. ParserPro continues to support manual receipt entry and offline local viewing even if camera permission is declined.
+          </p>
+        </section>
+
+        <section class="policy-section" id="processing">
+          <h2>03. Receipt Scanning &amp; Image Processing</h2>
+          <p>
+            ParserPro offers two methods for extracting text (vendor name, invoice date, line items, VAT/tax, and total amount) from receipt images:
+          </p>
+          <ul>
+            <li>
+              <strong>Encrypted Cloud OCR Extraction:</strong> When online extraction is used, the receipt photo you select or capture is transmitted over TLS/HTTPS to our stateless extraction endpoint solely to parse structured receipt text and return JSON line items back to your device. Receipt images are processed transiently in memory (<span class="mono">memoryStorage</span>) and are <strong>not stored, logged, or retained</strong> on our servers after the response is returned.
+            </li>
+            <li>
+              <strong>On-Device Offline OCR:</strong> When offline OCR mode is selected in Settings, optical character recognition runs locally on your device without transmitting the receipt photo over the network.
+            </li>
+          </ul>
+          <p>
+            Please avoid photographing sensitive unrelated documents (such as identity cards, passports, or full payment card numbers). Standard retail receipts typically mask card digits automatically.
+          </p>
+        </section>
+
+        <section class="policy-section" id="storage">
+          <h2>04. Local On-Device Data Storage</h2>
+          <p>
+            All extracted receipts, edited line items, monthly category budgets, and application preferences are stored exclusively on your own device using Android WebView / browser local storage technologies (<span class="mono">IndexedDB</span> and <span class="mono">localStorage</span>).
+          </p>
+          <ul>
+            <li><strong>No Cloud Account Database:</strong> We do not maintain a central database of your household purchases, vendor history, or monthly expenditure totals.</li>
+            <li><strong>User-Controlled Backups:</strong> When you use the Backup (<span class="mono">.json</span>), CSV Ledger (<span class="mono">.csv</span>), or Printable Report features, files are saved directly to your device storage or shared only through the Android share target you explicitly choose.</li>
+          </ul>
+        </section>
+
+        <section class="policy-section" id="sharing">
+          <h2>05. Data Sharing &amp; Third-Party Services</h2>
+          <p>
+            We do <strong>not</strong> sell, rent, trade, or share your personal information or receipt history with advertisers, data brokers, or analytics networks.
+          </p>
+          <ul>
+            <li><strong>Zero Advertising &amp; Analytics SDKs:</strong> ParserPro contains no third-party ad networks, marketing pixels, or fingerprinting scripts.</li>
+            <li><strong>OCR Infrastructure Providers:</strong> When cloud OCR mode is active, receipt image bytes are processed through encrypted API infrastructure strictly to return structured receipt fields and are never used by us to build user profiles.</li>
+            <li><strong>Legal Compliance:</strong> Because we do not store your receipt database on our servers, we do not possess historical user expenditure records to disclose to third parties.</li>
+          </ul>
+        </section>
+
+        <section class="policy-section" id="retention">
+          <h2>06. Data Retention &amp; Instant Deletion</h2>
+          <p>
+            Because your expenditure records live locally on your device, you have complete, immediate control over retention and deletion at all times:
+          </p>
+          <ul>
+            <li><strong>Delete Individual Receipts or Months:</strong> Delete any single invoice or clear an entire month directly from the Receipts or Settings tab.</li>
+            <li><strong>Instant Full Data Wipe:</strong> Open <strong>Settings → Reset All Data</strong> inside ParserPro to permanently erase all saved invoices, line items, and totals from your device in one tap.</li>
+            <li><strong>Uninstall Cleanup:</strong> Uninstalling ParserPro or clearing app storage in Android Settings permanently removes all local app databases from your phone.</li>
+          </ul>
+        </section>
+
+        <section class="policy-section" id="children">
+          <h2>07. Children's Privacy</h2>
+          <p>
+            ParserPro is a general-audience household budgeting and utility tool and is not directed to children under the age of 13 (or the minimum digital consent age in your jurisdiction). We do not knowingly collect personal information from children. If you believe a child has submitted personal information to us via email support, please contact us so we can delete it promptly.
+          </p>
+        </section>
+
+        <section class="policy-section" id="rights">
+          <h2>08. Your Privacy Rights &amp; Contact Information</h2>
+          <p>
+            Depending on your location—including under South Africa's Protection of Personal Information Act (POPIA), the European Union / UK General Data Protection Regulation (GDPR), and California privacy laws (CCPA/CPRA)—you have the right to know how your data is processed, export your data in portable formats (<span class="mono">JSON</span> and <span class="mono">CSV</span> built into the app), and erase your data.
+          </p>
+          <p>
+            We may update this Privacy Policy from time to time to reflect app improvements or Google Play policy updates. Any changes will be posted on this page with an updated effective date.
+          </p>
+          <p>
+            For privacy questions, support requests, or data inquiries regarding ParserPro (<span class="mono">com.receiptscannerpro.app</span>), contact the developer directly at
+            <a class="contact-link" href="mailto:hermsytube@gmail.com">hermsytube@gmail.com</a>.
+          </p>
+        </section>
+      </div>
+
+      <aside class="summary-rail" aria-label="Google Play Data Safety Summary">
+        <h3>Data Safety Summary</h3>
+        <dl class="summary-dl">
+          <div class="summary-row">
+            <dt>Application Name</dt>
+            <dd>ParserPro</dd>
+          </div>
+          <div class="summary-row">
+            <dt>Android Package ID</dt>
+            <dd class="mono">com.receiptscannerpro.app</dd>
+          </div>
+          <div class="summary-row">
+            <dt>Account Required</dt>
+            <dd>No — works locally without sign-up</dd>
+          </div>
+          <div class="summary-row">
+            <dt>Receipt Storage Location</dt>
+            <dd>On-device (<span class="mono">IndexedDB</span> / <span class="mono">localStorage</span>)</dd>
+          </div>
+          <div class="summary-row">
+            <dt>Server Image Retention</dt>
+            <dd>0 days (processed transiently in memory over HTTPS)</dd>
+          </div>
+          <div class="summary-row">
+            <dt>Third-Party Ads or Sale of Data</dt>
+            <dd>None</dd>
+          </div>
+          <div class="summary-row">
+            <dt>In-App Data Deletion</dt>
+            <dd>Settings → Reset All Data</dd>
+          </div>
+          <div class="summary-row">
+            <dt>Developer Contact</dt>
+            <dd><a class="contact-link" href="mailto:hermsytube@gmail.com">hermsytube@gmail.com</a></dd>
+          </div>
+        </dl>
+      </aside>
+    </div>
+  </main>
+
+  <footer class="site-footer">
+    <div class="footer-inner">
+      <span>&copy; 2026 ParserPro (<span class="mono">com.receiptscannerpro.app</span>). All rights reserved.</span>
+      <span>Last updated: October 26, 2026 · Contact: <a class="contact-link" href="mailto:hermsytube@gmail.com">hermsytube@gmail.com</a></span>
+    </div>
+  </footer>
+</body>
+</html>

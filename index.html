@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Receipt Parser</title>
+    <meta name="description" content="Scan household receipts, extract items with AI OCR, file by month and date, and generate live month-to-month expenditure reports." />
+    <meta name="theme-color" content="#059669" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-title" content="ParserPro" />
+    <meta name="application-name" content="ParserPro" />
+    <link rel="manifest" href="./manifest.json" />
+    <link rel="icon" type="image/png" sizes="192x192" href="./icon-192.png" />
+    <link rel="icon" type="image/png" sizes="512x512" href="./icon-512.png" />
+    <link rel="icon" type="image/svg+xml" href="./icon.svg" />
+    <link rel="apple-touch-icon" sizes="192x192" href="./icon-192.png" />
+    <link rel="apple-touch-icon" sizes="512x512" href="./icon-512.png" />
+    <meta property="og:title" content="Receipt Parser" />
+    <meta property="og:description" content="Scan household receipts, extract items with AI OCR, file by month and date, and generate live month-to-month expenditure reports." />
+    <meta property="og:type" content="website" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+    <script>
+      if ('serviceWorker' in navigator) {
+        window.addEventListener('DOMContentLoaded', function() {
+          var isNativeCapacitor = Boolean(
+            window.Capacitor &&
+            typeof window.Capacitor.isNativePlatform === 'function' &&
+            window.Capacitor.isNativePlatform()
+          );
+          if (isNativeCapacitor) {
+            // Native Android/iOS already bundles all web assets offline inside the signed app bundle.
+            // Unregister any legacy Service Worker from older builds so Play Store updates never serve stale cached JS/HTML.
+            var hadController = Boolean(navigator.serviceWorker.controller);
+            navigator.serviceWorker.getRegistrations().then(function(registrations) {
+              return Promise.all(registrations.map(function(reg) { return reg.unregister(); }));
+            }).then(function() {
+              if ('caches' in window) {
+                return caches.keys().then(function(keys) {
+                  return Promise.all(keys.map(function(k) { return caches.delete(k); }));
+                });
+              }
+            }).then(function() {
+              if (hadController && !sessionStorage.getItem('parserpro_sw_migrated_v230')) {
+                sessionStorage.setItem('parserpro_sw_migrated_v230', '1');
+                window.location.reload();
+              }
+            }).catch(function() {});
+          } else {
+            var swUrl = './sw.js?v=1.5.0-b230';
+            navigator.serviceWorker.register(swUrl)
+              .then(function(registration) {
+                registration.update().catch(function() {});
+              })
+              .catch(function(err) {
+                console.warn('[PWA] Service Worker failed to register:', err);
+              });
+          }
+        });
+      }
+    </script>
+    <script type="module" crossorigin src="./assets/index-DnPemPpD.js"></script>
+    <link rel="stylesheet" crossorigin href="./assets/index-BkaRvdx1.css">
+  </head>
+  <body>
+    <div id="root">
+      <div id="app-initial-splash" style="position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; background-color: #f8fafc; font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif; color: #0f172a; padding: 24px; text-align: center; z-index: 9999;">
+        <div style="width: 60px; height: 60px; background: #0f172a; border-radius: 16px; display: flex; align-items: center; justify-content: center; margin-bottom: 18px;">
+          <svg style="width: 30px; height: 30px; color: #10b981;" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+          </svg>
+        </div>
+        <div style="font-size: 22px; font-weight: 800; letter-spacing: -0.03em; margin-bottom: 6px;">
+          ParserPro
+        </div>
+        <div style="font-size: 13px; color: #64748b; font-weight: 500;">
+          Smart Receipt &amp; Spending Tracker
+        </div>
+        <div id="splash-error" style="display: none; margin-top: 24px; max-width: 320px;">
+          <div style="font-size: 12px; color: #64748b; margin-bottom: 12px;">Taking longer than expected to open.</div>
+          <button onclick="window.location.reload()" style="padding: 10px 20px; background: #0f172a; color: white; border: none; border-radius: 12px; font-size: 12px; font-weight: 600; cursor: pointer;">
+            Reload App
+          </button>
+        </div>
+      </div>
+      <script>
+        setTimeout(function() {
+          var errDiv = document.getElementById('splash-error');
+          if (errDiv && document.getElementById('app-initial-splash')) {
+            errDiv.style.display = 'block';
+          }
+        }, 6000);
+      </script>
+    </div>
+  </body>
+</html>
+

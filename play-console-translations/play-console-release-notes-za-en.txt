@@ -1,0 +1,34 @@
+<en-US>
+• Faster receipt and invoice scanning with improved line-item extraction
+• Offline on-device OCR queue for scanning without internet access
+• Monthly category budgets, spending charts, and CSV/JSON device backups
+• Added multi-language support, R8 performance optimization, and stability fixes
+</en-US>
+
+<en-ZA>
+• Improved till slip and invoice scanning with accurate Rand (ZAR) item extraction
+• Offline OCR queue so you can capture till slips without mobile data
+• Monthly category budgets, spending summaries, and CSV/JSON device backups
+• Added South African & global language support plus R8 performance upgrades
+</en-ZA>
+
+<en-GB>
+• Faster receipt and invoice scanning with improved line-item recognition
+• Offline on-device OCR queue for capturing receipts without signal
+• Monthly category budgets, spending breakdowns, and CSV/JSON backups
+• Performance optimisation and stability improvements
+</en-GB>
+
+<af>
+• Vinniger skandering van inkopiestrokies en fakture met verbeterde item-herkenning
+• Vanlyn OCR-tou vir skandering sonder internetverbinding
+• Maandelikse kategoriebegrotings, bestedingsverslae en CSV/JSON-rugsteun
+• Afrikaanse taalondersteuning en werkverrigtingverbeterings
+</af>
+
+<zu>
+• Ukuskena amarisidi nama-invoyisi okusheshayo nokukhipha izinto ngokunembile
+• Uhlu lwe-OCR olusebenza ngaphandle kwe-inthanethi
+• Izabelomali zenyanga, imibiko yezindleko kanye nesipele se-CSV/JSON
+• Ukusekelwa kolimi lwesiZulu nokuthuthukiswa kokusebenza kohlelo
+</zu>
