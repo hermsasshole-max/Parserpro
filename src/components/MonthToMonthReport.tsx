@@ -31,7 +31,8 @@ import {
 } from '../utils/pdfGenerator';
 import { computeCategoryBudgetProgress } from '../utils/budgetStorage';
 import {
-  FREE_PRICE_COMPARISON_PREVIEW_LIMIT,
+  FREE_MONTHLY_VARIANCE_PREVIEW_LIMIT,
+  type SubscriptionState,
   type UpgradeTriggerReason,
 } from '../utils/subscriptionManager';
 import {
@@ -52,7 +53,7 @@ interface MonthToMonthReportProps {
   onSelectComparisonMonth: (month: string) => void;
   categoryBudgets: CategoryBudgets;
   onOpenBudgetModal: () => void;
-  isPlus: boolean;
+  subscriptionState: SubscriptionState;
   currencyCode: string;
   onOpenUpgrade: (reason: UpgradeTriggerReason) => void;
   onGoToScanner: () => void;
@@ -67,11 +68,12 @@ export const MonthToMonthReport: React.FC<MonthToMonthReportProps> = ({
   onSelectComparisonMonth,
   categoryBudgets,
   onOpenBudgetModal,
-  isPlus,
+  subscriptionState,
   currencyCode,
   onOpenUpgrade,
   onGoToScanner,
 }) => {
+  const caps = subscriptionState.capabilities;
   const [reportMode, setReportMode] = useState<'monthly_summary' | 'month_compare'>(
     'monthly_summary'
   );
@@ -152,43 +154,81 @@ export const MonthToMonthReport: React.FC<MonthToMonthReportProps> = ({
     });
   }, [comparison.items, statusFilter, itemSearch]);
 
-  const displayedComparisonItems = isPlus
-    ? filteredComparisonItems
-    : filteredComparisonItems.slice(0, FREE_PRICE_COMPARISON_PREVIEW_LIMIT);
+  const displayedSummaryItems =
+    caps.monthlyVarianceItemLimit === null
+      ? filteredSummaryItems
+      : filteredSummaryItems.slice(0, caps.monthlyVarianceItemLimit);
+
+  const hiddenSummaryCount = Math.max(
+    0,
+    filteredSummaryItems.length - displayedSummaryItems.length
+  );
+
+  const displayedComparisonItems =
+    caps.monthCompareItemLimit === null
+      ? filteredComparisonItems
+      : filteredComparisonItems.slice(0, caps.monthCompareItemLimit);
 
   const hiddenComparisonCount = Math.max(
     0,
     filteredComparisonItems.length - displayedComparisonItems.length
   );
 
+  const canExportCurrentModePdf =
+    reportMode === 'monthly_summary' ? caps.canExportMonthlyPdf : caps.canExportComparisonPdf;
+
   const handlePdfExportClick = () => {
     if (reportMode === 'monthly_summary') {
+      if (!caps.canExportMonthlyPdf) {
+        onOpenUpgrade('monthly_statement_pdf');
+        return;
+      }
       downloadSingleMonthPDF(selectedMonth, receipts);
     } else {
+      if (!caps.canExportComparisonPdf) {
+        onOpenUpgrade('price_history');
+        return;
+      }
       downloadComparisonPDF(selectedMonth, comparisonMonth, receipts);
     }
   };
 
   const handleShareClick = () => {
     if (reportMode === 'monthly_summary') {
+      if (!caps.canExportMonthlyPdf) {
+        onOpenUpgrade('monthly_statement_pdf');
+        return;
+      }
       shareOrSaveSingleMonthPDF(selectedMonth, receipts);
     } else {
+      if (!caps.canExportComparisonPdf) {
+        onOpenUpgrade('price_history');
+        return;
+      }
       shareOrSavePDF(selectedMonth, comparisonMonth, receipts);
     }
   };
 
   const handlePrintClick = () => {
     if (reportMode === 'monthly_summary') {
+      if (!caps.canExportMonthlyPdf) {
+        onOpenUpgrade('monthly_statement_pdf');
+        return;
+      }
       if (!triggerSystemPrint()) {
         shareOrSaveSingleMonthPDF(selectedMonth, receipts);
       }
     } else {
+      if (!caps.canExportComparisonPdf) {
+        onOpenUpgrade('price_history');
+        return;
+      }
       printReportSafely(selectedMonth, comparisonMonth, receipts);
     }
   };
 
   const handleCsvExportClick = () => {
-    if (!isPlus) {
+    if (!caps.canExportCsvExcel) {
       onOpenUpgrade('csv_export');
       return;
     }
@@ -269,7 +309,11 @@ export const MonthToMonthReport: React.FC<MonthToMonthReportProps> = ({
               onClick={handlePdfExportClick}
               className="min-h-[44px] px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-xs sm:text-sm font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 flex items-center gap-2 whitespace-nowrap shrink-0"
             >
-              <Download className="w-4 h-4 text-slate-500" />
+              {canExportCurrentModePdf ? (
+                <Download className="w-4 h-4 text-slate-500" />
+              ) : (
+                <Lock className="w-3.5 h-3.5 text-emerald-600" />
+              )}
               <span>{reportMode === 'monthly_summary' ? 'PDF Statement' : 'PDF Report'}</span>
             </button>
 
@@ -278,7 +322,11 @@ export const MonthToMonthReport: React.FC<MonthToMonthReportProps> = ({
               onClick={handleShareClick}
               className="min-h-[44px] px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-xs sm:text-sm font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 flex items-center gap-2 whitespace-nowrap shrink-0"
             >
-              <Share2 className="w-4 h-4 text-slate-500" />
+              {canExportCurrentModePdf ? (
+                <Share2 className="w-4 h-4 text-slate-500" />
+              ) : (
+                <Lock className="w-3.5 h-3.5 text-emerald-600" />
+              )}
               <span>Share</span>
             </button>
 
@@ -287,7 +335,11 @@ export const MonthToMonthReport: React.FC<MonthToMonthReportProps> = ({
               onClick={handlePrintClick}
               className="min-h-[44px] px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-xs sm:text-sm font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 flex items-center gap-2 whitespace-nowrap shrink-0"
             >
-              <Printer className="w-4 h-4 text-slate-500" />
+              {canExportCurrentModePdf ? (
+                <Printer className="w-4 h-4 text-slate-500" />
+              ) : (
+                <Lock className="w-3.5 h-3.5 text-emerald-600" />
+              )}
               <span>Print</span>
             </button>
 
@@ -296,7 +348,7 @@ export const MonthToMonthReport: React.FC<MonthToMonthReportProps> = ({
               onClick={handleCsvExportClick}
               className="min-h-[44px] px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-xs sm:text-sm font-semibold text-slate-800 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 flex items-center gap-2 whitespace-nowrap shrink-0"
             >
-              {isPlus ? (
+              {caps.canExportCsvExcel ? (
                 <FileSpreadsheet className="w-4 h-4 text-emerald-600" />
               ) : (
                 <Lock className="w-3.5 h-3.5 text-emerald-600" />
@@ -595,7 +647,7 @@ export const MonthToMonthReport: React.FC<MonthToMonthReportProps> = ({
               </div>
             </div>
 
-            {filteredSummaryItems.length === 0 ? (
+            {displayedSummaryItems.length === 0 ? (
               <p className="text-sm text-slate-500 dark:text-slate-400 py-6 text-center">
                 {currentReport.receipt_count === 0
                   ? `No receipts recorded for ${formatMonthLabel(selectedMonth)}.`
@@ -617,7 +669,7 @@ export const MonthToMonthReport: React.FC<MonthToMonthReportProps> = ({
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 dark:divide-slate-800/80 text-xs sm:text-sm">
-                    {filteredSummaryItems.map((item) => {
+                    {displayedSummaryItems.map((item) => {
                       const rowKey = item.name.toLowerCase();
                       const isExpanded = expandedItemKey === rowKey;
                       const hasVariance = item.price_variance > 0.004;
@@ -750,6 +802,30 @@ export const MonthToMonthReport: React.FC<MonthToMonthReportProps> = ({
                 </table>
               </div>
             )}
+
+            {/* Free Tier Monthly Variance Unlock Footer -> Unlocks in Mid Tier ($1.99/mo) */}
+            {hiddenSummaryCount > 0 && (
+              <div className="pt-3 border-t border-slate-100 dark:border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <p className="text-xs sm:text-sm text-slate-600 dark:text-slate-400 tabular-nums">
+                  Showing top {FREE_MONTHLY_VARIANCE_PREVIEW_LIMIT} items on Free. Unlock{' '}
+                  <strong className="font-semibold text-slate-900 dark:text-white">
+                    {hiddenSummaryCount} more A–Z item variances
+                  </strong>{' '}
+                  and Monthly PDF Statements starting with{' '}
+                  <strong className="font-semibold text-emerald-700 dark:text-emerald-400">
+                    Mid Tier ($1.99/mo)
+                  </strong>
+                  .
+                </p>
+                <button
+                  type="button"
+                  onClick={() => onOpenUpgrade('monthly_variance_full')}
+                  className="min-h-[44px] px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs sm:text-sm font-semibold whitespace-nowrap self-start sm:self-auto"
+                >
+                  Unlock All {filteredSummaryItems.length} Items ($1.99/mo)
+                </button>
+              </div>
+            )}
           </section>
         </>
       ) : (
@@ -800,8 +876,8 @@ export const MonthToMonthReport: React.FC<MonthToMonthReportProps> = ({
             </div>
           </div>
 
-          {/* 6-Month Timeline (Full Interactive Chart on Plus, Calm Unlock Preview on Free) */}
-          {isPlus ? (
+          {/* 6-Month Timeline (Full Interactive Chart on Full Package $3.99/mo) */}
+          {caps.canViewSixMonthChart ? (
             <SpendingTrendChart
               receipts={receipts}
               selectedMonth={selectedMonth}
@@ -819,17 +895,21 @@ export const MonthToMonthReport: React.FC<MonthToMonthReportProps> = ({
                   <strong className="font-semibold text-slate-900 dark:text-white">
                     {formatMoney(sixMonthPreview.averageMonthlySpend, currencyCode)}/mo
                   </strong>
-                  . Unlock interactive 6-month category charts and full item comparisons with
-                  ParserPro Plus.
+                  . Unlock interactive 6-month category charts, full A–Z item comparisons, and Excel
+                  exports with the{' '}
+                  <strong className="font-semibold text-emerald-700 dark:text-emerald-400">
+                    Full Package ($3.99/mo)
+                  </strong>
+                  .
                 </p>
               </div>
               <button
                 type="button"
-                onClick={() => onOpenUpgrade('price_history')}
+                onClick={() => onOpenUpgrade('six_month_chart')}
                 className="min-h-[44px] px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs sm:text-sm font-semibold flex items-center gap-2 whitespace-nowrap shrink-0 self-start sm:self-auto"
               >
                 <Sparkles className="w-4 h-4" />
-                <span>Unlock Timeline</span>
+                <span>Unlock in Full ($3.99/mo)</span>
               </button>
             </section>
           )}
@@ -941,22 +1021,26 @@ export const MonthToMonthReport: React.FC<MonthToMonthReportProps> = ({
               </div>
             )}
 
-            {/* Free Starter Preview Unlock Card */}
-            {!isPlus && hiddenComparisonCount > 0 && (
+            {/* Tier-Aware Month Comparison Unlock Footer */}
+            {hiddenComparisonCount > 0 && (
               <div className="pt-3 border-t border-slate-100 dark:border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                <p className="text-xs sm:text-sm text-slate-600 dark:text-slate-400">
-                  Showing top {FREE_PRICE_COMPARISON_PREVIEW_LIMIT} items. Unlock{' '}
+                <p className="text-xs sm:text-sm text-slate-600 dark:text-slate-400 tabular-nums">
+                  Showing top {caps.monthCompareItemLimit} items on {caps.tierLabel}. Unlock{' '}
                   <strong className="font-semibold text-slate-900 dark:text-white">
                     {hiddenComparisonCount} more item comparisons
                   </strong>{' '}
-                  and Excel exports with ParserPro Plus.
+                  and Excel exports with the{' '}
+                  <strong className="font-semibold text-emerald-700 dark:text-emerald-400">
+                    Full Package ($3.99/mo)
+                  </strong>
+                  .
                 </p>
                 <button
                   type="button"
                   onClick={() => onOpenUpgrade('price_history')}
                   className="min-h-[44px] px-4 py-2 rounded-xl bg-slate-900 dark:bg-emerald-600 hover:bg-slate-800 dark:hover:bg-emerald-500 text-white text-xs sm:text-sm font-semibold whitespace-nowrap self-start sm:self-auto"
                 >
-                  See All {filteredComparisonItems.length} Items
+                  See All {filteredComparisonItems.length} Items ($3.99/mo)
                 </button>
               </div>
             )}

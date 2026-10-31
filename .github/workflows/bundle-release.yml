@@ -8,11 +8,11 @@ on:
   workflow_dispatch:
     inputs:
       version_name:
-        description: 'Release versionName (optional, e.g. 1.3.0)'
+        description: 'Release versionName (optional, e.g. 1.5.0)'
         required: false
         type: string
       version_code:
-        description: 'Release integer versionCode (optional, auto-increments >= 216 strictly above used 215)'
+        description: 'Release integer versionCode (optional, auto-increments >= 230 strictly above used Play Console versions)'
         required: false
         type: string
       signing_key_preference:
@@ -155,11 +155,11 @@ jobs:
           INPUT_VERSION_NAME: ${{ inputs.version_name }}
           SIGNING_KEY_PREF: ${{ inputs.signing_key_preference }}
         run: |
-          # 1. Compute strictly increasing Play Console versionCode (>= 216, strictly > previously uploaded Play Console v215) & versionName
-          MIN_VERSION_CODE=216
+          # 1. Compute strictly increasing Play Console versionCode (>= 230, strictly > all previously uploaded Play Console versions) & versionName
+          MIN_VERSION_CODE=230
           ATTEMPT_NUM="${GITHUB_RUN_ATTEMPT:-1}"
           ATTEMPT_OFFSET=$(( ATTEMPT_NUM > 1 ? ATTEMPT_NUM - 1 : 0 ))
-          AUTO_VC=$(( 190 + GITHUB_RUN_NUMBER + ATTEMPT_OFFSET ))
+          AUTO_VC=$(( 203 + GITHUB_RUN_NUMBER + ATTEMPT_OFFSET ))
           if [ "$AUTO_VC" -lt "$MIN_VERSION_CODE" ]; then
             AUTO_VC="$MIN_VERSION_CODE"
           fi
@@ -168,7 +168,7 @@ jobs:
           MAX_HIST_VC=$(python3 - << 'PYHIST'
           import json, os, re, subprocess, urllib.request
 
-          max_vc = 215  # Play Console already used up to versionCode 215
+          max_vc = 229  # Floor strictly above all prior Play Console versions (152, 204, 215, 216, 217)
           repo = os.environ.get("GITHUB_REPOSITORY", "")
           token = os.environ.get("GITHUB_TOKEN", "")
 
@@ -258,7 +258,7 @@ jobs:
           if [ -n "$INPUT_VERSION_NAME" ]; then
             COMPUTED_VN="$INPUT_VERSION_NAME"
           else
-            COMPUTED_VN="1.3.$((COMPUTED_VC - 216))"
+            COMPUTED_VN="1.5.$((COMPUTED_VC - 230))"
           fi
 
           echo "Resolved Play Console release version: versionName=${COMPUTED_VN} (versionCode=${COMPUTED_VC}, strictly > ${MAX_HIST_VC})"
@@ -702,10 +702,11 @@ jobs:
           AAB_CERT_INFO=$(keytool -printcert -jarfile "$VERSIONED_AAB" 2>/dev/null || true)
           echo "$AAB_CERT_INFO" | grep -E "Owner:|SHA1:|SHA256:" || true
 
-          echo "=== Verifying Merged Manifest Package, Version (>= 216, > Play Console used 215) & Provider Authorities ==="
+          echo "=== Verifying Merged Manifest Package, Play Billing Permission, Version (>= 230) & Provider Authorities ==="
           MERGED_MANIFEST=$(find android/app/build/intermediates/merged_manifests/release -name "AndroidManifest.xml" | head -n 1)
           if [ -n "$MERGED_MANIFEST" ]; then
             grep -q 'package="com.receiptscannerpro.app"' "$MERGED_MANIFEST"
+            grep -q 'com.android.vending.BILLING' "$MERGED_MANIFEST"
             grep -q 'com.receiptscannerpro.app.fileprovider' "$MERGED_MANIFEST"
             grep -q 'com.receiptscannerpro.app.androidx-startup' "$MERGED_MANIFEST"
             if grep -qE 'com\.receiptscanner\.app|com\.cortech\.praiserpro' "$MERGED_MANIFEST"; then
@@ -714,15 +715,15 @@ jobs:
             fi
             MANIFEST_VC=$(grep -oE 'android:versionCode="[0-9]+"' "$MERGED_MANIFEST" | head -n 1 | grep -oE '[0-9]+' || true)
             echo "Merged Manifest versionCode=${MANIFEST_VC}"
-            if [ -n "$MANIFEST_VC" ] && [ "$MANIFEST_VC" -lt 216 ]; then
-              echo "ERROR: Merged Manifest versionCode (${MANIFEST_VC}) must be >= 216 (strictly greater than Play Console used 215)!"
+            if [ -n "$MANIFEST_VC" ] && [ "$MANIFEST_VC" -lt 230 ]; then
+              echo "ERROR: Merged Manifest versionCode (${MANIFEST_VC}) must be >= 230!"
               exit 1
             fi
             if [ -n "$MANIFEST_VC" ] && [ "$MANIFEST_VC" != "$ANDROID_VERSION_CODE" ]; then
               echo "ERROR: Merged Manifest versionCode (${MANIFEST_VC}) does not match expected ANDROID_VERSION_CODE (${ANDROID_VERSION_CODE})!"
               exit 1
             fi
-            echo "Verified package=com.receiptscannerpro.app, versionCode=${MANIFEST_VC} (>= 216, > 215), and unique provider authorities!"
+            echo "Verified package=com.receiptscannerpro.app, com.android.vending.BILLING, versionCode=${MANIFEST_VC} (>= 230), and unique provider authorities!"
           fi
 
           echo "=== Verifying R8 DEX Code Optimization & Deobfuscation Mapping (mapping.txt) ==="
@@ -907,7 +908,8 @@ jobs:
             echo "### Bundle & Signing Verification" >> $GITHUB_STEP_SUMMARY
             echo "- **Upload File**: \`${VERSIONED_AAB_NAME}\` (${AAB_SIZE}) — *Upload **ONLY** this file after clicking \`✕\` on old failed bundles in Play Console*" >> $GITHUB_STEP_SUMMARY
             echo "- **Package Name**: \`com.receiptscannerpro.app\`" >> $GITHUB_STEP_SUMMARY
-            echo "- **Version**: \`${VN}\` (\`versionCode ${VC}\` >= 216, strictly > 215) ✅" >> $GITHUB_STEP_SUMMARY
+            echo "- **Version**: \`${VN}\` (\`versionCode ${VC}\` >= 230) ✅" >> $GITHUB_STEP_SUMMARY
+            echo "- **Google Play Monetization**: Billing Library \`8.3.0\` + \`com.android.vending.BILLING\` (\`parserpro_mid_monthly\` \`$1.99/mo\` & \`parserpro_full_monthly\` \`$3.99/mo\`) ✅" >> $GITHUB_STEP_SUMMARY
             echo "- **Upload Signing Key Source**: \`${KEY_MODE}\` (${SIGN_NOTE})" >> $GITHUB_STEP_SUMMARY
             if [[ "$SIGN_SHA1" == ${EXPECTED_UPLOAD_PREFIX}* ]]; then
               echo "- **Upload Key Certificate SHA1**: \`${SIGN_SHA1}\` *(Matches Play Console Expected Upload Key \`F5:BA:06:8E:...\`!)* ✅" >> $GITHUB_STEP_SUMMARY

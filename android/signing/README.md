@@ -23,7 +23,7 @@ Your uploaded Google Play Console App Signing certificates (`deployment_cert.der
 Random per-build signing key generation has been permanently eliminated:
 
 1. **Automatic Play Console Upload Key Recovery (`SHA-1: F5:BA:06:8E:1E:42:BC:00:0F:7F:80:C4:8E:81:42:F3:E9:...`)**:
-   - During CI, `bundle-release.yml` automatically scans your repository's `PlayConsole-Upload-Keystore-Backup-SAVE-THIS` artifacts, locates the exact Upload Keystore registered with Google Play Console (`F5:BA:06:8E:...`), signs your new bundle (`versionCode >= 216`) with it, and refreshes the backup artifact's 90-day retention.
+   - During CI, `bundle-release.yml` automatically scans your repository's `PlayConsole-Upload-Keystore-Backup-SAVE-THIS` artifacts, locates the exact Upload Keystore registered with Google Play Console (`F5:BA:06:8E:...`), signs your new bundle (`versionCode >= 230`) with it, and refreshes the backup artifact's 90-day retention.
 2. **Permanent Fallback Repository Upload Keystore (`android/signing/upload-keystore.p12`)**:
    - If running in a repository without prior artifacts or GitHub Secrets, builds always sign with the permanent committed `android/signing/upload-keystore.p12` (`SHA-1: 03:D0:5B:95:5C:87:A3:14:FE:4C:D3:1D:75:F2:7B:A5:68:3E:06:CE`) and `android/signing/upload_certificate.pem` (also served at `/upload_certificate.pem`) — never rotating keys between builds.
    - If you ever reset your Upload Key in **Play Console → Setup → App signing → Upload key certificate → Request upload key reset**, upload `upload_certificate.pem`.
@@ -32,6 +32,6 @@ Random per-build signing key generation has been permanently eliminated:
 
 ## 3. Native Debug Symbols (`native-debug-symbols.zip`) & R8 DEX Optimization (`mapping.txt`)
 
-- **Automatic Version Progression (`versionCode >= 216`)**: Every build automatically produces a single uniquely named **`ParserPro-release-v<versionCode>.aab`** (`versionCode >= 216`, strictly above all previously used Play Console versions including `152`, `204`, and `215`) on GitHub Releases (`v1.0-playstore-aab`, promoted to **Latest**) and cleans out older `.aab` files so you never accidentally upload an older bundle.
+- **Automatic Version Progression (`versionCode >= 230`)**: Every build automatically produces a single uniquely named **`ParserPro-release-v<versionCode>.aab`** (`versionCode >= 230`, strictly above all previously used Play Console versions including `152`, `204`, `215`, `216`, and `217`) on GitHub Releases (`v1.0-playstore-aab`, promoted to **Latest**) and cleans out older `.aab` files so you never accidentally upload an older bundle.
 - **Before Uploading in Play Console**: Always tap **`✕`** next to any previously failed `.aab` rows sitting in Play Console's **Upload app bundles** list before uploading the new `ParserPro-release-v<versionCode>.aab`.
 - **Embedded Optimization & Symbols**: `minifyEnabled true`, `shrinkResources true`, `proguard-android-optimize.txt` (`BUNDLE-METADATA/com.android.tools.build.obfuscation/proguard.map`), and `ndk.debugSymbolLevel = 'FULL'` are embedded directly inside the `.aab`.

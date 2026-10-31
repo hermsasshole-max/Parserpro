@@ -27,14 +27,39 @@
     <script>
       if ('serviceWorker' in navigator) {
         window.addEventListener('DOMContentLoaded', function() {
-          var swUrl = './sw.js';
-          navigator.serviceWorker.register(swUrl)
-            .then(function(registration) {
-              console.log('[PWA] Service Worker registered successfully at:', registration.scope);
-            })
-            .catch(function(err) {
-              console.warn('[PWA] Service Worker failed to register:', err);
-            });
+          var isNativeCapacitor = Boolean(
+            window.Capacitor &&
+            typeof window.Capacitor.isNativePlatform === 'function' &&
+            window.Capacitor.isNativePlatform()
+          );
+          if (isNativeCapacitor) {
+            // Native Android/iOS already bundles all web assets offline inside the signed app bundle.
+            // Unregister any legacy Service Worker from older builds so Play Store updates never serve stale cached JS/HTML.
+            var hadController = Boolean(navigator.serviceWorker.controller);
+            navigator.serviceWorker.getRegistrations().then(function(registrations) {
+              return Promise.all(registrations.map(function(reg) { return reg.unregister(); }));
+            }).then(function() {
+              if ('caches' in window) {
+                return caches.keys().then(function(keys) {
+                  return Promise.all(keys.map(function(k) { return caches.delete(k); }));
+                });
+              }
+            }).then(function() {
+              if (hadController && !sessionStorage.getItem('parserpro_sw_migrated_v230')) {
+                sessionStorage.setItem('parserpro_sw_migrated_v230', '1');
+                window.location.reload();
+              }
+            }).catch(function() {});
+          } else {
+            var swUrl = './sw.js?v=1.5.0-b230';
+            navigator.serviceWorker.register(swUrl)
+              .then(function(registration) {
+                registration.update().catch(function() {});
+              })
+              .catch(function(err) {
+                console.warn('[PWA] Service Worker failed to register:', err);
+              });
+          }
         });
       }
     </script>

@@ -21,6 +21,8 @@ import {
 } from '../utils/currencyFormat';
 import {
   FREE_MONTHLY_SMART_SCANS,
+  MID_MONTHLY_SMART_SCANS,
+  MID_MAX_BATCH_PHOTOS,
   restorePlayPurchases,
   downgradeToFreeTier,
   type SubscriptionState,
@@ -62,7 +64,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   const [confirmDowngrade, setConfirmDowngrade] = useState(false);
   const [showPrivacyModal, setShowPrivacyModal] = useState(false);
 
-  const isPlus = subscriptionState.tier === 'plus';
+  const tier = subscriptionState.tier;
   const totalSavedSpend = receipts.reduce(
     (sum, r) => sum + (Number(r.total_amount) || 0),
     0
@@ -87,13 +89,11 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   };
 
   const activePlanLabel =
-    subscriptionState.activeSku === 'parserpro_plus_lifetime'
-      ? 'ParserPro Plus · Lifetime Unlock'
-      : subscriptionState.activeSku === 'parserpro_plus_annual'
-      ? 'ParserPro Plus · Annual Plan'
-      : subscriptionState.activeSku === 'parserpro_plus_monthly'
-      ? 'ParserPro Plus · Monthly Plan'
-      : 'ParserPro Plus';
+    tier === 'full'
+      ? 'Full Package · $3.99/mo'
+      : tier === 'mid'
+      ? 'Mid Tier · $1.99/mo'
+      : 'Free Tier · $0/mo';
 
   return (
     <div className="space-y-6 max-w-3xl mx-auto">
@@ -102,7 +102,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           Account & Preferences
         </h1>
         <p className="text-sm text-slate-600 dark:text-slate-400 mt-0.5">
-          Manage your membership, currency, household budgets, and private device backups.
+          Manage your Google Play plan, currency, household budgets, and private device backups.
         </p>
       </div>
 
@@ -113,35 +113,52 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             <p className="text-xs font-medium text-slate-500 dark:text-slate-400">
               Current Plan
             </p>
-            <h2 className="text-xl font-bold text-slate-900 dark:text-white">
-              {isPlus ? activePlanLabel : 'Free Starter'}
+            <h2 className="text-xl font-bold text-slate-900 dark:text-white font-mono tabular-nums">
+              {activePlanLabel}
             </h2>
-            {isPlus ? (
+            {tier === 'full' ? (
               <p className="text-xs sm:text-sm text-slate-600 dark:text-slate-400">
-                Unlimited smart scans, multi-photo batches, Excel exports, all 5 category budgets,
-                and full device backups are active.
+                Unlimited automatic scans, unlimited stack batching, 6-month spending charts, Excel
+                spreadsheet exports, all 5 category budgets, and full device backups are active.
+              </p>
+            ) : tier === 'mid' ? (
+              <p className="text-xs sm:text-sm text-slate-600 dark:text-slate-400 tabular-nums">
+                <strong className="font-semibold text-slate-900 dark:text-white">
+                  {subscriptionState.smartScansRemaining} of {MID_MONTHLY_SMART_SCANS}
+                </strong>{' '}
+                scans remaining for {subscriptionState.currentMonthKey} · Up to{' '}
+                {MID_MAX_BATCH_PHOTOS}-photo batching, all 5 category budgets, full A–Z monthly
+                variances & Monthly PDF Statements active.
               </p>
             ) : (
               <p className="text-xs sm:text-sm text-slate-600 dark:text-slate-400 tabular-nums">
                 <strong className="font-semibold text-slate-900 dark:text-white">
                   {subscriptionState.smartScansRemaining} of {FREE_MONTHLY_SMART_SCANS}
                 </strong>{' '}
-                free smart scans remaining for {subscriptionState.currentMonthKey} · Manual entries
-                & offline scans are always unlimited.
+                free scans remaining for {subscriptionState.currentMonthKey} · Manual entries &
+                single-slip PDFs are always unlimited.
               </p>
             )}
           </div>
 
-          {!isPlus && (
-            <button
-              type="button"
-              onClick={() => onOpenUpgrade('general')}
-              className="min-h-[48px] px-5 py-2.5 rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold flex items-center justify-center gap-2 whitespace-nowrap shrink-0"
-            >
-              <Sparkles className="w-4 h-4" />
-              <span>Upgrade to Plus</span>
-            </button>
-          )}
+          <button
+            type="button"
+            onClick={() => onOpenUpgrade('general')}
+            className={`min-h-[48px] px-5 py-2.5 rounded-2xl text-sm font-semibold flex items-center justify-center gap-2 whitespace-nowrap shrink-0 ${
+              tier === 'full'
+                ? 'border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800'
+                : 'bg-emerald-600 hover:bg-emerald-700 text-white'
+            }`}
+          >
+            {tier !== 'full' && <Sparkles className="w-4 h-4" />}
+            <span>
+              {tier === 'full'
+                ? 'Compare Plans'
+                : tier === 'mid'
+                ? 'Upgrade to Full ($3.99/mo)'
+                : 'View Plans ($1.99 / $3.99)'}
+            </span>
+          </button>
         </div>
 
         <div className="pt-3 border-t border-slate-100 dark:border-slate-800 flex flex-wrap items-center justify-between gap-3">
@@ -155,7 +172,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             <span>Restore Google Play Purchase</span>
           </button>
 
-          {isPlus && (
+          {tier !== 'free' && (
             <div>
               {confirmDowngrade ? (
                 <div className="flex items-center gap-2">
@@ -184,7 +201,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                   onClick={() => setConfirmDowngrade(true)}
                   className="min-h-[40px] px-2 py-1 text-xs text-slate-500 hover:text-slate-800 dark:hover:text-slate-200"
                 >
-                  Switch to Free Starter
+                  Switch to Free Tier
                 </button>
               )}
             </div>
@@ -404,7 +421,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       </section>
 
       <div className="pt-1 pb-2 text-center text-xs text-slate-400 dark:text-slate-500 tabular-nums">
-        ParserPro v1.3.0 · Build 216
+        ParserPro v1.5.0 · Build 230
       </div>
 
       {/* In-App Privacy Policy Summary Modal */}

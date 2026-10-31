@@ -52,6 +52,9 @@
 # Preserve Kotlin metadata for coroutines & Ionic/Capacitor Kotlin plugins
 -keep class kotlin.Metadata { *; }
 
+# Keep Google Play Billing Library v8 AIDL & model classes
+-keep class com.android.billingclient.** { *; }
+
 # Keep Google ML Kit On-Device Text Recognition, Dynamite descriptors, ComponentRegistrars & JNI pipeline
 -keep class com.google.mlkit.** { *; }
 -keep class com.google.android.gms.dynamite.** { *; }

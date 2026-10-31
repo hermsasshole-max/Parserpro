@@ -11,6 +11,7 @@ import {
   Plus,
   Camera,
   FileText,
+  Lock,
 } from 'lucide-react';
 import type { ReceiptCategory, SavedReceipt } from '../types';
 import {
@@ -26,6 +27,10 @@ import {
   formatShortDate,
 } from '../utils/currencyFormat';
 import { getDisplayInvoiceNumber } from '../utils/duplicateDetection';
+import type {
+  SubscriptionState,
+  UpgradeTriggerReason,
+} from '../utils/subscriptionManager';
 
 interface MonthlyReceiptsListProps {
   receipts: SavedReceipt[];
@@ -33,6 +38,8 @@ interface MonthlyReceiptsListProps {
   onSelectMonth: (month: string) => void;
   availableMonths: string[];
   currencyCode: string;
+  subscriptionState: SubscriptionState;
+  onOpenUpgrade: (reason: UpgradeTriggerReason) => void;
   onDeleteReceipt: (id: string) => void;
   onEditReceipt: (receipt: SavedReceipt) => void;
   onOpenAddManual: () => void;
@@ -56,6 +63,8 @@ export const MonthlyReceiptsList: React.FC<MonthlyReceiptsListProps> = ({
   onSelectMonth,
   availableMonths,
   currencyCode,
+  subscriptionState,
+  onOpenUpgrade,
   onDeleteReceipt,
   onEditReceipt,
   onOpenAddManual,
@@ -63,6 +72,7 @@ export const MonthlyReceiptsList: React.FC<MonthlyReceiptsListProps> = ({
   onGoToScanner,
   onOpenPrintableReport,
 }) => {
+  const canExportMonthlyPdf = subscriptionState.capabilities.canExportMonthlyPdf;
   const [categoryFilter, setCategoryFilter] = useState<'All' | ReceiptCategory>('All');
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
@@ -170,28 +180,52 @@ export const MonthlyReceiptsList: React.FC<MonthlyReceiptsListProps> = ({
             <>
               <button
                 type="button"
-                onClick={() => downloadSingleMonthPDF(selectedMonth, receipts)}
+                onClick={() =>
+                  canExportMonthlyPdf
+                    ? downloadSingleMonthPDF(selectedMonth, receipts)
+                    : onOpenUpgrade('monthly_statement_pdf')
+                }
                 className="min-h-[44px] px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-xs sm:text-sm font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 flex items-center gap-2 whitespace-nowrap shrink-0"
               >
-                <Download className="w-4 h-4 text-slate-500" />
+                {canExportMonthlyPdf ? (
+                  <Download className="w-4 h-4 text-slate-500" />
+                ) : (
+                  <Lock className="w-3.5 h-3.5 text-emerald-600" />
+                )}
                 <span>Month PDF</span>
               </button>
 
               <button
                 type="button"
-                onClick={() => shareOrSaveSingleMonthPDF(selectedMonth, receipts)}
+                onClick={() =>
+                  canExportMonthlyPdf
+                    ? shareOrSaveSingleMonthPDF(selectedMonth, receipts)
+                    : onOpenUpgrade('monthly_statement_pdf')
+                }
                 className="min-h-[44px] px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-xs sm:text-sm font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 flex items-center gap-2 whitespace-nowrap shrink-0"
               >
-                <Share2 className="w-4 h-4 text-slate-500" />
+                {canExportMonthlyPdf ? (
+                  <Share2 className="w-4 h-4 text-slate-500" />
+                ) : (
+                  <Lock className="w-3.5 h-3.5 text-emerald-600" />
+                )}
                 <span>Share</span>
               </button>
 
               <button
                 type="button"
-                onClick={() => onOpenPrintableReport(selectedMonth)}
+                onClick={() =>
+                  canExportMonthlyPdf
+                    ? onOpenPrintableReport(selectedMonth)
+                    : onOpenUpgrade('monthly_statement_pdf')
+                }
                 className="min-h-[44px] px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-xs sm:text-sm font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 flex items-center gap-2 whitespace-nowrap shrink-0"
               >
-                <Printer className="w-4 h-4 text-slate-500" />
+                {canExportMonthlyPdf ? (
+                  <Printer className="w-4 h-4 text-slate-500" />
+                ) : (
+                  <Lock className="w-3.5 h-3.5 text-emerald-600" />
+                )}
                 <span>Statement</span>
               </button>
             </>

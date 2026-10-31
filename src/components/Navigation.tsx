@@ -1,12 +1,12 @@
 import React from 'react';
-import type { UpgradeTriggerReason } from '../utils/subscriptionManager';
+import type { SubscriptionTier, UpgradeTriggerReason } from '../utils/subscriptionManager';
 
 export type NavTab = 'scanner' | 'receipts' | 'reports' | 'settings';
 
 interface NavigationProps {
   activeTab: NavTab;
   setActiveTab: (tab: NavTab) => void;
-  isPlus: boolean;
+  tier: SubscriptionTier;
   onOpenUpgrade: (reason?: UpgradeTriggerReason) => void;
   onOpenAddManual: () => void;
 }
@@ -14,7 +14,7 @@ interface NavigationProps {
 export const Navigation: React.FC<NavigationProps> = ({
   activeTab,
   setActiveTab,
-  isPlus,
+  tier,
   onOpenUpgrade,
   onOpenAddManual,
 }) => {
@@ -63,7 +63,7 @@ export const Navigation: React.FC<NavigationProps> = ({
 
         {/* Zone 3: Single Primary Action */}
         <div className="flex items-center shrink-0">
-          {isPlus ? (
+          {tier === 'full' ? (
             <button
               type="button"
               onClick={onOpenAddManual}
@@ -71,13 +71,21 @@ export const Navigation: React.FC<NavigationProps> = ({
             >
               Add Receipt
             </button>
+          ) : tier === 'mid' ? (
+            <button
+              type="button"
+              onClick={() => onOpenUpgrade('general')}
+              className="min-h-[40px] px-4 py-2 text-xs sm:text-sm font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded-xl transition-colors duration-150 whitespace-nowrap shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600 font-mono tabular-nums"
+            >
+              Full · $3.99
+            </button>
           ) : (
             <button
               type="button"
               onClick={() => onOpenUpgrade('general')}
-              className="min-h-[40px] px-4 py-2 text-xs sm:text-sm font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded-xl transition-colors duration-150 whitespace-nowrap shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600"
+              className="min-h-[40px] px-4 py-2 text-xs sm:text-sm font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded-xl transition-colors duration-150 whitespace-nowrap shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600 font-mono tabular-nums"
             >
-              Upgrade to Plus
+              Plans · $1.99
             </button>
           )}
         </div>

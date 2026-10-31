@@ -676,10 +676,13 @@ Strictly return JSON conforming to the schema with the "receipts" array.`;
   });
 
   // Google Play Billing Product Catalog & Purchase Entitlement Verification Endpoints
-  const PLAY_BILLING_SKUS = new Set([
-    "parserpro_plus_monthly",
-    "parserpro_plus_annual",
-    "parserpro_plus_lifetime",
+  const PLAY_BILLING_SKUS = new Map<string, "mid" | "full">([
+    ["parserpro_mid_monthly", "mid"],
+    ["parserpro_full_monthly", "full"],
+    // Backward-compatible legacy test SKUs
+    ["parserpro_plus_monthly", "full"],
+    ["parserpro_plus_annual", "full"],
+    ["parserpro_plus_lifetime", "full"],
   ]);
 
   app.get("/api/billing/catalog", (req, res) => {
@@ -687,25 +690,46 @@ Strictly return JSON conforming to the schema with the "receipts" array.`;
     res.setHeader("Content-Type", "application/json; charset=utf-8");
     res.json({
       packageName: "com.receiptscannerpro.app",
-      freeMonthlySmartScans: 15,
-      products: [
-        {
-          sku: "parserpro_plus_annual",
-          type: "subs",
-          title: "ParserPro Plus Annual",
+      tiers: {
+        free: { monthlyUsd: 0, smartScansPerMonth: 12, maxBatchPhotos: 1, maxBudgets: 2 },
+        mid: {
+          sku: "parserpro_mid_monthly",
+          basePlanId: "mid-monthly",
+          monthlyUsd: 1.99,
+          smartScansPerMonth: 75,
+          maxBatchPhotos: 3,
+          maxBudgets: 5,
+        },
+        full: {
+          sku: "parserpro_full_monthly",
+          basePlanId: "full-monthly",
+          monthlyUsd: 3.99,
+          smartScansPerMonth: null,
+          maxBatchPhotos: null,
+          maxBudgets: 5,
           trialDays: 7,
         },
+      },
+      products: [
         {
-          sku: "parserpro_plus_monthly",
+          sku: "parserpro_mid_monthly",
+          basePlanId: "mid-monthly",
           type: "subs",
-          title: "ParserPro Plus Monthly",
+          tier: "mid",
+          title: "ParserPro Mid Tier",
+          priceUsd: 1.99,
+          billingPeriod: "P1M",
           trialDays: 0,
         },
         {
-          sku: "parserpro_plus_lifetime",
-          type: "inapp",
-          title: "ParserPro Plus Lifetime Unlock",
-          trialDays: 0,
+          sku: "parserpro_full_monthly",
+          basePlanId: "full-monthly",
+          type: "subs",
+          tier: "full",
+          title: "ParserPro Full Package",
+          priceUsd: 3.99,
+          billingPeriod: "P1M",
+          trialDays: 7,
         },
       ],
     });
@@ -716,7 +740,8 @@ Strictly return JSON conforming to the schema with the "receipts" array.`;
     res.setHeader("Content-Type", "application/json; charset=utf-8");
 
     const { sku, purchaseToken, orderId, packageName } = req.body || {};
-    if (!sku || !PLAY_BILLING_SKUS.has(String(sku))) {
+    const resolvedTier = sku ? PLAY_BILLING_SKUS.get(String(sku)) : undefined;
+    if (!sku || !resolvedTier) {
       return res.status(400).json({ verified: false, error: "Invalid subscription product SKU." });
     }
     if (!purchaseToken || String(purchaseToken).trim().length < 4) {
@@ -735,7 +760,7 @@ Strictly return JSON conforming to the schema with the "receipts" array.`;
       verified: true,
       packageName: packageName || "com.receiptscannerpro.app",
       sku,
-      tier: "plus",
+      tier: resolvedTier,
       orderId: orderId || `GPA.${Math.floor(1000 + Math.random() * 9000)}-${String(now).slice(-6)}`,
       verifiedAt: new Date(now).toISOString(),
       expiresAt,

@@ -3,7 +3,7 @@ import { X, Lock, Check } from 'lucide-react';
 import type { CategoryBudgets, ReceiptCategory } from '../types';
 import { ALL_RECEIPT_CATEGORIES } from '../utils/budgetStorage';
 import {
-  FREE_MAX_ACTIVE_BUDGETS,
+  type SubscriptionState,
   type UpgradeTriggerReason,
 } from '../utils/subscriptionManager';
 import { getCurrencySymbol, formatMoney } from '../utils/currencyFormat';
@@ -13,7 +13,7 @@ interface BudgetLimitsModalProps {
   onClose: () => void;
   budgets: CategoryBudgets;
   onSaveBudgets: (updated: CategoryBudgets) => void;
-  isPlus: boolean;
+  subscriptionState: SubscriptionState;
   currencyCode: string;
   onOpenUpgrade: (reason: UpgradeTriggerReason) => void;
 }
@@ -23,7 +23,7 @@ export const BudgetLimitsModal: React.FC<BudgetLimitsModalProps> = ({
   onClose,
   budgets,
   onSaveBudgets,
-  isPlus,
+  subscriptionState,
   currencyCode,
   onOpenUpgrade,
 }) => {
@@ -37,6 +37,7 @@ export const BudgetLimitsModal: React.FC<BudgetLimitsModalProps> = ({
 
   if (!isOpen) return null;
 
+  const caps = subscriptionState.capabilities;
   const symbol = getCurrencySymbol(currencyCode);
   const activeCategories = ALL_RECEIPT_CATEGORIES.filter((cat) => (draft[cat] || 0) > 0);
   const activeCount = activeCategories.length;
@@ -49,9 +50,9 @@ export const BudgetLimitsModal: React.FC<BudgetLimitsModalProps> = ({
     const parsed = parseFloat(rawVal);
     const nextVal = Number.isNaN(parsed) || parsed < 0 ? 0 : parsed;
 
-    // Enforce Free Starter 3-active-category limit when enabling a 4th category
+    // Enforce Free tier 2-active-category limit when enabling an extra category
     const wasActive = (draft[category] || 0) > 0;
-    if (!isPlus && !wasActive && nextVal > 0 && activeCount >= FREE_MAX_ACTIVE_BUDGETS) {
+    if (!caps.hasAllCategoryBudgets && !wasActive && nextVal > 0 && activeCount >= caps.maxActiveBudgets) {
       onOpenUpgrade('unlimited_budgets');
       return;
     }
@@ -86,10 +87,10 @@ export const BudgetLimitsModal: React.FC<BudgetLimitsModalProps> = ({
             >
               Monthly Category Budgets
             </h2>
-            <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-              {isPlus
-                ? 'Set targets across all 5 household categories (0 = off).'
-                : `Free Starter includes up to ${FREE_MAX_ACTIVE_BUDGETS} active budgets (${activeCount}/${FREE_MAX_ACTIVE_BUDGETS} used).`}
+            <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 tabular-nums">
+              {caps.hasAllCategoryBudgets
+                ? `${caps.tierLabel}: Set targets across all 5 household categories (0 = off).`
+                : `Free Tier includes up to ${caps.maxActiveBudgets} active budgets (${activeCount}/${caps.maxActiveBudgets} used) · Unlock all 5 in Mid ($1.99/mo).`}
             </p>
           </div>
           <button
@@ -107,7 +108,9 @@ export const BudgetLimitsModal: React.FC<BudgetLimitsModalProps> = ({
             {ALL_RECEIPT_CATEGORIES.map((category) => {
               const currentVal = draft[category] || 0;
               const isLockedOnFree =
-                !isPlus && currentVal <= 0 && activeCount >= FREE_MAX_ACTIVE_BUDGETS;
+                !caps.hasAllCategoryBudgets &&
+                currentVal <= 0 &&
+                activeCount >= caps.maxActiveBudgets;
 
               return (
                 <div
@@ -130,7 +133,7 @@ export const BudgetLimitsModal: React.FC<BudgetLimitsModalProps> = ({
                       className="min-h-[44px] px-3.5 py-2 rounded-xl border border-emerald-200 dark:border-emerald-800/80 bg-emerald-50/70 dark:bg-emerald-950/30 text-xs font-semibold text-emerald-700 dark:text-emerald-300 flex items-center gap-1.5 whitespace-nowrap shrink-0"
                     >
                       <Lock className="w-3.5 h-3.5" />
-                      <span>Unlock with Plus</span>
+                      <span>Unlock in Mid ($1.99)</span>
                     </button>
                   ) : (
                     <div className="relative w-36 shrink-0">

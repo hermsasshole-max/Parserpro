@@ -13,7 +13,6 @@ import {
   Loader2,
   X,
   Sparkles,
-  WifiOff,
   FilePlus2,
   Eye,
   EyeOff,
@@ -36,6 +35,8 @@ import {
 import {
   recordSmartScanUsed,
   FREE_MONTHLY_SMART_SCANS,
+  MID_MONTHLY_SMART_SCANS,
+  MID_MAX_BATCH_PHOTOS,
   type SubscriptionState,
   type UpgradeTriggerReason,
 } from '../utils/subscriptionManager';
@@ -112,7 +113,7 @@ export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
   const galleryInputRef = useRef<HTMLInputElement>(null);
   const lastHandledTriggerRef = useRef<number>(cameraLaunchTrigger);
 
-  const isPlus = subscriptionState.tier === 'plus';
+  const caps = subscriptionState.capabilities;
 
   // Live duplicate evaluation whenever Store, Date, Invoice #, Total, or saved receipts change
   const duplicateMap = useMemo<Map<string, DuplicateMatch>>(() => {
@@ -131,23 +132,30 @@ export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
     setSavedBannerCount(null);
 
     let allowedFiles = files;
+    const remainingBatchSlots = Math.max(0, caps.maxBatchPhotos - queuedPhotos.length);
 
-    // Gate multi-photo batch scanning on Free Starter while keeping the first photo queued
-    if (!isPlus) {
-      if (queuedPhotos.length >= 1) {
-        onOpenUpgrade('batch_multi_photo');
-        setScanNotice(
-          'Free Starter scans one photo at a time. Upgrade to ParserPro Plus to queue multiple photos at once.'
-        );
-        return;
-      }
-      if (files.length > 1) {
-        allowedFiles = [files[0]];
-        onOpenUpgrade('batch_multi_photo');
-        setScanNotice(
-          'Your first photo is ready below. Upgrade to ParserPro Plus to scan multiple photos in one batch.'
-        );
-      }
+    if (remainingBatchSlots <= 0) {
+      const trigger: UpgradeTriggerReason =
+        subscriptionState.tier === 'free' ? 'batch_multi_photo' : 'unlimited_batch_stack';
+      onOpenUpgrade(trigger);
+      setScanNotice(
+        subscriptionState.tier === 'free'
+          ? `Free tier scans 1 photo at a time. Upgrade to Mid Tier ($1.99/mo) for ${MID_MAX_BATCH_PHOTOS}-photo batches or Full Package ($3.99/mo) for unlimited stacks.`
+          : `Mid Tier scans up to ${MID_MAX_BATCH_PHOTOS} photos per batch. Upgrade to Full Package ($3.99/mo) for unlimited receipt stacks.`
+      );
+      return;
+    }
+
+    if (files.length > remainingBatchSlots) {
+      allowedFiles = files.slice(0, remainingBatchSlots);
+      const trigger: UpgradeTriggerReason =
+        subscriptionState.tier === 'free' ? 'batch_multi_photo' : 'unlimited_batch_stack';
+      onOpenUpgrade(trigger);
+      setScanNotice(
+        subscriptionState.tier === 'free'
+          ? `Your first photo is ready below. Upgrade to Mid Tier ($1.99/mo) to batch up to ${MID_MAX_BATCH_PHOTOS} photos or Full Package ($3.99/mo) for unlimited stacks.`
+          : `Queued ${caps.maxBatchPhotos} photos (Mid Tier batch limit). Upgrade to Full Package ($3.99/mo) for unlimited stacks.`
+      );
     }
 
     setIsPreparingPhoto(true);
@@ -199,8 +207,10 @@ export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
 
   const handleTakePhotoClick = async () => {
     setErrorMessage(null);
-    if (!isPlus && queuedPhotos.length >= 1) {
-      onOpenUpgrade('batch_multi_photo');
+    if (queuedPhotos.length >= caps.maxBatchPhotos) {
+      onOpenUpgrade(
+        subscriptionState.tier === 'free' ? 'batch_multi_photo' : 'unlimited_batch_stack'
+      );
       return;
     }
 
@@ -228,12 +238,14 @@ export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
 
   const handleChoosePhotoClick = async () => {
     setErrorMessage(null);
-    if (!isPlus && queuedPhotos.length >= 1) {
-      onOpenUpgrade('batch_multi_photo');
+    if (queuedPhotos.length >= caps.maxBatchPhotos) {
+      onOpenUpgrade(
+        subscriptionState.tier === 'free' ? 'batch_multi_photo' : 'unlimited_batch_stack'
+      );
       return;
     }
 
-    if (isCapacitorPlatform() && !isPlus) {
+    if (isCapacitorPlatform() && caps.maxBatchPhotos === 1) {
       try {
         const picked = await pickReceiptFromGallery();
         if (picked) {
@@ -258,18 +270,14 @@ export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
     setShowLimitFallbackPrompt(false);
   };
 
-  const runScan = async (forceOffline = false) => {
+  const runScan = async () => {
     if (queuedPhotos.length === 0 || isScanning) return;
 
-    const isOnline = typeof navigator !== 'undefined' ? navigator.onLine : true;
-
-    // Check monthly smart scan allowance on Free Starter (offline scans are always free!)
-    if (!isPlus && !forceOffline && isOnline) {
-      if (subscriptionState.smartScansRemaining <= 0) {
-        setShowLimitFallbackPrompt(true);
-        onOpenUpgrade('scan_limit_reached');
-        return;
-      }
+    // Enforce monthly automatic photo scan allowance on Free (12/mo) and Mid (75/mo)
+    if (!caps.isUnlimitedScans && subscriptionState.smartScansRemaining <= 0) {
+      setShowLimitFallbackPrompt(true);
+      onOpenUpgrade('scan_limit_reached');
+      return;
     }
 
     setIsScanning(true);
@@ -277,15 +285,18 @@ export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
     setErrorMessage(null);
     setScanNotice(null);
 
+    const photosToProcess = caps.isUnlimitedScans
+      ? queuedPhotos
+      : queuedPhotos.slice(0, Math.max(1, subscriptionState.smartScansRemaining));
+
     const extractedList: ExtractedDraft[] = [];
     const warnings: string[] = [];
-    let cloudPhotosScanned = 0;
 
     try {
-      for (let i = 0; i < queuedPhotos.length; i++) {
-        const photo = queuedPhotos[i];
+      for (let i = 0; i < photosToProcess.length; i++) {
+        const photo = photosToProcess[i];
         const prefix =
-          queuedPhotos.length > 1 ? `Photo ${i + 1} of ${queuedPhotos.length}: ` : '';
+          photosToProcess.length > 1 ? `Photo ${i + 1} of ${photosToProcess.length}: ` : '';
 
         setScanStage(`${prefix}Reading store, date, invoice # & items...`);
 
@@ -296,15 +307,12 @@ export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
           fileSize: photo.file.size,
           previewUrl: `data:${photo.mimeType};base64,${photo.base64Data}`,
           options: {
-            mode: forceOffline ? 'local_tesseract_only' : 'auto_fallback',
+            mode: 'auto_fallback',
             preferredCurrency: currencyCode,
             onStage: (stage) => setScanStage(`${prefix}${stage}`),
           },
         });
 
-        if (result.engineUsed === 'cloud_api') {
-          cloudPhotosScanned += 1;
-        }
         if (result.warning) {
           warnings.push(result.warning);
         }
@@ -347,9 +355,9 @@ export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
         });
       }
 
-      // Deduct smart scan credits ONLY when cloud smart scan succeeded (never for offline scans)
-      if (!isPlus && cloudPhotosScanned > 0) {
-        recordSmartScanUsed(cloudPhotosScanned);
+      // Deduct automatic photo scan credits on Free (12/mo) and Mid (75/mo) across both cloud & native OCR
+      if (!caps.isUnlimitedScans && extractedList.length > 0) {
+        recordSmartScanUsed(photosToProcess.length);
       }
 
       // Evaluate duplicates immediately against historical ledger + current batch
@@ -561,19 +569,26 @@ export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
       {/* Workspace Utility Strip */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-2 border-b border-slate-200/80 dark:border-slate-800">
         <div className="flex flex-wrap items-center gap-2 text-xs sm:text-sm text-slate-600 dark:text-slate-400">
-          {isPlus ? (
+          {subscriptionState.tier === 'full' ? (
             <span className="font-medium text-emerald-700 dark:text-emerald-400">
-              ParserPro Plus · Unlimited smart & batch scans
+              Full Package · Unlimited scans & stack batching
+            </span>
+          ) : subscriptionState.tier === 'mid' ? (
+            <span className="tabular-nums">
+              <strong className="font-semibold text-slate-900 dark:text-white">
+                Mid Tier · {subscriptionState.smartScansRemaining} of {MID_MONTHLY_SMART_SCANS}
+              </strong>{' '}
+              scans left this month
             </span>
           ) : (
             <span className="tabular-nums">
               <strong className="font-semibold text-slate-900 dark:text-white">
                 {subscriptionState.smartScansRemaining} of {FREE_MONTHLY_SMART_SCANS}
               </strong>{' '}
-              free smart scans left this month
+              free scans left this month
             </span>
           )}
-          {!isPlus && (
+          {subscriptionState.tier !== 'full' && (
             <>
               <span aria-hidden="true">·</span>
               <button
@@ -581,7 +596,7 @@ export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
                 onClick={() => onOpenUpgrade('general')}
                 className="font-semibold text-emerald-700 dark:text-emerald-400 hover:underline whitespace-nowrap"
               >
-                Get unlimited
+                {subscriptionState.tier === 'mid' ? 'Go Unlimited ($3.99)' : 'Upgrade ($1.99)'}
               </button>
             </>
           )}
@@ -695,7 +710,7 @@ export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
               ref={galleryInputRef}
               type="file"
               accept="image/*"
-              multiple={isPlus}
+              multiple={caps.maxBatchPhotos > 1}
               className="hidden"
               onChange={(e) => {
                 const files = e.target.files ? Array.from(e.target.files) : [];
@@ -723,7 +738,13 @@ export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
                 className="min-h-[52px] px-6 py-3.5 rounded-2xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200/80 dark:hover:bg-slate-700 disabled:opacity-60 text-slate-900 dark:text-white font-semibold text-sm sm:text-base flex items-center justify-center gap-2.5 active:scale-[0.99] transition-all whitespace-nowrap"
               >
                 <ImageIcon className="w-5 h-5 shrink-0 text-slate-600 dark:text-slate-300" />
-                <span>{isPlus ? 'Choose Photos' : 'Choose Photo'}</span>
+                <span>
+                  {caps.isUnlimitedBatch
+                    ? 'Choose Photos (Stack)'
+                    : caps.maxBatchPhotos > 1
+                    ? `Choose Photos (Up to ${caps.maxBatchPhotos})`
+                    : 'Choose Photo'}
+                </span>
               </button>
             </div>
 
@@ -737,11 +758,12 @@ export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
           {(queuedPhotos.length > 0 || isPreparingPhoto) && (
             <div className="mt-8 pt-6 border-t border-slate-200 dark:border-slate-800 space-y-4">
               <div className="flex items-center justify-between">
-                <p className="text-sm font-semibold text-slate-900 dark:text-white">
+                <p className="text-sm font-semibold text-slate-900 dark:text-white tabular-nums">
                   Ready to scan ({queuedPhotos.length}{' '}
-                  {queuedPhotos.length === 1 ? 'photo' : 'photos'})
+                  {queuedPhotos.length === 1 ? 'photo' : 'photos'}
+                  {!caps.isUnlimitedBatch ? ` · max ${caps.maxBatchPhotos}` : ''})
                 </p>
-                {isPlus && !isScanning && (
+                {caps.maxBatchPhotos > 1 && !isScanning && (
                   <button
                     type="button"
                     onClick={handleChoosePhotoClick}
@@ -779,41 +801,37 @@ export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
                 ))}
               </div>
 
-              {/* Free Limit Reached Friendly Alternatives */}
-              {showLimitFallbackPrompt && !isPlus && (
+              {/* Monthly Scan Allowance Reached — Upgrade or Free Manual Entry */}
+              {showLimitFallbackPrompt && !caps.isUnlimitedScans && (
                 <div className="rounded-2xl bg-amber-50/90 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800/70 p-4 space-y-3">
                   <div className="space-y-1">
-                    <p className="text-sm font-semibold text-amber-950 dark:text-amber-200">
-                      You have used all {FREE_MONTHLY_SMART_SCANS} free smart scans for this month
+                    <p className="text-sm font-semibold text-amber-950 dark:text-amber-200 tabular-nums">
+                      You have used all {subscriptionState.smartScansLimit} automatic scans on your{' '}
+                      {caps.tierLabel} plan this month
                     </p>
                     <p className="text-xs text-amber-800 dark:text-amber-300/90">
-                      Unlock unlimited smart scans with ParserPro Plus, or keep tracking right now
-                      for free using on-device offline reading or manual entry:
+                      {subscriptionState.tier === 'free'
+                        ? `Step up to Mid Tier ($1.99/mo) for ${MID_MONTHLY_SMART_SCANS} monthly scans, Full Package ($3.99/mo) for unlimited scans, or log this receipt manually for free:`
+                        : 'Upgrade to Full Package ($3.99/mo) for unlimited scans & stack batching, or log this receipt manually for free:'}
                     </p>
                   </div>
                   <div className="flex flex-wrap items-center gap-2.5">
                     <button
                       type="button"
                       onClick={() => onOpenUpgrade('scan_limit_reached')}
-                      className="min-h-[44px] px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs sm:text-sm font-semibold flex items-center gap-2 whitespace-nowrap"
+                      className="min-h-[44px] px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs sm:text-sm font-semibold flex items-center gap-2 whitespace-nowrap tabular-nums"
                     >
                       <Sparkles className="w-4 h-4" />
-                      Upgrade to Plus
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => runScan(true)}
-                      className="min-h-[44px] px-4 py-2 rounded-xl bg-white dark:bg-slate-900 border border-amber-300 dark:border-amber-700 text-slate-800 dark:text-slate-200 text-xs sm:text-sm font-semibold flex items-center gap-2 whitespace-nowrap"
-                    >
-                      <WifiOff className="w-4 h-4" />
-                      Scan Offline on Phone (Free)
+                      {subscriptionState.tier === 'free'
+                        ? 'Upgrade ($1.99 / $3.99)'
+                        : 'Unlock Unlimited ($3.99/mo)'}
                     </button>
                     <button
                       type="button"
                       onClick={onOpenAddManual}
-                      className="min-h-[44px] px-4 py-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 text-xs sm:text-sm font-medium whitespace-nowrap"
+                      className="min-h-[44px] px-4 py-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 text-xs sm:text-sm font-semibold whitespace-nowrap"
                     >
-                      Enter Manually (Free)
+                      Enter Manually (Always Free)
                     </button>
                   </div>
                 </div>
@@ -829,7 +847,7 @@ export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
                 ) : (
                   <button
                     type="button"
-                    onClick={() => runScan(false)}
+                    onClick={() => runScan()}
                     className="min-h-[48px] px-6 py-3 rounded-2xl bg-slate-900 dark:bg-emerald-600 hover:bg-slate-800 dark:hover:bg-emerald-500 text-white font-semibold text-sm sm:text-base flex items-center justify-center gap-2 whitespace-nowrap"
                   >
                     <Sparkles className="w-4 h-4" />

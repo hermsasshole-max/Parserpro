@@ -20,7 +20,10 @@ import {
   deleteDeviceSnapshot,
   type DeviceSnapshot,
 } from '../utils/deviceStorage';
-import type { UpgradeTriggerReason } from '../utils/subscriptionManager';
+import type {
+  SubscriptionState,
+  UpgradeTriggerReason,
+} from '../utils/subscriptionManager';
 import { formatMoney, formatShortDate } from '../utils/currencyFormat';
 
 interface AndroidBackupModalProps {
@@ -28,7 +31,7 @@ interface AndroidBackupModalProps {
   onClose: () => void;
   receipts: SavedReceipt[];
   onRestoreReceipts: (restored: SavedReceipt[]) => void;
-  isPlus: boolean;
+  subscriptionState: SubscriptionState;
   currencyCode: string;
   onOpenUpgrade: (reason: UpgradeTriggerReason) => void;
 }
@@ -38,10 +41,11 @@ export const AndroidBackupModal: React.FC<AndroidBackupModalProps> = ({
   onClose,
   receipts,
   onRestoreReceipts,
-  isPlus,
+  subscriptionState,
   currencyCode,
   onOpenUpgrade,
 }) => {
+  const caps = subscriptionState.capabilities;
   const [snapshots, setSnapshots] = useState<DeviceSnapshot[]>([]);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -65,7 +69,7 @@ export const AndroidBackupModal: React.FC<AndroidBackupModalProps> = ({
   if (!isOpen) return null;
 
   const handleFullBackupClick = async () => {
-    if (!isPlus) {
+    if (!caps.canSaveFullBackups) {
       onOpenUpgrade('full_backup');
       return;
     }
@@ -79,7 +83,7 @@ export const AndroidBackupModal: React.FC<AndroidBackupModalProps> = ({
   };
 
   const handleCsvExportAllClick = () => {
-    if (!isPlus) {
+    if (!caps.canExportCsvExcel) {
       onOpenUpgrade('csv_export');
       return;
     }
@@ -88,7 +92,7 @@ export const AndroidBackupModal: React.FC<AndroidBackupModalProps> = ({
   };
 
   const handleCreateSnapshot = async () => {
-    if (!isPlus) {
+    if (!caps.canSaveFullBackups) {
       onOpenUpgrade('full_backup');
       return;
     }
@@ -185,19 +189,26 @@ export const AndroidBackupModal: React.FC<AndroidBackupModalProps> = ({
             </button>
           </div>
 
-          {/* Plus Exports */}
+          {/* Full Package ($3.99/mo) Exports */}
           <div className="pt-3 border-t border-slate-100 dark:border-slate-800 space-y-2.5">
-            <h3 className="text-sm font-bold text-slate-900 dark:text-white">
-              Full Backups & Excel Spreadsheets
-            </h3>
+            <div className="flex items-center justify-between gap-2">
+              <h3 className="text-sm font-bold text-slate-900 dark:text-white">
+                Full Backups & Excel Spreadsheets
+              </h3>
+              {!caps.canSaveFullBackups && (
+                <span className="text-[11px] font-semibold text-emerald-700 dark:text-emerald-400 font-mono tabular-nums">
+                  Full · $3.99/mo
+                </span>
+              )}
+            </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
               <button
                 type="button"
-                disabled={receipts.length === 0 && isPlus}
+                disabled={receipts.length === 0 && caps.canSaveFullBackups}
                 onClick={handleFullBackupClick}
                 className="min-h-[48px] px-4 py-3 rounded-2xl bg-slate-900 dark:bg-emerald-600 hover:bg-slate-800 dark:hover:bg-emerald-500 disabled:opacity-50 text-white text-xs sm:text-sm font-semibold flex items-center justify-center gap-2 whitespace-nowrap"
               >
-                {isPlus ? (
+                {caps.canSaveFullBackups ? (
                   <Download className="w-4 h-4" />
                 ) : (
                   <Lock className="w-3.5 h-3.5" />
@@ -207,11 +218,11 @@ export const AndroidBackupModal: React.FC<AndroidBackupModalProps> = ({
 
               <button
                 type="button"
-                disabled={receipts.length === 0 && isPlus}
+                disabled={receipts.length === 0 && caps.canExportCsvExcel}
                 onClick={handleCsvExportAllClick}
                 className="min-h-[48px] px-4 py-3 rounded-2xl border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 disabled:opacity-50 text-slate-900 dark:text-white text-xs sm:text-sm font-semibold flex items-center justify-center gap-2 whitespace-nowrap"
               >
-                {isPlus ? (
+                {caps.canExportCsvExcel ? (
                   <FileSpreadsheet className="w-4 h-4 text-emerald-600" />
                 ) : (
                   <Lock className="w-3.5 h-3.5 text-emerald-600" />
@@ -237,7 +248,7 @@ export const AndroidBackupModal: React.FC<AndroidBackupModalProps> = ({
                 onClick={handleCreateSnapshot}
                 className="min-h-[40px] px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-semibold text-slate-800 dark:text-slate-200 flex items-center gap-1.5 whitespace-nowrap shrink-0"
               >
-                {isPlus ? (
+                {caps.canSaveFullBackups ? (
                   <History className="w-3.5 h-3.5 text-emerald-600" />
                 ) : (
                   <Lock className="w-3.5 h-3.5 text-emerald-600" />

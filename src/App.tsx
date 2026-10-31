@@ -248,14 +248,12 @@ export function App() {
     setUpgradeModalState({ open: true, reason });
   };
 
-  const isPlus = subscriptionState.tier === 'plus';
-
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 flex flex-col">
       <Navigation
         activeTab={activeTab}
         setActiveTab={setActiveTab}
-        isPlus={isPlus}
+        tier={subscriptionState.tier}
         onOpenUpgrade={openUpgradeModal}
         onOpenAddManual={() => setIsAddModalOpen(true)}
       />
@@ -312,6 +310,8 @@ export function App() {
             onSelectMonth={setSelectedMonth}
             availableMonths={availableMonths}
             currencyCode={currencyCode}
+            subscriptionState={subscriptionState}
+            onOpenUpgrade={openUpgradeModal}
             onDeleteReceipt={handleDeleteReceipt}
             onEditReceipt={(r) => setEditingReceipt(r)}
             onOpenAddManual={() => setIsAddModalOpen(true)}
@@ -331,7 +331,7 @@ export function App() {
             onSelectComparisonMonth={setComparisonMonth}
             categoryBudgets={categoryBudgets}
             onOpenBudgetModal={() => setIsBudgetModalOpen(true)}
-            isPlus={isPlus}
+            subscriptionState={subscriptionState}
             currencyCode={currencyCode}
             onOpenUpgrade={openUpgradeModal}
             onGoToScanner={() => setActiveTab('scanner')}
@@ -405,7 +405,7 @@ export function App() {
         onClose={() => setIsBudgetModalOpen(false)}
         budgets={categoryBudgets}
         onSaveBudgets={handleSaveBudgets}
-        isPlus={isPlus}
+        subscriptionState={subscriptionState}
         currencyCode={currencyCode}
         onOpenUpgrade={openUpgradeModal}
       />
@@ -415,7 +415,7 @@ export function App() {
         onClose={() => setIsBackupModalOpen(false)}
         receipts={receipts}
         onRestoreReceipts={(restored) => persistReceipts(restored)}
-        isPlus={isPlus}
+        subscriptionState={subscriptionState}
         currencyCode={currencyCode}
         onOpenUpgrade={openUpgradeModal}
       />
