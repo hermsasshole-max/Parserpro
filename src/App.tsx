@@ -27,6 +27,7 @@ import {
 } from './utils/budgetStorage';
 import {
   getSubscriptionState,
+  restorePlayPurchases,
   subscribeToSubscriptionChanges,
   type SubscriptionState,
   type UpgradeTriggerReason,
@@ -143,6 +144,16 @@ export function App() {
       setCurrencyCode(getPreferredCurrency());
     };
     window.addEventListener('parserpro-currency-changed', handleCurrencyChanged);
+
+    // Automatically sync live Google Play subscriptions on native Android launches
+    const isNative = Boolean(
+      (window as any).Capacitor &&
+        typeof (window as any).Capacitor.isNativePlatform === 'function' &&
+        (window as any).Capacitor.isNativePlatform()
+    );
+    if (isNative) {
+      restorePlayPurchases().catch(() => {});
+    }
 
     return () => {
       unsubSub();

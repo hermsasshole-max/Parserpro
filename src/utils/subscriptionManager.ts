@@ -84,7 +84,8 @@ export type UpgradeTriggerReason =
   | 'csv_export'
   | 'full_backup';
 
-const ENTITLEMENT_STORAGE_KEY = 'parserpro_subscription_entitlement_v2';
+const ENTITLEMENT_STORAGE_KEY = 'parserpro_subscription_entitlement_v3';
+const PREV_ENTITLEMENT_STORAGE_KEY = 'parserpro_subscription_entitlement_v2';
 const LEGACY_ENTITLEMENT_STORAGE_KEY = 'parserpro_subscription_entitlement_v1';
 const SCAN_USAGE_STORAGE_KEY = 'parserpro_monthly_scan_usage_v1';
 
@@ -228,35 +229,43 @@ function loadStoredEntitlement(): StoredEntitlement {
       }
     }
 
-    // Seamless migration for prior testing builds ('plus' -> 'full')
-    const legacyRaw = localStorage.getItem(LEGACY_ENTITLEMENT_STORAGE_KEY);
-    if (legacyRaw) {
-      const legacy = JSON.parse(legacyRaw);
-      if (legacy && legacy.tier === 'plus') {
-        if (legacy.expiresAt) {
-          const expTime = new Date(legacy.expiresAt).getTime();
+    // Carry over verified Google Play purchases from v2/v1, but do NOT auto-carry old v1 sandbox demo flags
+    for (const oldKey of [PREV_ENTITLEMENT_STORAGE_KEY, LEGACY_ENTITLEMENT_STORAGE_KEY]) {
+      const oldRaw = localStorage.getItem(oldKey);
+      if (!oldRaw) continue;
+      const oldEnt = JSON.parse(oldRaw);
+      const isRealPlayPurchase =
+        oldEnt &&
+        (oldEnt.billingSource === 'google_play' ||
+          oldEnt.billingSource === 'capacitor_play_billing');
+      if (isRealPlayPurchase) {
+        if (oldEnt.expiresAt) {
+          const expTime = new Date(oldEnt.expiresAt).getTime();
           if (!Number.isNaN(expTime) && expTime < Date.now()) {
-            return {
-              tier: 'free',
-              activeSku: null,
-              activatedAt: null,
-              expiresAt: null,
-              isTrial: false,
-            };
+            break;
           }
         }
-        const migrated: StoredEntitlement = {
-          tier: 'full',
-          activeSku: 'parserpro_full_monthly',
-          activatedAt: legacy.activatedAt || new Date().toISOString(),
-          expiresAt: legacy.expiresAt || null,
-          isTrial: Boolean(legacy.isTrial),
-          orderId: legacy.orderId,
-          purchaseToken: legacy.purchaseToken,
-          billingSource: legacy.billingSource,
-        };
-        localStorage.setItem(ENTITLEMENT_STORAGE_KEY, JSON.stringify(migrated));
-        return migrated;
+        const resolvedTier: SubscriptionTier =
+          oldEnt.tier === 'mid'
+            ? 'mid'
+            : oldEnt.tier === 'full' || oldEnt.tier === 'plus'
+            ? 'full'
+            : 'free';
+        if (resolvedTier !== 'free') {
+          const migrated: StoredEntitlement = {
+            tier: resolvedTier,
+            activeSku:
+              resolvedTier === 'mid' ? 'parserpro_mid_monthly' : 'parserpro_full_monthly',
+            activatedAt: oldEnt.activatedAt || new Date().toISOString(),
+            expiresAt: oldEnt.expiresAt || null,
+            isTrial: Boolean(oldEnt.isTrial),
+            orderId: oldEnt.orderId,
+            purchaseToken: oldEnt.purchaseToken,
+            billingSource: oldEnt.billingSource,
+          };
+          localStorage.setItem(ENTITLEMENT_STORAGE_KEY, JSON.stringify(migrated));
+          return migrated;
+        }
       }
     }
   } catch (e) {
@@ -908,6 +917,7 @@ export async function restorePlayPurchases(): Promise<{
  */
 export function downgradeToFreeTier(): SubscriptionState {
   try {
+    localStorage.removeItem(PREV_ENTITLEMENT_STORAGE_KEY);
     localStorage.removeItem(LEGACY_ENTITLEMENT_STORAGE_KEY);
   } catch {
     // Ignore

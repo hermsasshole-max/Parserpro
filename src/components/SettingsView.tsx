@@ -421,7 +421,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       </section>
 
       <div className="pt-1 pb-2 text-center text-xs text-slate-400 dark:text-slate-500 tabular-nums">
-        ParserPro v1.5.0 · Build 230
+        ParserPro v1.6.0 · Build 235
       </div>
 
       {/* In-App Privacy Policy Summary Modal */}

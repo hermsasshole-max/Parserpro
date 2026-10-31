@@ -588,18 +588,18 @@ export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
               free scans left this month
             </span>
           )}
-          {subscriptionState.tier !== 'full' && (
-            <>
-              <span aria-hidden="true">·</span>
-              <button
-                type="button"
-                onClick={() => onOpenUpgrade('general')}
-                className="font-semibold text-emerald-700 dark:text-emerald-400 hover:underline whitespace-nowrap"
-              >
-                {subscriptionState.tier === 'mid' ? 'Go Unlimited ($3.99)' : 'Upgrade ($1.99)'}
-              </button>
-            </>
-          )}
+          <span aria-hidden="true">·</span>
+          <button
+            type="button"
+            onClick={() => onOpenUpgrade('general')}
+            className="font-semibold text-emerald-700 dark:text-emerald-400 hover:underline whitespace-nowrap"
+          >
+            {subscriptionState.tier === 'full'
+              ? 'Compare Plans'
+              : subscriptionState.tier === 'mid'
+              ? 'Go Unlimited ($3.99/mo)'
+              : 'Plans ($1.99 / $3.99)'}
+          </button>
           {pendingOfflineCount > 0 && (
             <>
               <span aria-hidden="true">·</span>
@@ -861,6 +861,122 @@ export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
               </div>
             </div>
           )}
+        </section>
+      )}
+
+      {/* 3-Tier Membership & Feature Unlocks Strip (Home Overview) */}
+      {drafts.length === 0 && (
+        <section
+          aria-label="Subscription plans and feature unlocks"
+          className="rounded-3xl bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800 p-5 sm:p-6 space-y-4"
+        >
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+            <div>
+              <h2 className="text-sm sm:text-base font-bold text-slate-900 dark:text-white">
+                Plans &amp; Feature Unlocks
+              </h2>
+              <p className="text-xs text-slate-500 dark:text-slate-400">
+                Start free, step up to Mid Tier ($1.99/mo), or unlock everything with Full Package ($3.99/mo).
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => onOpenUpgrade('general')}
+              className="min-h-[40px] px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-semibold text-slate-800 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors whitespace-nowrap self-start sm:self-auto"
+            >
+              Full Feature Matrix
+            </button>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            {/* Tier 1: Free ($0/mo) */}
+            <button
+              type="button"
+              onClick={() => onOpenUpgrade('general')}
+              className={`p-4 rounded-2xl border text-left transition-all flex flex-col justify-between gap-2.5 min-h-[44px] cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600 ${
+                subscriptionState.tier === 'free'
+                  ? 'border-emerald-600 bg-emerald-50/40 dark:bg-emerald-950/25'
+                  : 'border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700'
+              }`}
+            >
+              <div className="space-y-1">
+                <div className="flex items-baseline justify-between gap-2">
+                  <span className="text-sm font-bold text-slate-900 dark:text-white">
+                    Free Starter
+                  </span>
+                  <span className="text-sm font-bold font-mono tabular-nums text-slate-900 dark:text-white">
+                    $0/mo
+                  </span>
+                </div>
+                <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed tabular-nums">
+                  {FREE_MONTHLY_SMART_SCANS} auto scans/mo · 1 photo/scan · 2 category budgets · Single-slip PDF &amp; manual entry
+                </p>
+              </div>
+              <div className="text-xs font-semibold text-slate-500 dark:text-slate-400">
+                {subscriptionState.tier === 'free' ? 'Current Plan' : 'View Free Details →'}
+              </div>
+            </button>
+
+            {/* Tier 2: Mid Tier ($1.99/mo) */}
+            <button
+              type="button"
+              onClick={() => onOpenUpgrade('scan_limit_reached')}
+              className={`p-4 rounded-2xl border text-left transition-all flex flex-col justify-between gap-2.5 min-h-[44px] cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600 ${
+                subscriptionState.tier === 'mid'
+                  ? 'border-emerald-600 bg-emerald-50/40 dark:bg-emerald-950/25'
+                  : 'border-slate-200 dark:border-slate-800 hover:border-emerald-500/60'
+              }`}
+            >
+              <div className="space-y-1">
+                <div className="flex items-baseline justify-between gap-2">
+                  <span className="text-sm font-bold text-slate-900 dark:text-white">
+                    Mid Tier
+                  </span>
+                  <span className="text-sm font-bold font-mono tabular-nums text-emerald-700 dark:text-emerald-400">
+                    $1.99/mo
+                  </span>
+                </div>
+                <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed tabular-nums">
+                  {MID_MONTHLY_SMART_SCANS} auto scans/mo · Up to {MID_MAX_BATCH_PHOTOS}-photo batch · All 5 budgets · Full A–Z variance &amp; Monthly PDF
+                </p>
+              </div>
+              <div className="text-xs font-semibold text-emerald-700 dark:text-emerald-400">
+                {subscriptionState.tier === 'mid'
+                  ? 'Current Plan · Upgrade to Full →'
+                  : 'Unlock Mid Tier ($1.99/mo) →'}
+              </div>
+            </button>
+
+            {/* Tier 3: Full Package ($3.99/mo) */}
+            <button
+              type="button"
+              onClick={() => onOpenUpgrade('six_month_chart')}
+              className={`p-4 rounded-2xl border text-left transition-all flex flex-col justify-between gap-2.5 min-h-[44px] cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600 ${
+                subscriptionState.tier === 'full'
+                  ? 'border-emerald-600 bg-emerald-50/40 dark:bg-emerald-950/25'
+                  : 'border-slate-200 dark:border-slate-800 hover:border-emerald-500/60'
+              }`}
+            >
+              <div className="space-y-1">
+                <div className="flex items-baseline justify-between gap-2">
+                  <span className="text-sm font-bold text-slate-900 dark:text-white">
+                    Full Package
+                  </span>
+                  <span className="text-sm font-bold font-mono tabular-nums text-emerald-700 dark:text-emerald-400">
+                    $3.99/mo
+                  </span>
+                </div>
+                <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
+                  Unlimited scans &amp; stacks · 6-Month chart · Unlimited A–Z compare · Excel/CSV &amp; Full Backups
+                </p>
+              </div>
+              <div className="text-xs font-semibold text-emerald-700 dark:text-emerald-400">
+                {subscriptionState.tier === 'full'
+                  ? 'Current Plan (Active)'
+                  : 'Unlock Full Package ($3.99/mo) →'}
+              </div>
+            </button>
+          </div>
         </section>
       )}
 

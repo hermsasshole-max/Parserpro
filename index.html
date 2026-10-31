@@ -45,13 +45,13 @@
                 });
               }
             }).then(function() {
-              if (hadController && !sessionStorage.getItem('parserpro_sw_migrated_v230')) {
-                sessionStorage.setItem('parserpro_sw_migrated_v230', '1');
+              if (hadController && !sessionStorage.getItem('parserpro_sw_migrated_v235')) {
+                sessionStorage.setItem('parserpro_sw_migrated_v235', '1');
                 window.location.reload();
               }
             }).catch(function() {});
-          } else {
-            var swUrl = './sw.js?v=1.5.0-b230';
+          } else if (window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
+            var swUrl = './sw.js?v=1.6.0-b235';
             navigator.serviceWorker.register(swUrl)
               .then(function(registration) {
                 registration.update().catch(function() {});

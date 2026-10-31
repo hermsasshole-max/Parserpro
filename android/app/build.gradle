@@ -26,14 +26,14 @@ def envVersionCode = System.getenv("ANDROID_VERSION_CODE")?.trim()
 def envVersionName = System.getenv("ANDROID_VERSION_NAME")?.trim()
 def ghRunNumber = System.getenv("GITHUB_RUN_NUMBER")?.trim()
 def ghRunAttempt = System.getenv("GITHUB_RUN_ATTEMPT")?.trim()
-def minVersionCode = 230
+def minVersionCode = 235
 def ghAutoVersionCode = (ghRunNumber && ghRunNumber.isInteger())
-    ? (203 + ghRunNumber.toInteger() + ((ghRunAttempt && ghRunAttempt.isInteger()) ? Math.max(0, ghRunAttempt.toInteger() - 1) : 0))
+    ? (207 + ghRunNumber.toInteger() + ((ghRunAttempt && ghRunAttempt.isInteger()) ? Math.max(0, ghRunAttempt.toInteger() - 1) : 0))
     : minVersionCode
 def resolvedVersionCode = (envVersionCode && envVersionCode.isInteger())
     ? Math.max(minVersionCode, envVersionCode.toInteger())
     : Math.max(minVersionCode, ghAutoVersionCode)
-def resolvedVersionName = envVersionName ?: "1.5.${Math.max(0, resolvedVersionCode - 230)}"
+def resolvedVersionName = envVersionName ?: "1.6.${Math.max(0, resolvedVersionCode - 235)}"
 def envNdkPath = System.getenv("ANDROID_NDK_PATH") ?: System.getenv("ANDROID_NDK_LATEST_HOME")
 def envNdkVersion = System.getenv("ANDROID_NDK_VERSION")
 

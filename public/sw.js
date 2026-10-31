@@ -1,13 +1,21 @@
-// Service Worker for ParserPro PWA (GitHub Pages & Standalone Mobile PWA)
-const CACHE_NAME = 'parserpro-v1.5.0-b230';
+// Service Worker for ParserPro Standalone Web PWA
+// Automatically self-unregisters on localhost (Capacitor Android/iOS) so Play Store updates never serve stale cached HTML/JS
+const CACHE_NAME = 'parserpro-v1.6.0-b235';
+const IS_LOCAL_NATIVE_HOST =
+  self.location.hostname === 'localhost' || self.location.hostname === '127.0.0.1';
 
-// Install: pre-cache critical shell assets using registration scope
 self.addEventListener('install', (event) => {
+  if (IS_LOCAL_NATIVE_HOST) {
+    self.skipWaiting();
+    return;
+  }
   event.waitUntil(
     (async () => {
       try {
         const scopeUrl = new URL(self.registration.scope);
-        const basePath = scopeUrl.pathname.endsWith('/') ? scopeUrl.pathname : scopeUrl.pathname + '/';
+        const basePath = scopeUrl.pathname.endsWith('/')
+          ? scopeUrl.pathname
+          : scopeUrl.pathname + '/';
         const assetsToCache = [
           basePath,
           basePath + 'index.html',
@@ -15,7 +23,7 @@ self.addEventListener('install', (event) => {
           basePath + 'icon.svg',
           basePath + 'icon-192.png',
           basePath + 'icon-512.png',
-          basePath + 'icon-maskable-512.png'
+          basePath + 'icon-maskable-512.png',
         ];
 
         const cache = await caches.open(CACHE_NAME);
@@ -36,26 +44,44 @@ self.addEventListener('install', (event) => {
   self.skipWaiting();
 });
 
-// Activate: clean up old caches
 self.addEventListener('activate', (event) => {
+  if (IS_LOCAL_NATIVE_HOST) {
+    event.waitUntil(
+      (async () => {
+        const keys = await caches.keys();
+        await Promise.all(keys.map((key) => caches.delete(key)));
+        await self.registration.unregister();
+        const clients = await self.clients.matchAll({ type: 'window' });
+        for (const client of clients) {
+          client.navigate(client.url).catch(() => {});
+        }
+      })()
+    );
+    return;
+  }
+
   event.waitUntil(
-    caches.keys().then((keys) => {
-      return Promise.all(
-        keys.map((key) => {
-          if (key !== CACHE_NAME) {
-            return caches.delete(key);
-          }
-        })
-      );
-    }).then(() => self.clients.claim())
+    caches
+      .keys()
+      .then((keys) =>
+        Promise.all(
+          keys.map((key) => {
+            if (key !== CACHE_NAME) {
+              return caches.delete(key);
+            }
+          })
+        )
+      )
+      .then(() => self.clients.claim())
   );
 });
 
-// Fetch: network-first with dynamic caching & rock-solid offline fallback
 self.addEventListener('fetch', (event) => {
-  const request = event.request;
+  if (IS_LOCAL_NATIVE_HOST) {
+    return;
+  }
 
-  // Ignore non-GET requests and API calls
+  const request = event.request;
   if (
     request.method !== 'GET' ||
     request.url.includes('generativelanguage.googleapis.com') ||
@@ -64,10 +90,12 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
+  const isNavigation = request.mode === 'navigate' || request.destination === 'document';
+  const fetchOptions = isNavigation ? { cache: 'no-store' } : undefined;
+
   event.respondWith(
-    fetch(request)
+    fetch(request, fetchOptions)
       .then((networkResponse) => {
-        // Cache successful responses for offline / fast relaunch
         if (
           networkResponse &&
           networkResponse.status === 200 &&
@@ -81,14 +109,14 @@ self.addEventListener('fetch', (event) => {
         return networkResponse;
       })
       .catch(async () => {
-        // Try cache match
         const cached = await caches.match(request);
         if (cached) return cached;
 
-        // For page navigations, fallback to cached index.html
-        if (request.mode === 'navigate') {
+        if (isNavigation) {
           const scopeUrl = new URL(self.registration.scope);
-          const basePath = scopeUrl.pathname.endsWith('/') ? scopeUrl.pathname : scopeUrl.pathname + '/';
+          const basePath = scopeUrl.pathname.endsWith('/')
+            ? scopeUrl.pathname
+            : scopeUrl.pathname + '/';
           const indexFallback =
             (await caches.match(basePath + 'index.html')) ||
             (await caches.match(basePath)) ||
@@ -97,7 +125,6 @@ self.addEventListener('fetch', (event) => {
           if (indexFallback) return indexFallback;
         }
 
-        // Return a valid Response so event.respondWith never rejects
         return new Response('ParserPro Offline Mode', {
           status: 503,
           statusText: 'Service Unavailable',

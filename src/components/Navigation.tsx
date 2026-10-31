@@ -61,31 +61,31 @@ export const Navigation: React.FC<NavigationProps> = ({
           })}
         </nav>
 
-        {/* Zone 3: Single Primary Action */}
+        {/* Zone 3: Always-Visible Plans & Tier Action */}
         <div className="flex items-center shrink-0">
           {tier === 'full' ? (
             <button
               type="button"
-              onClick={onOpenAddManual}
-              className="min-h-[40px] px-4 py-2 text-xs sm:text-sm font-semibold text-white bg-slate-900 dark:bg-emerald-600 hover:bg-slate-800 dark:hover:bg-emerald-500 rounded-xl transition-colors duration-150 whitespace-nowrap shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600"
+              onClick={() => onOpenUpgrade('general')}
+              className="min-h-[42px] px-3.5 py-2 text-xs sm:text-sm font-semibold text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/50 border border-emerald-200 dark:border-emerald-800 hover:bg-emerald-100/80 dark:hover:bg-emerald-900/50 rounded-xl transition-colors duration-150 whitespace-nowrap shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600 font-mono tabular-nums"
             >
-              Add Receipt
+              Full · $3.99
             </button>
           ) : tier === 'mid' ? (
             <button
               type="button"
               onClick={() => onOpenUpgrade('general')}
-              className="min-h-[40px] px-4 py-2 text-xs sm:text-sm font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded-xl transition-colors duration-150 whitespace-nowrap shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600 font-mono tabular-nums"
+              className="min-h-[42px] px-3.5 py-2 text-xs sm:text-sm font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded-xl transition-colors duration-150 whitespace-nowrap shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600 font-mono tabular-nums"
             >
-              Full · $3.99
+              Mid · Go $3.99
             </button>
           ) : (
             <button
               type="button"
               onClick={() => onOpenUpgrade('general')}
-              className="min-h-[40px] px-4 py-2 text-xs sm:text-sm font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded-xl transition-colors duration-150 whitespace-nowrap shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600 font-mono tabular-nums"
+              className="min-h-[42px] px-3.5 py-2 text-xs sm:text-sm font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded-xl transition-colors duration-150 whitespace-nowrap shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600 font-mono tabular-nums"
             >
-              Plans · $1.99
+              Plans · $1.99 / $3.99
             </button>
           )}
         </div>
