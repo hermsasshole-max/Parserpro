@@ -74,6 +74,26 @@ const mobileScreenshotSvg = `<?xml version="1.0" encoding="UTF-8"?>
 </svg>`;
 
 async function generate() {
+  const forceRegen = process.argv.includes('--force');
+  const requiredOutputs = [
+    'icon-192.png',
+    'icon-512.png',
+    'icon-maskable-512.png',
+    'screenshot-desktop.png',
+    'screenshot-mobile.png',
+  ];
+
+  if (
+    !forceRegen &&
+    requiredOutputs.every((file) => {
+      const full = path.join(publicDir, file);
+      return fs.existsSync(full) && fs.statSync(full).size > 0;
+    })
+  ) {
+    console.log('PWA PNG assets already present (use --force to regenerate).');
+    return;
+  }
+
   console.log('Generating PNG icons and screenshots for PWA Builder...');
   
   await sharp(iconSvg)

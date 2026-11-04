@@ -96,6 +96,7 @@ public class MainActivity extends BridgeActivity {
         return false;
     }
 
+    @SuppressWarnings("deprecation")
     private void configureWebViewAfterBoot(boolean didAppUpdate) {
         try {
             if (getBridge() == null) return;
@@ -107,17 +108,36 @@ public class MainActivity extends BridgeActivity {
                 settings.setCacheMode(WebSettings.LOAD_DEFAULT);
             }
 
+            PackageInfo pkgInfo = getPackageManager().getPackageInfo(getPackageName(), 0);
+            final long currentVersionCode = (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P)
+                ? pkgInfo.getLongVersionCode()
+                : pkgInfo.versionCode;
+            final String currentVersionName = pkgInfo.versionName != null
+                ? pkgInfo.versionName.replace("'", "")
+                : "1.7.0";
+
             if (didAppUpdate) {
                 webView.clearCache(true);
-                webView.postDelayed(() -> {
-                    try {
-                        webView.evaluateJavascript(
-                            "(function(){try{if('serviceWorker' in navigator){navigator.serviceWorker.getRegistrations().then(function(r){r.forEach(function(x){x.unregister();});});}if('caches' in window){caches.keys().then(function(k){k.forEach(function(c){caches.delete(c);});});}}catch(e){}})();",
-                            null
-                        );
-                    } catch (Exception ignored) {}
-                }, 400);
             }
+
+            webView.postDelayed(() -> {
+                try {
+                    StringBuilder js = new StringBuilder();
+                    js.append("(function(){try{");
+                    js.append("window.__PARSERPRO_NATIVE_VERSION__={versionName:'")
+                        .append(currentVersionName)
+                        .append("',versionCode:")
+                        .append(currentVersionCode)
+                        .append("};");
+                    js.append("window.dispatchEvent(new CustomEvent('parserpro-native-version'));");
+                    if (didAppUpdate) {
+                        js.append("if('serviceWorker' in navigator){navigator.serviceWorker.getRegistrations().then(function(r){r.forEach(function(x){x.unregister();});});}");
+                        js.append("if('caches' in window){caches.keys().then(function(k){k.forEach(function(c){caches.delete(c);});});}");
+                    }
+                    js.append("}catch(e){}})();");
+                    webView.evaluateJavascript(js.toString(), null);
+                } catch (Exception ignored) {}
+            }, 350);
         } catch (Exception ignored) {
             // Non-fatal safeguard
         }

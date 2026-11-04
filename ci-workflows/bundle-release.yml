@@ -8,11 +8,11 @@ on:
   workflow_dispatch:
     inputs:
       version_name:
-        description: 'Release versionName (optional, e.g. 1.6.0)'
+        description: 'Release versionName (optional, e.g. 1.7.0)'
         required: false
         type: string
       version_code:
-        description: 'Release integer versionCode (optional, auto-increments >= 235 strictly above used Play Console versions)'
+        description: 'Release integer versionCode (optional, auto-increments >= 240 strictly above used Play Console versions)'
         required: false
         type: string
       signing_key_preference:
@@ -86,89 +86,26 @@ jobs:
             npm install
           fi
 
-      - name: Generate PWA Assets & Build Production Web Dist
-        run: |
-          node generate-icons.js
-          npm run build
-        env:
-          NODE_ENV: production
-
-      - name: Sync Capacitor Android Project
-        run: npx cap sync android
-
-      - name: Verify Google Play App Signing Certificates (com.receiptscannerpro.app)
-        run: |
-          python3 - "${GITHUB_WORKSPACE}/android/signing/play-store-certs" "${GITHUB_WORKSPACE}/dist/.well-known/assetlinks.json" << 'PYEOF'
-          import hashlib, json, os, sys
-
-          cert_dir, assetlinks_path = sys.argv[1], sys.argv[2]
-          expected = {
-              "deployment_cert.der": (
-                  "AA:14:BE:52:28:F8:80:7C:13:DE:D0:86:F1:11:6A:0F:AE:93:17:4D",
-                  "47:4A:47:3D:23:74:45:84:40:9F:FD:15:F5:E5:ED:FD:8E:C0:0A:27:67:6D:52:4F:41:D1:FA:3B:DC:A6:2E:19",
-              ),
-              "hybrid_classical_cert.der": (
-                  "74:9C:E0:25:BD:DA:4E:CA:7D:83:3B:DE:57:E3:B4:E1:1F:79:0C:4B",
-                  "16:F5:4D:1B:55:E1:99:46:9B:99:81:DE:A9:59:A7:FB:30:7F:37:83:47:62:FE:31:4A:A3:BB:06:46:9F:FF:9B",
-              ),
-              "hybrid_pqc_cert.der": (
-                  "5E:FF:72:FD:93:ED:59:02:92:20:BF:31:BD:8A:1B:92:D8:56:7C:3B",
-                  "E7:C0:F4:CF:9F:BF:55:48:6E:58:01:CC:56:59:49:D0:06:53:18:59:C4:17:66:5D:91:BD:0A:20:0D:8A:57:AA",
-              ),
-          }
-
-          def fmt_hex(h):
-              return ":".join(h.upper()[i:i+2] for i in range(0, len(h), 2))
-
-          for fname, (exp_sha1, exp_sha256) in expected.items():
-              fpath = os.path.join(cert_dir, fname)
-              if not os.path.isfile(fpath):
-                  raise SystemExit(f"ERROR: Missing Play Store certificate {fpath}")
-              data = open(fpath, "rb").read()
-              act_sha1 = fmt_hex(hashlib.sha1(data).hexdigest())
-              act_sha256 = fmt_hex(hashlib.sha256(data).hexdigest())
-              if act_sha1 != exp_sha1 or act_sha256 != exp_sha256:
-                  raise SystemExit(f"ERROR: {fname} fingerprint mismatch! Got SHA1={act_sha1}, SHA256={act_sha256}")
-              print(f"Verified {fname} -> SHA1={act_sha1}")
-
-          with open(assetlinks_path, "r", encoding="utf-8") as f:
-              assetlinks = json.load(f)
-          target = assetlinks[0]["target"]
-          if target.get("package_name") != "com.receiptscannerpro.app":
-              raise SystemExit(f"ERROR: Unexpected assetlinks package_name: {target.get('package_name')}")
-          fps = set(target.get("sha256_cert_fingerprints", []))
-          for fname, (_, exp_sha256) in expected.items():
-              if exp_sha256 not in fps:
-                  raise SystemExit(f"ERROR: {fname} SHA256 missing from dist/.well-known/assetlinks.json")
-          print("Verified all 3 Play App Signing certificates and Digital Asset Links!")
-          PYEOF
-
-      - name: Configure Version & Play Store Release Signing Keystore
-        id: signing_setup
+      - name: Resolve Play Console Release Version (>= 240)
+        id: version_setup
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          SECRET_KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
-          SECRET_KEYSTORE_PW: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
-          SECRET_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
-          SECRET_KEY_PW: ${{ secrets.ANDROID_KEY_PASSWORD }}
           INPUT_VERSION_CODE: ${{ inputs.version_code }}
           INPUT_VERSION_NAME: ${{ inputs.version_name }}
-          SIGNING_KEY_PREF: ${{ inputs.signing_key_preference }}
         run: |
-          # 1. Compute strictly increasing Play Console versionCode (>= 235, strictly > all previously uploaded Play Console versions including v230) & versionName
-          MIN_VERSION_CODE=235
+          MIN_VERSION_CODE=240
           ATTEMPT_NUM="${GITHUB_RUN_ATTEMPT:-1}"
           ATTEMPT_OFFSET=$(( ATTEMPT_NUM > 1 ? ATTEMPT_NUM - 1 : 0 ))
-          AUTO_VC=$(( 207 + GITHUB_RUN_NUMBER + ATTEMPT_OFFSET ))
+          AUTO_VC=$(( 211 + GITHUB_RUN_NUMBER + ATTEMPT_OFFSET ))
           if [ "$AUTO_VC" -lt "$MIN_VERSION_CODE" ]; then
             AUTO_VC="$MIN_VERSION_CODE"
           fi
 
-          # Inspect both GitHub Releases AND all prior workflow AAB artifacts (via REST API + gh CLI fallback) so re-runs or manual dispatches always increment strictly
+          # Inspect both GitHub Releases AND all prior workflow AAB artifacts so re-runs or manual dispatches always increment strictly
           MAX_HIST_VC=$(python3 - << 'PYHIST'
           import json, os, re, subprocess, urllib.request
 
-          max_vc = 234  # Floor strictly above all prior Play Console versions (152, 204, 215, 216, 230)
+          max_vc = 239  # Floor strictly above all prior Play Console versions (152, 204, 215, 216, 230, 235)
           repo = os.environ.get("GITHUB_REPOSITORY", "")
           token = os.environ.get("GITHUB_TOKEN", "")
 
@@ -258,7 +195,7 @@ jobs:
           if [ -n "$INPUT_VERSION_NAME" ]; then
             COMPUTED_VN="$INPUT_VERSION_NAME"
           else
-            COMPUTED_VN="1.6.$((COMPUTED_VC - 235))"
+            COMPUTED_VN="1.7.$((COMPUTED_VC - 240))"
           fi
 
           echo "Resolved Play Console release version: versionName=${COMPUTED_VN} (versionCode=${COMPUTED_VC}, strictly > ${MAX_HIST_VC})"
@@ -267,12 +204,86 @@ jobs:
           echo "version_code=${COMPUTED_VC}" >> $GITHUB_OUTPUT
           echo "version_name=${COMPUTED_VN}" >> $GITHUB_OUTPUT
 
-          # Keep Capacitor config.xml version synced after npx cap sync android
-          if [ -f "${GITHUB_WORKSPACE}/android/app/src/main/res/xml/config.xml" ]; then
-            sed -i.bak "s/version=\"[^\"]*\"/version=\"${COMPUTED_VN}\"/" "${GITHUB_WORKSPACE}/android/app/src/main/res/xml/config.xml" && rm -f "${GITHUB_WORKSPACE}/android/app/src/main/res/xml/config.xml.bak" || true
+      - name: Generate PWA Assets & Build Production Web Dist
+        run: |
+          node generate-icons.js --force
+          npm run build
+        env:
+          NODE_ENV: production
+          VITE_APP_VERSION: ${{ env.ANDROID_VERSION_NAME }}
+          VITE_APP_BUILD_NUMBER: ${{ env.ANDROID_VERSION_CODE }}
+
+      - name: Sync Capacitor Android Project & Align AGP 9.0.1
+        run: |
+          npx cap sync android
+          if [ -f "android/app/src/main/res/xml/config.xml" ]; then
+            sed -i.bak "s/version=\"[^\"]*\"/version=\"${ANDROID_VERSION_NAME}\"/" "android/app/src/main/res/xml/config.xml" && rm -f "android/app/src/main/res/xml/config.xml.bak" || true
+          fi
+          if [ -f "android/capacitor-cordova-android-plugins/build.gradle" ]; then
+            sed -i.bak "s/com\.android\.tools\.build:gradle:[0-9.]*/com.android.tools.build:gradle:9.0.1/g" "android/capacitor-cordova-android-plugins/build.gradle" && rm -f "android/capacitor-cordova-android-plugins/build.gradle.bak" || true
           fi
 
-          # 2. Resolve Upload Keystore (recovers Play Console's registered F5:BA:06:8E:... Upload Key automatically or uses permanent repo/secrets key — never rotates randomly)
+      - name: Verify Google Play App Signing Certificates (com.receiptscannerpro.app)
+        run: |
+          python3 - "${GITHUB_WORKSPACE}/android/signing/play-store-certs" "${GITHUB_WORKSPACE}/dist/.well-known/assetlinks.json" << 'PYEOF'
+          import hashlib, json, os, sys
+
+          cert_dir, assetlinks_path = sys.argv[1], sys.argv[2]
+          expected = {
+              "deployment_cert.der": (
+                  "AA:14:BE:52:28:F8:80:7C:13:DE:D0:86:F1:11:6A:0F:AE:93:17:4D",
+                  "47:4A:47:3D:23:74:45:84:40:9F:FD:15:F5:E5:ED:FD:8E:C0:0A:27:67:6D:52:4F:41:D1:FA:3B:DC:A6:2E:19",
+              ),
+              "hybrid_classical_cert.der": (
+                  "74:9C:E0:25:BD:DA:4E:CA:7D:83:3B:DE:57:E3:B4:E1:1F:79:0C:4B",
+                  "16:F5:4D:1B:55:E1:99:46:9B:99:81:DE:A9:59:A7:FB:30:7F:37:83:47:62:FE:31:4A:A3:BB:06:46:9F:FF:9B",
+              ),
+              "hybrid_pqc_cert.der": (
+                  "5E:FF:72:FD:93:ED:59:02:92:20:BF:31:BD:8A:1B:92:D8:56:7C:3B",
+                  "E7:C0:F4:CF:9F:BF:55:48:6E:58:01:CC:56:59:49:D0:06:53:18:59:C4:17:66:5D:91:BD:0A:20:0D:8A:57:AA",
+              ),
+          }
+
+          def fmt_hex(h):
+              return ":".join(h.upper()[i:i+2] for i in range(0, len(h), 2))
+
+          for fname, (exp_sha1, exp_sha256) in expected.items():
+              fpath = os.path.join(cert_dir, fname)
+              if not os.path.isfile(fpath):
+                  raise SystemExit(f"ERROR: Missing Play Store certificate {fpath}")
+              data = open(fpath, "rb").read()
+              act_sha1 = fmt_hex(hashlib.sha1(data).hexdigest())
+              act_sha256 = fmt_hex(hashlib.sha256(data).hexdigest())
+              if act_sha1 != exp_sha1 or act_sha256 != exp_sha256:
+                  raise SystemExit(f"ERROR: {fname} fingerprint mismatch! Got SHA1={act_sha1}, SHA256={act_sha256}")
+              print(f"Verified {fname} -> SHA1={act_sha1}")
+
+          with open(assetlinks_path, "r", encoding="utf-8") as f:
+              assetlinks = json.load(f)
+          target = assetlinks[0]["target"]
+          if target.get("package_name") != "com.receiptscannerpro.app":
+              raise SystemExit(f"ERROR: Unexpected assetlinks package_name: {target.get('package_name')}")
+          fps = set(target.get("sha256_cert_fingerprints", []))
+          for fname, (_, exp_sha256) in expected.items():
+              if exp_sha256 not in fps:
+                  raise SystemExit(f"ERROR: {fname} SHA256 missing from dist/.well-known/assetlinks.json")
+          print("Verified all 3 Play App Signing certificates and Digital Asset Links!")
+          PYEOF
+
+      - name: Configure Play Store Release Signing Keystore
+        id: signing_setup
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SECRET_KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          SECRET_KEYSTORE_PW: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          SECRET_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          SECRET_KEY_PW: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          SIGNING_KEY_PREF: ${{ inputs.signing_key_preference }}
+        run: |
+          echo "version_code=${ANDROID_VERSION_CODE}" >> $GITHUB_OUTPUT
+          echo "version_name=${ANDROID_VERSION_NAME}" >> $GITHUB_OUTPUT
+
+          # Resolve Upload Keystore (recovers Play Console's registered F5:BA:06:8E:... Upload Key automatically or uses permanent repo/secrets key — never rotates randomly)
           python3 - << 'PYEOF'
           import base64, hashlib, io, json, os, re, secrets, shutil, subprocess, sys, tempfile, urllib.error, urllib.request, zipfile
 
@@ -659,30 +670,18 @@ jobs:
               print(f"NOTE: {override_warning}")
           PYEOF
 
-      - name: Setup Gradle
+      - name: Setup Gradle 9.1.0 (for AGP 9.0.1)
         uses: gradle/actions/setup-gradle@v4
         with:
-          gradle-version: '8.14.3'
+          gradle-version: '9.1.0'
           validate-wrappers: false
 
-      - name: Make Gradle Wrapper Executable and Ensure Wrapper
+      - name: Build Signed Release Android App Bundle (.aab) with AGP 9.0.1
         run: |
-          chmod +x android/gradlew
+          chmod +x android/gradlew || true
           cd android
-          mkdir -p gradle/wrapper
-          if [ ! -f "gradle/wrapper/gradle-wrapper.jar" ]; then
-            echo "Downloading Gradle wrapper jar..."
-            curl -fsSL -o gradle/wrapper/gradle-wrapper.jar https://raw.githubusercontent.com/gradle/gradle/v8.14.3/gradle/wrapper/gradle-wrapper.jar || true
-          fi
-
-      - name: Build Signed Release Android App Bundle (.aab)
-        run: |
-          cd android
-          if [ -f "gradle/wrapper/gradle-wrapper.jar" ]; then
-            ./gradlew bundleRelease --no-daemon --stacktrace
-          else
-            gradle bundleRelease --no-daemon --stacktrace
-          fi
+          gradle --version
+          gradle bundleRelease --no-daemon --stacktrace
 
       - name: Verify Signed App Bundle (.aab), R8 DEX Optimization & Native Debug Symbols
         run: |
@@ -702,7 +701,7 @@ jobs:
           AAB_CERT_INFO=$(keytool -printcert -jarfile "$VERSIONED_AAB" 2>/dev/null || true)
           echo "$AAB_CERT_INFO" | grep -E "Owner:|SHA1:|SHA256:" || true
 
-          echo "=== Verifying Merged Manifest Package, Play Billing Permission, Version (>= 235) & Provider Authorities ==="
+          echo "=== Verifying Merged Manifest Package, Play Billing Permission, Version (>= 240) & Provider Authorities ==="
           MERGED_MANIFEST=$(find android/app/build/intermediates/merged_manifests/release -name "AndroidManifest.xml" | head -n 1)
           if [ -n "$MERGED_MANIFEST" ]; then
             grep -q 'package="com.receiptscannerpro.app"' "$MERGED_MANIFEST"
@@ -715,18 +714,27 @@ jobs:
             fi
             MANIFEST_VC=$(grep -oE 'android:versionCode="[0-9]+"' "$MERGED_MANIFEST" | head -n 1 | grep -oE '[0-9]+' || true)
             echo "Merged Manifest versionCode=${MANIFEST_VC}"
-            if [ -n "$MANIFEST_VC" ] && [ "$MANIFEST_VC" -lt 235 ]; then
-              echo "ERROR: Merged Manifest versionCode (${MANIFEST_VC}) must be >= 235!"
+            if [ -n "$MANIFEST_VC" ] && [ "$MANIFEST_VC" -lt 240 ]; then
+              echo "ERROR: Merged Manifest versionCode (${MANIFEST_VC}) must be >= 240!"
               exit 1
             fi
             if [ -n "$MANIFEST_VC" ] && [ "$MANIFEST_VC" != "$ANDROID_VERSION_CODE" ]; then
               echo "ERROR: Merged Manifest versionCode (${MANIFEST_VC}) does not match expected ANDROID_VERSION_CODE (${ANDROID_VERSION_CODE})!"
               exit 1
             fi
-            echo "Verified package=com.receiptscannerpro.app, com.android.vending.BILLING, versionCode=${MANIFEST_VC} (>= 235), and unique provider authorities!"
+            echo "Verified package=com.receiptscannerpro.app, com.android.vending.BILLING, versionCode=${MANIFEST_VC} (>= 240), and unique provider authorities!"
           fi
 
-          echo "=== Verifying R8 DEX Code Optimization & Deobfuscation Mapping (mapping.txt) ==="
+          echo "=== Verifying AGP 9.0.1 Metadata Inside .aab ==="
+          APP_METADATA_TXT=$(unzip -p "$VERSIONED_AAB" "BUNDLE-METADATA/com.android.tools.build.gradle/app-metadata.properties" 2>/dev/null || true)
+          echo "$APP_METADATA_TXT"
+          if ! echo "$APP_METADATA_TXT" | grep -qE '^androidGradlePluginVersion=9\.0\.'; then
+            echo "ERROR: Expected androidGradlePluginVersion=9.0.x in BUNDLE-METADATA/com.android.tools.build.gradle/app-metadata.properties!"
+            exit 1
+          fi
+          echo "Verified AGP 9.0.1 metadata inside ${VERSIONED_AAB}!"
+
+          echo "=== Verifying R8 9.0 Full Mode DEX Code Optimization & Deobfuscation Mapping (mapping.txt) ==="
           MAPPING_OUT="${GITHUB_WORKSPACE}/mapping.txt"
           AGP_MAPPING=$(find android/app/build/outputs/mapping/release -name "mapping.txt" 2>/dev/null | head -n 1 || true)
           if [ -n "$AGP_MAPPING" ] && [ -s "$AGP_MAPPING" ]; then
@@ -744,7 +752,7 @@ jobs:
             echo "ERROR: proguard.map is missing from BUNDLE-METADATA inside ${VERSIONED_AAB}!"
             exit 1
           fi
-          echo "Verified R8 DEX code optimization and embedded BUNDLE-METADATA/com.android.tools.build.obfuscation/proguard.map!"
+          echo "Verified R8 9.0 Full Mode DEX code optimization and embedded BUNDLE-METADATA/com.android.tools.build.obfuscation/proguard.map!"
 
           echo "=== Packaging Play Console Native Debug Symbols (native-debug-symbols.zip) ==="
           SYMBOLS_OUT="${GITHUB_WORKSPACE}/native-debug-symbols.zip"
@@ -837,7 +845,7 @@ jobs:
             NOTES_FILE="${RUNNER_TEMP}/aab-release-notes.md"
             {
               echo "### Google Play Console Signed App Bundle (.aab) — versionCode ${VC} (${VN})"
-              echo "- **1-Click App Bundle (Upload ONLY this file to Play Console)**: **[${VERSIONED_AAB_NAME}](https://github.com/${{ github.repository }}/releases/download/${TAG_NAME}/${VERSIONED_AAB_NAME})** *(R8 DEX-optimized + embedded proguard.map, native debug symbols & 17 locales)*"
+              echo "- **1-Click App Bundle (Upload ONLY this file to Play Console)**: **[${VERSIONED_AAB_NAME}](https://github.com/${{ github.repository }}/releases/download/${TAG_NAME}/${VERSIONED_AAB_NAME})** *(AGP 9.0.1 + R8 9.0 Full Mode + Integrated Resource Shrinking + embedded proguard.map, native debug symbols & 17 locales)*"
               if [ -f "$PEM_PATH" ]; then
                 echo "- **Upload Certificate (.pem)**: **[upload_certificate.pem](https://github.com/${{ github.repository }}/releases/download/${TAG_NAME}/upload_certificate.pem)**"
               fi
@@ -908,7 +916,8 @@ jobs:
             echo "### Bundle & Signing Verification" >> $GITHUB_STEP_SUMMARY
             echo "- **Upload File**: \`${VERSIONED_AAB_NAME}\` (${AAB_SIZE}) — *Upload **ONLY** this file after clicking \`✕\` on old failed bundles in Play Console*" >> $GITHUB_STEP_SUMMARY
             echo "- **Package Name**: \`com.receiptscannerpro.app\`" >> $GITHUB_STEP_SUMMARY
-            echo "- **Version**: \`${VN}\` (\`versionCode ${VC}\` >= 235) ✅" >> $GITHUB_STEP_SUMMARY
+            echo "- **Version**: \`${VN}\` (\`versionCode ${VC}\` >= 240) ✅" >> $GITHUB_STEP_SUMMARY
+            echo "- **Android Gradle Plugin**: \`9.0.1\` (Gradle \`9.1.0\` + R8 \`9.0.32\` Full Mode + Integrated Resource Shrinking) ✅" >> $GITHUB_STEP_SUMMARY
             echo "- **Google Play Monetization**: Billing Library \`8.3.0\` + \`com.android.vending.BILLING\` (\`parserpro_mid_monthly\` \`$1.99/mo\` & \`parserpro_full_monthly\` \`$3.99/mo\`) ✅" >> $GITHUB_STEP_SUMMARY
             echo "- **Upload Signing Key Source**: \`${KEY_MODE}\` (${SIGN_NOTE})" >> $GITHUB_STEP_SUMMARY
             if [[ "$SIGN_SHA1" == ${EXPECTED_UPLOAD_PREFIX}* ]]; then

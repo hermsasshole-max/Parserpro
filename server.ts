@@ -323,7 +323,7 @@ async function startServer() {
 
     // Default inline service worker script
     const defaultSw = `
-const CACHE_NAME = 'parserpro-v4';
+const CACHE_NAME = 'parserpro-v1.7.0-b240';
 self.addEventListener('install', (e) => { self.skipWaiting(); });
 self.addEventListener('activate', (e) => { self.clients.claim(); });
 self.addEventListener('fetch', (e) => {
@@ -367,6 +367,8 @@ self.addEventListener('fetch', (e) => {
     res.setHeader("Content-Type", "application/json; charset=utf-8");
     res.json({
       status: "ok",
+      version: "1.7.0",
+      build: 240,
       serverTime: new Date().toISOString(),
       hasGeminiKey: !!process.env.GEMINI_API_KEY
     });
@@ -790,8 +792,17 @@ Strictly return JSON conforming to the schema with the "receipts" array.`;
     app.use(vite.middlewares);
   } else {
     const distPath = path.join(process.cwd(), "dist");
-    app.use(express.static(distPath));
+    app.use(
+      express.static(distPath, {
+        setHeaders: (res, filePath) => {
+          if (filePath.endsWith("index.html")) {
+            res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+          }
+        },
+      })
+    );
     app.get("*", (req, res) => {
+      res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
       res.sendFile(path.join(distPath, "index.html"));
     });
   }

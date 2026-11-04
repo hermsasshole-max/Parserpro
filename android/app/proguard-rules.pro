@@ -37,11 +37,12 @@
 -keep class org.apache.cordova.** { *; }
 -keep public class * extends org.apache.cordova.CordovaPlugin { *; }
 
-# Keep Gson reflection TypeTokens & @SerializedName fields (used by @capacitor/camera)
--keep class com.google.gson.reflect.TypeToken { *; }
--keep class * extends com.google.gson.reflect.TypeToken
+# Keep Gson classes, reflection TypeTokens & @SerializedName fields under R8 Full Mode (used by @capacitor/camera)
+-keep class com.google.gson.** { *; }
+-keep class * extends com.google.gson.reflect.TypeToken { *; }
 -keepclassmembers,allowobfuscation class * {
     @com.google.gson.annotations.SerializedName <fields>;
+    <init>();
 }
 
 # Keep AndroidX Startup initializers declared in merged AndroidManifest.xml
@@ -73,6 +74,9 @@
     native <methods>;
 }
 
+-keep class com.google.android.gms.common.** { *; }
+-keep class com.google.android.gms.tasks.** { *; }
+
 # Ignore optional JVM-only / compile-time annotation classes referenced by transitive libraries
 -dontwarn sun.misc.**
 -dontwarn java.lang.instrument.**
@@ -82,3 +86,7 @@
 -dontwarn com.google.android.datatransport.**
 -dontwarn com.google.errorprone.annotations.**
 -dontwarn org.codehaus.mojo.animal_sniffer.**
+-dontwarn org.conscrypt.**
+-dontwarn org.bouncycastle.**
+-dontwarn org.openjsse.**
+-dontwarn dalvik.system.**

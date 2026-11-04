@@ -1,14 +1,14 @@
 # Google Play Console Monetization Setup (`com.receiptscannerpro.app`)
 
-ParserPro (`v1.6.0`, `versionCode 235+`) embeds **Google Play Billing Library `8.3.0`** and `<uses-permission android:name="com.android.vending.BILLING" />` with native Capacitor bridge `PlayBillingPlugin.java`.
+ParserPro (`v1.7.0`, `versionCode 240+`, **AGP `9.0.1`** + R8 `9.0` Full Mode) embeds **Google Play Billing Library `8.3.0`** and `<uses-permission android:name="com.android.vending.BILLING" />` with native Capacitor bridge `PlayBillingPlugin.java`.
 
 ---
 
-## 1. Upload `ParserPro-release-v235.aab` First
-Google Play Console unlocks **Monetize with Play → Products → Subscriptions** as soon as a signed `.aab` containing `com.android.vending.BILLING` and Billing Library v8 is uploaded to an Internal, Closed, or Production track:
+## 1. Upload `ParserPro-release-v240.aab` First
+Google Play Console unlocks **Monetize with Play → Products → Subscriptions** and **3 of 3 performance enhancements** as soon as a signed `.aab` built with AGP `9.0.1` + Billing Library v8 is uploaded to an Internal, Closed, or Production track:
 1. Push/sync to GitHub and wait for **Build Release Android App Bundle (Play Console)** to finish.
-2. Download **`ParserPro-release-v235.aab`** from **GitHub Releases (`v1.0-playstore-aab`)**.
-3. Upload **`ParserPro-release-v235.aab`** to **Testing → Internal testing** (save draft or roll out).
+2. Download **`ParserPro-release-v240.aab`** from **GitHub Releases (`v1.0-playstore-aab`)**.
+3. Upload **`ParserPro-release-v240.aab`** to **Testing → Internal testing** (save draft or roll out).
 
 ---
 

@@ -28,6 +28,7 @@ import {
   type SubscriptionState,
   type UpgradeTriggerReason,
 } from '../utils/subscriptionManager';
+import { getDisplayVersionInfo } from '../constants/appVersion';
 
 interface SettingsViewProps {
   receipts: SavedReceipt[];
@@ -63,6 +64,13 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   const [confirmReset, setConfirmReset] = useState(false);
   const [confirmDowngrade, setConfirmDowngrade] = useState(false);
   const [showPrivacyModal, setShowPrivacyModal] = useState(false);
+  const [versionInfo, setVersionInfo] = useState(() => getDisplayVersionInfo());
+
+  React.useEffect(() => {
+    const syncNativeVersion = () => setVersionInfo(getDisplayVersionInfo());
+    window.addEventListener('parserpro-native-version', syncNativeVersion);
+    return () => window.removeEventListener('parserpro-native-version', syncNativeVersion);
+  }, []);
 
   const tier = subscriptionState.tier;
   const totalSavedSpend = receipts.reduce(
@@ -98,9 +106,14 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   return (
     <div className="space-y-6 max-w-3xl mx-auto">
       <div>
-        <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white">
-          Account & Preferences
-        </h1>
+        <div className="flex flex-wrap items-baseline justify-between gap-2">
+          <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white">
+            Account &amp; Preferences
+          </h1>
+          <span className="text-xs text-slate-500 dark:text-slate-400 font-mono tabular-nums">
+            {versionInfo.displayLabel}
+          </span>
+        </div>
         <p className="text-sm text-slate-600 dark:text-slate-400 mt-0.5">
           Manage your Google Play plan, currency, household budgets, and private device backups.
         </p>
@@ -421,7 +434,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       </section>
 
       <div className="pt-1 pb-2 text-center text-xs text-slate-400 dark:text-slate-500 tabular-nums">
-        ParserPro v1.6.0 · Build 235
+        ParserPro {versionInfo.displayLabel}
       </div>
 
       {/* In-App Privacy Policy Summary Modal */}

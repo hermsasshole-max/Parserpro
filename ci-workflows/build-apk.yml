@@ -57,43 +57,34 @@ jobs:
 
       - name: Generate PWA Assets & Build Production Web Dist
         run: |
-          node generate-icons.js
+          node generate-icons.js --force
           npm run build
         env:
           NODE_ENV: production
 
-      - name: Sync Capacitor Android Project
+      - name: Sync Capacitor Android Project & Align AGP 9.0.1
         run: |
           npx cap sync android
-          PKG_VER=$(node -p "require('./package.json').version || '1.6.0'")
+          PKG_VER=$(node -p "require('./package.json').version || '1.7.0'")
           if [ -f "android/app/src/main/res/xml/config.xml" ]; then
             sed -i.bak "s/version=\"[^\"]*\"/version=\"${PKG_VER}\"/" "android/app/src/main/res/xml/config.xml" && rm -f "android/app/src/main/res/xml/config.xml.bak" || true
           fi
+          if [ -f "android/capacitor-cordova-android-plugins/build.gradle" ]; then
+            sed -i.bak "s/com\.android\.tools\.build:gradle:[0-9.]*/com.android.tools.build:gradle:9.0.1/g" "android/capacitor-cordova-android-plugins/build.gradle" && rm -f "android/capacitor-cordova-android-plugins/build.gradle.bak" || true
+          fi
 
-      - name: Setup Gradle
+      - name: Setup Gradle 9.1.0 (for AGP 9.0.1)
         uses: gradle/actions/setup-gradle@v4
         with:
-          gradle-version: '8.14.3'
+          gradle-version: '9.1.0'
           validate-wrappers: false
 
-      - name: Make Gradle Wrapper Executable and Ensure Wrapper
+      - name: Build Debug APK with Gradle 9.1.0 + AGP 9.0.1
         run: |
-          chmod +x android/gradlew
+          chmod +x android/gradlew || true
           cd android
-          mkdir -p gradle/wrapper
-          if [ ! -f "gradle/wrapper/gradle-wrapper.jar" ]; then
-            echo "Downloading Gradle wrapper jar..."
-            curl -fsSL -o gradle/wrapper/gradle-wrapper.jar https://raw.githubusercontent.com/gradle/gradle/v8.14.3/gradle/wrapper/gradle-wrapper.jar || true
-          fi
-
-      - name: Build Debug APK with Gradle
-        run: |
-          cd android
-          if [ -f "gradle/wrapper/gradle-wrapper.jar" ]; then
-            ./gradlew assembleDebug --no-daemon --stacktrace
-          else
-            gradle assembleDebug --no-daemon --stacktrace
-          fi
+          gradle --version
+          gradle assembleDebug --no-daemon --stacktrace
 
       - name: Verify and Locate Generated APK
         run: |

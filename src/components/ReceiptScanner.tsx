@@ -40,6 +40,7 @@ import {
   type SubscriptionState,
   type UpgradeTriggerReason,
 } from '../utils/subscriptionManager';
+import { getDisplayVersionInfo } from '../constants/appVersion';
 import {
   formatCategoryLabel,
   formatMoney,
@@ -108,6 +109,13 @@ export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
   const [expandedPreviewIds, setExpandedPreviewIds] = useState<Record<string, boolean>>({});
   const [savedBannerCount, setSavedBannerCount] = useState<number | null>(null);
   const [isDragging, setIsDragging] = useState(false);
+  const [versionInfo, setVersionInfo] = useState(() => getDisplayVersionInfo());
+
+  useEffect(() => {
+    const syncNativeVersion = () => setVersionInfo(getDisplayVersionInfo());
+    window.addEventListener('parserpro-native-version', syncNativeVersion);
+    return () => window.removeEventListener('parserpro-native-version', syncNativeVersion);
+  }, []);
 
   const cameraInputRef = useRef<HTMLInputElement>(null);
   const galleryInputRef = useRef<HTMLInputElement>(null);
@@ -1580,6 +1588,10 @@ export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
           </div>
         </section>
       )}
+
+      <div className="pt-2 text-center text-xs text-slate-400 dark:text-slate-500 font-mono tabular-nums">
+        ParserPro {versionInfo.displayLabel}
+      </div>
     </div>
   );
 };
