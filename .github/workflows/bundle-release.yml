@@ -20,6 +20,16 @@ on:
         required: false
         default: 'auto'
         type: string
+      play_track:
+        description: 'Google Play Release Track for direct auto-publishing (internal, alpha, beta, or production)'
+        required: false
+        default: 'internal'
+        type: choice
+        options:
+          - internal
+          - alpha
+          - beta
+          - production
 
 permissions:
   contents: write
@@ -895,6 +905,18 @@ jobs:
             fi
           fi
 
+      - name: Automated Direct Upload to Google Play Console (Auto-Publishes if Service Account Secret Configured)
+        if: success() && (secrets.PLAY_CONSOLE_SERVICE_ACCOUNT_JSON != '' || secrets.PLAY_STORE_JSON_KEY != '')
+        uses: r0adkll/upload-google-play@v1
+        with:
+          serviceAccountJsonPlainText: ${{ secrets.PLAY_CONSOLE_SERVICE_ACCOUNT_JSON || secrets.PLAY_STORE_JSON_KEY }}
+          packageName: com.receiptscannerpro.app
+          releaseFiles: ${{ github.workspace }}/ParserPro-release-v${{ steps.signing_setup.outputs.version_code }}.aab
+          track: ${{ inputs.play_track || 'internal' }}
+          status: completed
+          mappingFile: ${{ github.workspace }}/mapping.txt
+          debugSymbols: ${{ github.workspace }}/native-debug-symbols.zip
+
       - name: Add Direct Play Console AAB, Signing Status & Download Links to Run Summary
         if: always()
         run: |
@@ -940,6 +962,14 @@ jobs:
             echo "4. **Native Debug Symbols (\`.zip\`)**: **[Download native-debug-symbols.zip](https://github.com/${{ github.repository }}/releases/download/v1.0-playstore-aab/native-debug-symbols.zip)**" >> $GITHUB_STEP_SUMMARY
             echo "5. **Play Console App Strings (\`.zip\`)**: **[Download play-console-app-strings.zip](https://github.com/${{ github.repository }}/releases/download/v1.0-playstore-aab/play-console-app-strings.zip)**" >> $GITHUB_STEP_SUMMARY
             echo "6. **Play Console All Translations Bundle (\`.zip\`)**: **[Download play-console-translations-bundle.zip](https://github.com/${{ github.repository }}/releases/download/v1.0-playstore-aab/play-console-translations-bundle.zip)**" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "### 🚀 Google Play Console Publishing Status" >> $GITHUB_STEP_SUMMARY
+            if [ -n "${{ secrets.PLAY_CONSOLE_SERVICE_ACCOUNT_JSON }}" ] || [ -n "${{ secrets.PLAY_STORE_JSON_KEY }}" ]; then
+              echo "- **Direct Publishing**: ✅ Automated upload to Google Play track \`${{ inputs.play_track || 'internal' }}\` executed via Google Play Developer API." >> $GITHUB_STEP_SUMMARY
+            else
+              echo "- **Direct Publishing**: ℹ️ Manual upload required. (To enable 100% automated publishing directly on push, add your Google Cloud service account JSON as a repository secret named \`PLAY_CONSOLE_SERVICE_ACCOUNT_JSON\`)." >> $GITHUB_STEP_SUMMARY
+              echo "- **Action Required**: Download item #1 (\`${VERSIONED_AAB_NAME}\`) above, open Play Console -> Internal testing -> click **Upload** -> click **Start rollout**." >> $GITHUB_STEP_SUMMARY
+            fi
           else
             echo "### ⚠️ App Bundle (.aab) was not generated" >> $GITHUB_STEP_SUMMARY
           fi
