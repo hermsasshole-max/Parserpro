@@ -905,8 +905,21 @@ jobs:
             fi
           fi
 
-      - name: Automated Direct Upload to Google Play Console (Auto-Publishes if Service Account Secret Configured)
-        if: success() && (secrets.PLAY_CONSOLE_SERVICE_ACCOUNT_JSON != '' || secrets.PLAY_STORE_JSON_KEY != '')
+      - name: Inspect Google Play API Credentials
+        id: play_api_check
+        env:
+          SERVICE_ACCOUNT_JSON: ${{ secrets.PLAY_CONSOLE_SERVICE_ACCOUNT_JSON || secrets.PLAY_STORE_JSON_KEY }}
+        run: |
+          if [ -n "$SERVICE_ACCOUNT_JSON" ]; then
+            echo "has_secret=true" >> $GITHUB_OUTPUT
+            echo "Google Play Console Service Account credentials detected. Proceeding with automated direct upload..."
+          else
+            echo "has_secret=false" >> $GITHUB_OUTPUT
+            echo "No Google Play Console Service Account credentials configured. Automated direct upload skipped."
+          fi
+
+      - name: Automated Direct Upload to Google Play Console
+        if: steps.play_api_check.outputs.has_secret == 'true'
         uses: r0adkll/upload-google-play@v1
         with:
           serviceAccountJsonPlainText: ${{ secrets.PLAY_CONSOLE_SERVICE_ACCOUNT_JSON || secrets.PLAY_STORE_JSON_KEY }}
@@ -964,7 +977,8 @@ jobs:
             echo "6. **Play Console All Translations Bundle (\`.zip\`)**: **[Download play-console-translations-bundle.zip](https://github.com/${{ github.repository }}/releases/download/v1.0-playstore-aab/play-console-translations-bundle.zip)**" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
             echo "### 🚀 Google Play Console Publishing Status" >> $GITHUB_STEP_SUMMARY
-            if [ -n "${{ secrets.PLAY_CONSOLE_SERVICE_ACCOUNT_JSON }}" ] || [ -n "${{ secrets.PLAY_STORE_JSON_KEY }}" ]; then
+            HAS_PLAY_SECRET="${{ steps.play_api_check.outputs.has_secret }}"
+            if [ "$HAS_PLAY_SECRET" = "true" ]; then
               echo "- **Direct Publishing**: ✅ Automated upload to Google Play track \`${{ inputs.play_track || 'internal' }}\` executed via Google Play Developer API." >> $GITHUB_STEP_SUMMARY
             else
               echo "- **Direct Publishing**: ℹ️ Manual upload required. (To enable 100% automated publishing directly on push, add your Google Cloud service account JSON as a repository secret named \`PLAY_CONSOLE_SERVICE_ACCOUNT_JSON\`)." >> $GITHUB_STEP_SUMMARY
