@@ -1318,7 +1318,7 @@ export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
 
                       return (
                         <>
-                          <div className="flex flex-wrap items-center justify-between gap-2">
+                          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                             <div className="space-y-0.5">
                               <div className="flex flex-wrap items-center gap-2">
                                 <p className="text-xs font-semibold text-slate-700 dark:text-slate-300">
@@ -1340,7 +1340,7 @@ export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
                                       onClick={() =>
                                         updateDraftField(draft.draftId, 'total_amount', itemsSum)
                                       }
-                                      className="underline font-semibold hover:opacity-80"
+                                      className="underline font-semibold hover:opacity-80 cursor-pointer"
                                     >
                                       Use items sum
                                     </button>
@@ -1353,7 +1353,7 @@ export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
                               </p>
                             </div>
 
-                            <div className="flex items-center gap-2">
+                            <div className="flex flex-wrap items-center gap-2 shrink-0">
                               {draft.previewUrl && (
                                 <button
                                   type="button"
@@ -1363,7 +1363,7 @@ export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
                                       [draft.draftId]: !prev[draft.draftId],
                                     }))
                                   }
-                                  className="min-h-[38px] px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 flex items-center gap-1.5 whitespace-nowrap"
+                                  className="min-h-[44px] px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 flex items-center gap-1.5 whitespace-nowrap cursor-pointer"
                                 >
                                   {isPreviewOpen ? (
                                     <>
@@ -1373,7 +1373,7 @@ export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
                                   ) : (
                                     <>
                                       <Eye className="w-3.5 h-3.5" />
-                                      <span>Check Slip Photo</span>
+                                      <span>Open Slip Photo</span>
                                     </>
                                   )}
                                 </button>
@@ -1381,7 +1381,7 @@ export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
                               <button
                                 type="button"
                                 onClick={() => addDraftLineItem(draft.draftId)}
-                                className="min-h-[38px] px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-semibold text-emerald-700 dark:text-emerald-400 hover:bg-slate-50 dark:hover:bg-slate-800 flex items-center gap-1 whitespace-nowrap"
+                                className="min-h-[44px] px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-semibold text-emerald-700 dark:text-emerald-400 hover:bg-slate-50 dark:hover:bg-slate-800 flex items-center gap-1 whitespace-nowrap cursor-pointer"
                               >
                                 <Plus className="w-3.5 h-3.5" />
                                 <span>Add Item</span>
@@ -1395,7 +1395,7 @@ export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
                                 src={draft.previewUrl}
                                 alt="Scanned receipt slip reference"
                                 referrerPolicy="no-referrer"
-                                className="w-full h-auto rounded-lg object-contain"
+                                className="w-full h-auto rounded-lg object-contain max-h-64 mx-auto"
                               />
                             </div>
                           )}
@@ -1514,7 +1514,7 @@ export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
               type="button"
               disabled={selectedDraftCount === 0}
               onClick={handleSaveSelectedDrafts}
-              className="min-h-[48px] px-6 py-3 rounded-xl bg-emerald-500 hover:bg-emerald-400 disabled:bg-slate-700 disabled:text-slate-400 text-slate-950 font-bold text-sm sm:text-base flex items-center justify-center gap-2 whitespace-nowrap transition-colors"
+              className="w-full sm:w-auto min-h-[48px] px-6 py-3 rounded-xl bg-emerald-500 hover:bg-emerald-400 disabled:bg-slate-700 disabled:text-slate-400 text-slate-950 font-bold text-sm sm:text-base flex items-center justify-center gap-2 whitespace-nowrap transition-colors cursor-pointer"
             >
               {selectedDraftCount === 0 && blockedDraftCount > 0 ? (
                 <>
@@ -1589,7 +1589,7 @@ export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
         </section>
       )}
 
-      <div className="pt-2 text-center text-xs text-slate-400 dark:text-slate-500 font-mono tabular-nums">
+      <div className="pt-2 pb-6 text-center text-xs text-slate-400 dark:text-slate-500 font-mono tabular-nums">
         ParserPro {versionInfo.displayLabel}
       </div>
     </div>

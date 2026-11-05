@@ -234,7 +234,7 @@ export const OfflineOcrQueueModal: React.FC<OfflineOcrQueueModalProps> = ({
         </div>
 
         {jobs.some((j) => j.status === 'completed') && (
-          <div className="px-6 py-3 border-t border-slate-200 dark:border-slate-800 flex justify-end">
+          <div className="px-6 py-3 pb-safe border-t border-slate-200 dark:border-slate-800 flex justify-end">
             <button
               type="button"
               onClick={() => clearCompletedQueueJobs()}

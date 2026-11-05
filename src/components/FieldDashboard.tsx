@@ -177,16 +177,32 @@ export const FieldDashboard: React.FC<FieldDashboardProps> = ({
 
           <div className="divide-y divide-slate-100 dark:divide-slate-800">
             {receipts.slice(0, 4).map((rcpt) => (
-              <div key={rcpt.id} className="py-2.5 flex items-center justify-between gap-3 text-xs">
-                <div>
-                  <p className="font-bold text-slate-900 dark:text-white">{rcpt.vendor_name}</p>
-                  <p className="text-slate-500">
+              <div
+                key={rcpt.id}
+                onClick={() => onNavigate('expenses')}
+                className="py-2.5 flex items-center justify-between gap-3 text-xs cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/40 rounded-xl px-2 transition-colors"
+              >
+                <div className="min-w-0">
+                  <p className="font-bold text-slate-900 dark:text-white truncate">{rcpt.vendor_name}</p>
+                  <p className="text-slate-500 truncate mt-0.5">
                     {rcpt.invoice_date} · {rcpt.category} · {rcpt.line_items?.length || 0} items
                   </p>
                 </div>
-                <span className="font-mono font-bold text-slate-900 dark:text-white tabular-nums">
-                  {formatMoney(rcpt.total_amount, currencyCode)}
-                </span>
+                <div className="flex items-center gap-2 shrink-0">
+                  <span className="font-mono font-bold text-slate-900 dark:text-white tabular-nums">
+                    {formatMoney(rcpt.total_amount, currencyCode)}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onNavigate('expenses');
+                    }}
+                    className="min-h-[36px] px-2 py-1 rounded-lg text-xs font-semibold text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 cursor-pointer"
+                  >
+                    Open
+                  </button>
+                </div>
               </div>
             ))}
             {receipts.length === 0 && (

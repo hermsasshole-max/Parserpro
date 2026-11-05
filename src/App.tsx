@@ -242,7 +242,7 @@ function AppContent() {
 
   return (
     <SafeAreaView
-      bottomOffsetClass="pb-24 md:pb-10"
+      bottomOffsetClass="pb-28 sm:pb-16"
       className={`min-h-[100dvh] flex flex-col transition-colors duration-150 ${
         sunlightMode
           ? 'bg-amber-50/20 text-slate-950 contrast-125'
@@ -260,7 +260,7 @@ function AppContent() {
       />
 
       {/* Main Dynamic Viewport */}
-      <main className="flex-1 w-full max-w-6xl mx-auto px-4 sm:px-6 pt-4 sm:pt-6">
+      <main className="flex-1 w-full max-w-6xl mx-auto px-4 sm:px-6 pt-4 sm:pt-6 pb-28 sm:pb-16">
         <Suspense fallback={<FieldLoadingSkeleton title="Loading Field Module..." />}>
           {activeTab === 'dashboard' && (
             <FieldDashboard
