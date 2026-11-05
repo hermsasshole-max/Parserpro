@@ -21,12 +21,12 @@ const metaEnv =
 
 export const APP_VERSION: string =
   (metaEnv && typeof metaEnv.VITE_APP_VERSION === 'string' && metaEnv.VITE_APP_VERSION.trim()) ||
-  '1.7.0';
+  '1.8.0';
 
 export const APP_BUILD_NUMBER: number =
-  (metaEnv && Number(metaEnv.VITE_APP_BUILD_NUMBER) >= 240
+  (metaEnv && Number(metaEnv.VITE_APP_BUILD_NUMBER) >= 260
     ? Number(metaEnv.VITE_APP_BUILD_NUMBER)
-    : 0) || 240;
+    : 0) || 260;
 
 export const APP_AGP_VERSION = '9.0.1';
 

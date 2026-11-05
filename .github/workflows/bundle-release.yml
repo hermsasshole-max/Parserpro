@@ -103,10 +103,10 @@ jobs:
           INPUT_VERSION_CODE: ${{ inputs.version_code }}
           INPUT_VERSION_NAME: ${{ inputs.version_name }}
         run: |
-          MIN_VERSION_CODE=240
+          MIN_VERSION_CODE=260
           ATTEMPT_NUM="${GITHUB_RUN_ATTEMPT:-1}"
           ATTEMPT_OFFSET=$(( ATTEMPT_NUM > 1 ? ATTEMPT_NUM - 1 : 0 ))
-          AUTO_VC=$(( 211 + GITHUB_RUN_NUMBER + ATTEMPT_OFFSET ))
+          AUTO_VC=$(( 260 + GITHUB_RUN_NUMBER + ATTEMPT_OFFSET ))
           if [ "$AUTO_VC" -lt "$MIN_VERSION_CODE" ]; then
             AUTO_VC="$MIN_VERSION_CODE"
           fi
@@ -115,7 +115,7 @@ jobs:
           MAX_HIST_VC=$(python3 - << 'PYHIST'
           import json, os, re, subprocess, urllib.request
 
-          max_vc = 239  # Floor strictly above all prior Play Console versions (152, 204, 215, 216, 230, 235)
+          max_vc = 259  # Floor strictly above all prior Play Console versions (152, 204, 215, 216, 230, 235, 240, 245)
           repo = os.environ.get("GITHUB_REPOSITORY", "")
           token = os.environ.get("GITHUB_TOKEN", "")
 
@@ -205,7 +205,7 @@ jobs:
           if [ -n "$INPUT_VERSION_NAME" ]; then
             COMPUTED_VN="$INPUT_VERSION_NAME"
           else
-            COMPUTED_VN="1.7.$((COMPUTED_VC - 240))"
+            COMPUTED_VN="1.8.$((COMPUTED_VC - 260))"
           fi
 
           echo "Resolved Play Console release version: versionName=${COMPUTED_VN} (versionCode=${COMPUTED_VC}, strictly > ${MAX_HIST_VC})"
@@ -711,7 +711,7 @@ jobs:
           AAB_CERT_INFO=$(keytool -printcert -jarfile "$VERSIONED_AAB" 2>/dev/null || true)
           echo "$AAB_CERT_INFO" | grep -E "Owner:|SHA1:|SHA256:" || true
 
-          echo "=== Verifying Merged Manifest Package, Play Billing Permission, Version (>= 240) & Provider Authorities ==="
+          echo "=== Verifying Merged Manifest Package, Play Billing Permission, Version (>= 260) & Provider Authorities ==="
           MERGED_MANIFEST=$(find android/app/build/intermediates/merged_manifests/release -name "AndroidManifest.xml" | head -n 1)
           if [ -n "$MERGED_MANIFEST" ]; then
             grep -q 'package="com.receiptscannerpro.app"' "$MERGED_MANIFEST"
@@ -724,15 +724,15 @@ jobs:
             fi
             MANIFEST_VC=$(grep -oE 'android:versionCode="[0-9]+"' "$MERGED_MANIFEST" | head -n 1 | grep -oE '[0-9]+' || true)
             echo "Merged Manifest versionCode=${MANIFEST_VC}"
-            if [ -n "$MANIFEST_VC" ] && [ "$MANIFEST_VC" -lt 240 ]; then
-              echo "ERROR: Merged Manifest versionCode (${MANIFEST_VC}) must be >= 240!"
+            if [ -n "$MANIFEST_VC" ] && [ "$MANIFEST_VC" -lt 260 ]; then
+              echo "ERROR: Merged Manifest versionCode (${MANIFEST_VC}) must be >= 260!"
               exit 1
             fi
             if [ -n "$MANIFEST_VC" ] && [ "$MANIFEST_VC" != "$ANDROID_VERSION_CODE" ]; then
               echo "ERROR: Merged Manifest versionCode (${MANIFEST_VC}) does not match expected ANDROID_VERSION_CODE (${ANDROID_VERSION_CODE})!"
               exit 1
             fi
-            echo "Verified package=com.receiptscannerpro.app, com.android.vending.BILLING, versionCode=${MANIFEST_VC} (>= 240), and unique provider authorities!"
+            echo "Verified package=com.receiptscannerpro.app, com.android.vending.BILLING, versionCode=${MANIFEST_VC} (>= 260), and unique provider authorities!"
           fi
 
           echo "=== Verifying AGP 9.0.1 Metadata Inside .aab ==="
@@ -951,7 +951,7 @@ jobs:
             echo "### Bundle & Signing Verification" >> $GITHUB_STEP_SUMMARY
             echo "- **Upload File**: \`${VERSIONED_AAB_NAME}\` (${AAB_SIZE}) — *Upload **ONLY** this file after clicking \`✕\` on old failed bundles in Play Console*" >> $GITHUB_STEP_SUMMARY
             echo "- **Package Name**: \`com.receiptscannerpro.app\`" >> $GITHUB_STEP_SUMMARY
-            echo "- **Version**: \`${VN}\` (\`versionCode ${VC}\` >= 240) ✅" >> $GITHUB_STEP_SUMMARY
+            echo "- **Version**: \`${VN}\` (\`versionCode ${VC}\` >= 260) ✅" >> $GITHUB_STEP_SUMMARY
             echo "- **Android Gradle Plugin**: \`9.0.1\` (Gradle \`9.1.0\` + R8 \`9.0.32\` Full Mode + Integrated Resource Shrinking) ✅" >> $GITHUB_STEP_SUMMARY
             echo "- **Google Play Monetization**: Billing Library \`8.3.0\` + \`com.android.vending.BILLING\` (\`parserpro_mid_monthly\` \`$1.99/mo\` & \`parserpro_full_monthly\` \`$3.99/mo\`) ✅" >> $GITHUB_STEP_SUMMARY
             echo "- **Upload Signing Key Source**: \`${KEY_MODE}\` (${SIGN_NOTE})" >> $GITHUB_STEP_SUMMARY
