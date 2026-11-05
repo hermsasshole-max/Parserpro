@@ -1,0 +1,118 @@
+<en-US>
+• Faster receipt and invoice scanning with improved line-item extraction
+• Offline on-device OCR queue for scanning without internet access
+• Monthly category budgets, spending charts, and CSV/JSON device backups
+• Added multi-language support, R8 performance optimization, and stability fixes
+</en-US>
+
+<en-ZA>
+• Improved till slip and invoice scanning with accurate Rand (ZAR) item extraction
+• Offline OCR queue so you can capture till slips without mobile data
+• Monthly category budgets, spending summaries, and CSV/JSON device backups
+• Added South African & global language support plus R8 performance upgrades
+</en-ZA>
+
+<en-GB>
+• Faster receipt and invoice scanning with improved line-item recognition
+• Offline on-device OCR queue for capturing receipts without signal
+• Monthly category budgets, spending breakdowns, and CSV/JSON backups
+• Performance optimisation and stability improvements
+</en-GB>
+
+<af>
+• Vinniger skandering van inkopiestrokies en fakture met verbeterde item-herkenning
+• Vanlyn OCR-tou vir skandering sonder internetverbinding
+• Maandelikse kategoriebegrotings, bestedingsverslae en CSV/JSON-rugsteun
+• Afrikaanse taalondersteuning en werkverrigtingverbeterings
+</af>
+
+<zu>
+• Ukuskena amarisidi nama-invoyisi okusheshayo nokukhipha izinto ngokunembile
+• Uhlu lwe-OCR olusebenza ngaphandle kwe-inthanethi
+• Izabelomali zenyanga, imibiko yezindleko kanye nesipele se-CSV/JSON
+• Ukusekelwa kolimi lwesiZulu nokuthuthukiswa kokusebenza kohlelo
+</zu>
+
+<es-ES>
+• Escaneo más rápido de tickets y facturas con extracción precisa de artículos
+• Cola OCR sin conexión para escanear recibos sin internet
+• Presupuestos mensuales por categoría y exportación de copias en CSV/JSON
+• Mejoras de rendimiento, estabilidad y soporte multilingüe
+</es-ES>
+
+<es-419>
+• Escaneo mejorado de recibos y facturas con extracción automática de productos
+• Cola OCR sin conexión para capturar recibos sin datos móviles
+• Presupuestos mensuales por categoría y respaldos locales en CSV/JSON
+• Optimización de velocidad y estabilidad general
+</es-419>
+
+<fr-FR>
+• Numérisation plus rapide des tickets et factures avec extraction précise des articles
+• File OCR hors ligne pour scanner vos reçus sans connexion internet
+• Budgets mensuels par catégorie, graphiques et sauvegardes CSV/JSON
+• Optimisation des performances et prise en charge multilingue
+</fr-FR>
+
+<de-DE>
+• Schnelleres Scannen von Kassenbons und Rechnungen mit präziser Positionserkennung
+• Offline-OCR-Warteschlange für das Scannen ohne Internetverbindung
+• Monatliche Budgets pro Kategorie sowie CSV- und JSON-Backups
+• Leistungs- und Stabilitätsverbesserungen
+</de-DE>
+
+<pt-PT>
+• Leitura mais rápida de talões e faturas com extração detalhada de artigos
+• Fila OCR offline para digitalizar recibos sem acesso à internet
+• Orçamentos mensais por categoria e exportação de cópias em CSV/JSON
+• Melhorias de desempenho e estabilidade
+</pt-PT>
+
+<pt-BR>
+• Escaneamento mais rápido de recibos e notas com extração precisa de itens
+• Fila OCR offline para capturar comprovantes sem conexão com a internet
+• Orçamentos mensais por categoria e backups completos em CSV/JSON
+• Otimização de desempenho e melhorias de estabilidade
+</pt-BR>
+
+<nl-NL>
+• Sneller kassabonnen en facturen scannen met verbeterde artikelherkenning
+• Offline OCR-wachtrij voor scannen zonder internetverbinding
+• Maandbudgetten per categorie en CSV/JSON-back-ups op je toestel
+• Prestatie- en stabiliteitsverbeteringen
+</nl-NL>
+
+<it-IT>
+• Scansione più rapida di scontrini e fatture con estrazione precisa degli articoli
+• Coda OCR offline per acquisire ricevute senza connessione internet
+• Budget mensili per categoria ed esportazione backup in CSV/JSON
+• Miglioramenti alle prestazioni e alla stabilità
+</it-IT>
+
+<ar>
+• تسريع مسح الإيصالات والفواتير وتحسين دقة استخراج الأصناف
+• قائمة انتظار OCR للعمل دون اتصال بالإنترنت
+• ميزانيات شهرية حسب الفئة وتقارير إنفاق ونسخ احتياطي بصيغة CSV وJSON
+• دعم اللغات المتعددة وتحسين الأداء والاستقرار
+</ar>
+
+<hi-IN>
+• तेज़ रसीद और बिल स्कैनिंग तथा बेहतर आइटम पहचान
+• बिना इंटरनेट स्कैनिंग के लिए ऑफ़लाइन OCR कतार
+• मासिक श्रेणी बजट, खर्च रिपोर्ट और CSV/JSON बैकअप
+• बहुभाषी समर्थन और बेहतर प्रदर्शन
+</hi-IN>
+
+<zh-CN>
+• 提升购物小票与发票扫描速度，优化商品明细提取准确度
+• 支持无网络环境下的离线本地 OCR 扫描队列
+• 提供每月分类预算、支出图表及 CSV/JSON 本地备份导出
+• 新增多语言支持并优化整体性能与稳定性
+</zh-CN>
+
+<ja-JP>
+• レシート・請求書のスキャン速度と品目抽出の精度を向上
+• 圏外でも使えるオフライン端末内OCRキューに対応
+• カテゴリ別の月間予算管理とCSV/JSONバックアップ機能を搭載
+• 多言語サポートの追加および動作の安定性向上
+</ja-JP>

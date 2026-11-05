@@ -1,0 +1,190 @@
+Language Code (BCP-47),Language Name,Title (Max 30 Chars),Title Chars,Short Description (Max 80 Chars),Short Desc Chars,Full Description (Max 4000 Chars),Full Desc Chars,Release Notes (Max 500 Chars),Release Notes Chars
+en-US,English (United States),ParserPro: Receipt Scanner,26,"Scan receipts offline or online, extract items, and track monthly budgets.",74,"ParserPro turns paper receipts and digital invoices into clean, organized household expense records in seconds.
+
+KEY FEATURES
+• Smart Receipt & Invoice OCR: Snap a photo or import a receipt image to automatically extract store names, dates, totals, taxes, and individual line items.
+• Offline On-Device Queue: No signal in the store? Queue receipts offline or process them with on-device OCR so you never lose a slip.
+• Monthly Spending & Category Budgets: Track groceries, utilities, fuel, dining, healthcare, and household spending with clear monthly limits and visual progress.
+• Line-Item Search & Editing: Search past purchases by store, date, or item description to check price history and edit any entry anytime.
+• Private Local-First Storage: Your financial records stay stored locally on your device. Export full backups to CSV spreadsheets or JSON files whenever you need them.
+
+Built for everyday household budgeting, expense tracking, and stress-free receipt organization—with zero ads and zero tracking SDKs.",1021,"• Faster receipt and invoice scanning with improved line-item extraction
+• Offline on-device OCR queue for scanning without internet access
+• Monthly category budgets, spending charts, and CSV/JSON device backups
+• Added multi-language support, R8 performance optimization, and stability fixes",293
+en-ZA,English (South Africa),ParserPro: Till Slip Scanner,28,"Scan till slips & invoices, extract items in Rands, and track monthly budgets.",78,"ParserPro turns supermarket till slips, municipal bills, and invoices into organized household expense records in seconds.
+
+KEY FEATURES
+• Smart Till Slip & Invoice OCR: Snap a photo of slips from grocery stores, pharmacies, fuel stations, or hardware retailers to extract vendor names, dates, VAT, totals, and line items in ZAR (R) or other currencies.
+• Offline On-Device Queue: Queue till slips without mobile data or use on-device OCR anytime—ideal during travel or load-shedding.
+• Monthly Category Budgets: Set monthly Rand limits for groceries, electricity & utilities, transport, dining, and household essentials.
+• Item Price History & Search: Search every scanned slip by shop, date, or product name to compare prices month to month.
+• Private Local Storage & Backups: Your slips stay on your phone with zero ads or tracking SDKs. Export anytime to CSV or JSON.",871,"• Improved till slip and invoice scanning with accurate Rand (ZAR) item extraction
+• Offline OCR queue so you can capture till slips without mobile data
+• Monthly category budgets, spending summaries, and CSV/JSON device backups
+• Added South African & global language support plus R8 performance upgrades",305
+en-GB,English (United Kingdom),ParserPro: Receipt Scanner,26,"Scan receipts & invoices, extract line items, and manage monthly budgets.",73,"ParserPro turns paper till receipts and digital invoices into tidy, searchable household expense records in seconds.
+
+KEY FEATURES
+• Smart Receipt & Invoice OCR: Photograph or upload any receipt to automatically capture shop names, dates, VAT, totals, and individual line items.
+• Offline On-Device Queue: Capture receipts without mobile signal and process them offline on your device or when back online.
+• Monthly Spending & Category Budgets: Monitor groceries, utilities, transport, dining, and household bills with custom monthly targets.
+• Instant Item Search: Find past purchases by shop, date, or item description in seconds.
+• Private Local Storage: Your records remain on your device with zero adverts or trackers. Export backups to CSV or JSON anytime.",762,"• Faster receipt and invoice scanning with improved line-item recognition
+• Offline on-device OCR queue for capturing receipts without signal
+• Monthly category budgets, spending breakdowns, and CSV/JSON backups
+• Performance optimisation and stability improvements",265
+af,Afrikaans,ParserPro: Kwitansieskandeer,28,"Skandeer strokies en fakture, onttrek items en bestuur maandelikse begrotings.",78,"ParserPro verander inkopiestrokies en fakture binne sekondes in netjiese, georganiseerde huishoudelike uitgawerekords.
+
+HOOFKENMERKE
+• Slim Strokie- en Faktuur-OCR: Neem 'n foto van enige kasregisterstrokie of faktuur om winkelname, datums, BTW, totale en individuele items outomaties te onttrek.
+• Aanlyn en Vanlyn OCR-tou: Geen sein in die winkel nie? Stoor strokies in die vanlyn tou of verwerk teks direk op jou toestel.
+• Maandelikse Begrotings: Stel maandelikse limiete vir kruideniersware, krag en water, brandstof, uiteet en huishoudelike uitgawes in Rand (ZAR) of ander geldeenhede.
+• Soek en Wysig Items: Soek vinnig deur vorige aankope volgens winkel, datum of itemnaam.
+• Privaat op jou Toestel: Alle rekords word plaaslik op jou foon gestoor sonder advertensies of opsporing. Voer rugsteune enige tyd uit na CSV of JSON.",833,"• Vinniger skandering van inkopiestrokies en fakture met verbeterde item-herkenning
+• Vanlyn OCR-tou vir skandering sonder internetverbinding
+• Maandelikse kategoriebegrotings, bestedingsverslae en CSV/JSON-rugsteun
+• Afrikaanse taalondersteuning en werkverrigtingverbeterings",276
+zu,Zulu (isiZulu),ParserPro: Skena Amarisidi,26,"Skena amarisidi nama-invoyisi, khipha izinto futhi ulandelele izindleko.",72,"I-ParserPro iguqula amarisidi aseveki nama-invoyisi abe amarekhodi ezindleko zasendlini ahlelekile ngemizuzwana.
+
+IZICI EZIYINHLOKO
+• Ukuskena Amarisidi Okuhlakaniphile (OCR): Thatha isithombe serisidi noma i-invoyisi ukuze ukhiphe igama lesitolo, usuku, intela, inani eliphelele kanye nezinto ozithengile.
+• Isebenza Ngaphandle Kwe-inthanethi: Gcina amarisidi ohlwini olungaxhunyiwe ku-inthanethi noma uwacubungule khona manjalo efonini yakho.
+• Izabelomali Zenyanga: Lawula izindleko zegrosa, ugesi namanzi, uphethiloli kanye nezidingo zasekhaya ngezigaba zenyanga.
+• Ukusesha Nokuhlela Kalula: Sesha okuthengile ngesitolo, usuku noma igama lento.
+• Ubumfihlo Obuphelele: Amarekhodi akho agcinwa kudivayisi yakho ngaphandle kwezikhangiso. Khipha isipele se-CSV noma se-JSON noma nini.",786,"• Ukuskena amarisidi nama-invoyisi okusheshayo nokukhipha izinto ngokunembile
+• Uhlu lwe-OCR olusebenza ngaphandle kwe-inthanethi
+• Izabelomali zenyanga, imibiko yezindleko kanye nesipele se-CSV/JSON
+• Ukusekelwa kolimi lwesiZulu nokuthuthukiswa kokusebenza kohlelo",265
+es-ES,Spanish (Spain),ParserPro: Escáner de Tickets,29,"Escanea tickets y facturas, extrae artículos y controla tu presupuesto mensual.",79,"ParserPro convierte tus tickets de compra y facturas en registros de gastos domésticos claros y organizados en segundos.
+
+CARACTERÍSTICAS PRINCIPALES
+• OCR Inteligente de Tickets y Facturas: Haz una foto o importa una imagen para extraer automáticamente comercios, fechas, impuestos, totales y líneas de artículos.
+• Cola OCR Sin Conexión: Captura tickets sin cobertura y procésalos en el dispositivo o al recuperar la conexión.
+• Presupuestos Mensuales por Categoría: Controla alimentación, suministros, transporte, restaurantes y hogar con límites mensuales claros.
+• Búsqueda y Edición Detallada: Busca compras anteriores por tienda, fecha o producto.
+• Privacidad Local: Tus datos financieros se guardan en tu dispositivo sin anuncios ni rastreadores. Exporta copias en CSV o JSON cuando quieras.",800,"• Escaneo más rápido de tickets y facturas con extracción precisa de artículos
+• Cola OCR sin conexión para escanear recibos sin internet
+• Presupuestos mensuales por categoría y exportación de copias en CSV/JSON
+• Mejoras de rendimiento, estabilidad y soporte multilingüe",272
+es-419,Spanish (Latin America),ParserPro: Escáner de Recibos,29,"Escanea recibos y facturas, extrae productos y controla tus gastos mensuales.",77,"ParserPro transforma tus recibos de compra y facturas en registros de gastos organizados en segundos.
+
+FUNCIONES PRINCIPALES
+• OCR Inteligente de Recibos: Toma una foto de cualquier recibo o factura para extraer tienda, fecha, impuestos, total y cada artículo comprado.
+• Modo Sin Conexión: Guarda recibos en la cola sin internet o procésalos directamente en tu teléfono.
+• Presupuestos Mensuales: Define límites mensuales para supermercado, servicios, transporte, salud y hogar.
+• Historial de Precios y Búsqueda: Encuentra cualquier gasto por comercio, fecha o descripción de producto.
+• Almacenamiento Local y Privado: Tus recibos permanecen en tu dispositivo sin anuncios ni rastreadores. Exporta respaldos en CSV o JSON en cualquier momento.",746,"• Escaneo mejorado de recibos y facturas con extracción automática de productos
+• Cola OCR sin conexión para capturar recibos sin datos móviles
+• Presupuestos mensuales por categoría y respaldos locales en CSV/JSON
+• Optimización de velocidad y estabilidad general",264
+fr-FR,French (France),ParserPro : Scan de Reçus,25,"Scannez reçus et factures, extrayez les articles et suivez votre budget mensuel.",80,"ParserPro transforme vos tickets de caisse et factures en relevés de dépenses clairs et organisés en quelques secondes.
+
+FONCTIONNALITÉS CLÉS
+• OCR Intelligent de Reçus et Factures : Prenez en photo un ticket pour extraire automatiquement le commerçant, la date, la TVA, le total et chaque article.
+• File d'attente OCR Hors Ligne : Scannez vos reçus même sans réseau grâce au traitement local sur l'appareil.
+• Budgets Mensuels par Catégorie : Suivez vos dépenses d'alimentation, d'énergie, de transport et de maison avec des plafonds personnalisés.
+• Recherche par Article : Retrouvez instantanément vos achats par magasin, date ou produit.
+• Confidentialité Totale : Vos données restent stockées localement sur votre téléphone, sans publicité ni pistage. Exportez vos sauvegardes en CSV ou JSON.",798,"• Numérisation plus rapide des tickets et factures avec extraction précise des articles
+• File OCR hors ligne pour scanner vos reçus sans connexion internet
+• Budgets mensuels par catégorie, graphiques et sauvegardes CSV/JSON
+• Optimisation des performances et prise en charge multilingue",288
+de-DE,German,ParserPro: Belegscanner,23,"Kassenbons & Rechnungen scannen, Posten erfassen und Monatsbudgets verwalten.",77,"ParserPro verwandelt Kassenbons und Rechnungen sekundenschnell in übersichtliche Haushaltsausgaben.
+
+HAUPTFUNKTIONEN
+• Intelligente Beleg- & Rechnungs-OCR: Fotografieren Sie Kassenbons, um Händler, Datum, Steuern, Gesamtsummen und einzelne Positionen automatisch zu erfassen.
+• Offline-OCR-Warteschlange: Scannen Sie Belege auch ohne Internetverbindung direkt auf Ihrem Gerät.
+• Monatliche Kategorie-Budgets: Behalten Sie Lebensmittel, Nebenkosten, Tanken und Haushalt mit klaren Monatslimits im Blick.
+• Artikelsuche & Bearbeitung: Durchsuchen Sie vergangene Einkäufe nach Geschäft, Datum oder Artikel.
+• Lokaler Datenschutz: Alle Daten bleiben lokal auf Ihrem Smartphone – ohne Werbung und ohne Tracking. Jederzeit als CSV oder JSON exportierbar.",748,"• Schnelleres Scannen von Kassenbons und Rechnungen mit präziser Positionserkennung
+• Offline-OCR-Warteschlange für das Scannen ohne Internetverbindung
+• Monatliche Budgets pro Kategorie sowie CSV- und JSON-Backups
+• Leistungs- und Stabilitätsverbesserungen",257
+pt-PT,Portuguese (Portugal),ParserPro: Scanner de Talões,28,"Digitalize talões e faturas, extraia artigos e controle o orçamento mensal.",75,"O ParserPro transforma talões de compra e faturas em registos de despesas organizados em poucos segundos.
+
+FUNCIONALIDADES PRINCIPAIS
+• OCR Inteligente de Talões e Faturas: Fotografe qualquer talão para extrair loja, data, IVA, total e cada artigo automaticamente.
+• Fila OCR Offline: Registe talões sem ligação à internet e processe-os diretamente no telemóvel.
+• Orçamentos Mensais por Categoria: Acompanhe supermercado, serviços, combustível e despesas domésticas.
+• Pesquisa Rápida de Artigos: Encontre compras anteriores por comerciante, data ou descrição.
+• Privacidade Local: Os seus dados ficam guardados no dispositivo, sem anúncios nem rastreio. Exporte cópias em CSV ou JSON.",686,"• Leitura mais rápida de talões e faturas com extração detalhada de artigos
+• Fila OCR offline para digitalizar recibos sem acesso à internet
+• Orçamentos mensais por categoria e exportação de cópias em CSV/JSON
+• Melhorias de desempenho e estabilidade",252
+pt-BR,Portuguese (Brazil),ParserPro: Scanner de Recibos,29,"Escaneie recibos e notas, extraia itens e controle seu orçamento mensal.",72,"O ParserPro transforma cupons fiscais, recibos e faturas em registros de despesas domésticas organizados em segundos.
+
+PRINCIPAIS RECURSOS
+• OCR Inteligente de Recibos: Tire uma foto do comprovante para extrair automaticamente estabelecimento, data, impostos, valor total e itens comprados.
+• Fila OCR Offline: Sem internet na loja? Salve recibos na fila offline ou processe direto no aparelho.
+• Orçamento Mensal por Categoria: Defina metas para mercado, contas, combustível, saúde e lazer.
+• Busca por Produto: Pesquise compras passadas por loja, data ou nome do item.
+• Privacidade no Aparelho: Seus dados ficam salvos localmente no celular, sem anúncios ou rastreadores. Exporte backups em CSV ou JSON quando quiser.",720,"• Escaneamento mais rápido de recibos e notas com extração precisa de itens
+• Fila OCR offline para capturar comprovantes sem conexão com a internet
+• Orçamentos mensais por categoria e backups completos em CSV/JSON
+• Otimização de desempenho e melhorias de estabilidade",270
+nl-NL,Dutch,ParserPro: Bonnenscanner,24,"Scan kassabonnen en facturen, herken artikelen en beheer je maandbudget.",72,"ParserPro zet papieren kassabonnen en digitale facturen binnen enkele seconden om in overzichtelijke uitgavenoverzichten.
+
+BELANGRIJKSTE FUNCTIES
+• Slimme Bon- & Factuur-OCR: Maak een foto van je bon om winkelnaam, datum, btw, totaalbedrag en losse artikelen automatisch uit te lezen.
+• Offline OCR-wachtrij: Geen bereik in de winkel? Scan bonnen offline en verwerk ze direct op je toestel.
+• Maandbudgetten per Categorie: Stel limieten in voor boodschappen, energie, vervoer en huishouden.
+• Snel Zoeken & Bewerken: Doorzoek eerdere aankopen op winkel, datum of productnaam.
+• Lokale Privacy: Al je gegevens blijven lokaal op je telefoon staan, zonder advertenties of trackers. Exporteer back-ups naar CSV of JSON.",715,"• Sneller kassabonnen en facturen scannen met verbeterde artikelherkenning
+• Offline OCR-wachtrij voor scannen zonder internetverbinding
+• Maandbudgetten per categorie en CSV/JSON-back-ups op je toestel
+• Prestatie- en stabiliteitsverbeteringen",244
+it-IT,Italian,ParserPro: Scanner Scontrini,28,"Scansiona scontrini e fatture, estrai gli articoli e gestisci il budget mensile.",80,"ParserPro trasforma scontrini cartacei e fatture in registri di spesa domestica ordinati in pochi secondi.
+
+CARATTERISTICHE PRINCIPALI
+• OCR Intelligente per Scontrini e Fatture: Scatta una foto per estrarre automaticamente negozio, data, IVA, totale e singoli articoli.
+• Coda OCR Offline: Acquisisci gli scontrini anche senza connessione internet grazie all'elaborazione sul dispositivo.
+• Budget Mensili per Categoria: Tieni sotto controllo spesa alimentare, bollette, carburante e casa.
+• Ricerca Rapida Articoli: Cerca gli acquisti passati per negozio, data o descrizione prodotto.
+• Privacy Locale: I tuoi dati restano salvati sul telefono senza pubblicità né tracciamento. Esporta backup in CSV o JSON in qualsiasi momento.",730,"• Scansione più rapida di scontrini e fatture con estrazione precisa degli articoli
+• Coda OCR offline per acquisire ricevute senza connessione internet
+• Budget mensili per categoria ed esportazione backup in CSV/JSON
+• Miglioramenti alle prestazioni e alla stabilità",268
+ar,Arabic,ParserPro: ماسح الإيصالات,25,امسح الإيصالات والفواتير ضوئياً واستخرج المشتريات وتابع ميزانيتك الشهرية.,73,"يحوّل تطبيق ParserPro إيصالات الشراء والفواتير الورقية إلى سجلات مصروفات منزلية منظمة خلال ثوانٍ.
+
+المميزات الرئيسية
+• مسح ذكي للإيصالات والفواتير (OCR): التقط صورة لأي إيصال لاستخراج اسم المتجر والتاريخ والضريبة والإجمالي وقائمة الأصناف تلقائياً.
+• العمل دون إنترنت: احفظ الإيصالات في قائمة الانتظار دون اتصال أو عالجها مباشرة على جهازك.
+• ميزانيات شهرية حسب الفئة: راقب نفقات البقالة والفواتير والوقود والمنزل بحدود شهرية واضحة.
+• بحث وتعديل سريع: ابحث في مشترياتك السابقة حسب المتجر أو التاريخ أو اسم المنتج.
+• خصوصية تامة على جهازك: تُحفظ جميع بياناتك محلياً على هاتفك بدون إعلانات أو أدوات تتبع، مع إمكانية التصدير إلى CSV أو JSON.",636,"• تسريع مسح الإيصالات والفواتير وتحسين دقة استخراج الأصناف
+• قائمة انتظار OCR للعمل دون اتصال بالإنترنت
+• ميزانيات شهرية حسب الفئة وتقارير إنفاق ونسخ احتياطي بصيغة CSV وJSON
+• دعم اللغات المتعددة وتحسين الأداء والاستقرار",220
+hi-IN,Hindi,ParserPro: रसीद स्कैनर,22,"रसीदें और बिल स्कैन करें, आइटम निकालें और अपने मासिक बजट को ट्रैक करें।",71,"ParserPro कुछ ही सेकंड में कागज़ी रसीदों और बिलों को व्यवस्थित घरेलू खर्च रिकॉर्ड में बदल देता है।
+
+मुख्य विशेषताएँ
+• स्मार्ट रसीद और इनवॉइस OCR: दुकान का नाम, तारीख, टैक्स, कुल राशि और हर आइटम अपने-आप निकालने के लिए रसीद की फ़ोटो लें।
+• ऑफ़लाइन OCR कतार: इंटरनेट न होने पर भी रसीदें सेव करें और सीधे अपने फ़ोन पर प्रोसेस करें।
+• मासिक श्रेणी बजट: राशन, बिजली-पानी, ईंधन और घरेलू खर्चों के लिए मासिक बजट सीमा तय करें।
+• आइटम खोज और संपादन: दुकान, तारीख या सामान के नाम से पुराने खर्च तुरंत खोजें।
+• पूरी गोपनीयता: आपका डेटा बिना किसी विज्ञापन या ट्रैकिंग के आपके फ़ोन पर सुरक्षित रहता है। कभी भी CSV या JSON में बैकअप लें।",622,"• तेज़ रसीद और बिल स्कैनिंग तथा बेहतर आइटम पहचान
+• बिना इंटरनेट स्कैनिंग के लिए ऑफ़लाइन OCR कतार
+• मासिक श्रेणी बजट, खर्च रिपोर्ट और CSV/JSON बैकअप
+• बहुभाषी समर्थन और बेहतर प्रदर्शन",182
+zh-CN,Chinese (Simplified),ParserPro：小票与发票扫描,17,离线或在线扫描购物小票与发票，自动提取明细并管理每月分类预算。,31,"ParserPro 可在几秒钟内将纸质购物小票和电子发票转化为清晰有序的家庭支出记录。
+
+核心功能
+• 智能小票与发票 OCR：拍照或导入图片，即可自动识别商户名称、日期、税额、总金额及每项商品明细。
+• 离线本地识别队列：没有网络也能随时拍摄保存小票，并通过设备本地 OCR 完成识别。
+• 每月分类预算管理：为超市购物、水电煤气、交通燃油、餐饮和日常家用设置月度预算上限。
+• 商品明细搜索与编辑：按商店、日期或商品名称快速查找历史价格与消费记录。
+• 本地隐私存储：所有账单数据均保存在您的手机本地，无广告、无追踪 SDK，支持随时导出 CSV 表格或 JSON 备份。",288,"• 提升购物小票与发票扫描速度，优化商品明细提取准确度
+• 支持无网络环境下的离线本地 OCR 扫描队列
+• 提供每月分类预算、支出图表及 CSV/JSON 本地备份导出
+• 新增多语言支持并优化整体性能与稳定性",106
+ja-JP,Japanese,ParserPro: レシートスキャナー,20,レシートや請求書をOCR読取。品目を自動抽出し毎月の家計予算をかんたん管理。,38,"ParserProは、紙のレシートや請求書を数秒で整理された家計簿データに変換するスマート支出管理アプリです。
+
+主な機能
+• 高精度レシート・請求書OCR：レシートを撮影するだけで、店舗名・日付・税金・合計金額・購入品目を自動抽出します。
+• オフラインOCRキュー：電波のない場所でもレシートを保存し、端末内OCRでいつでも処理できます。
+• カテゴリ別の月間予算管理：食料品、光熱費、交通費、日用品などの月間予算を設定し、支出状況をひと目で把握。
+• 品目検索・編集：店名や日付、商品名から過去の購入履歴や価格をすばやく検索。
+• 安心の端末内保存：データはスマートフォン内に保存され、広告やトラッキングSDKは一切ありません。CSVやJSON形式でいつでもバックアップ可能です。",343,"• レシート・請求書のスキャン速度と品目抽出の精度を向上
+• 圏外でも使えるオフライン端末内OCRキューに対応
+• カテゴリ別の月間予算管理とCSV/JSONバックアップ機能を搭載
+• 多言語サポートの追加および動作の安定性向上",114

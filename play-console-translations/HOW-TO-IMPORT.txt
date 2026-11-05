@@ -1,0 +1,23 @@
+ParserPro (com.receiptscannerpro.app) — Google Play Console Translations Package
+================================================================================
+
+Included Locales (17 Official Google Play Console BCP-47 Codes):
+en-US, en-ZA, en-GB, af, zu, es-ES, es-419, fr-FR, de-DE, pt-PT, pt-BR, nl-NL, it-IT, ar, hi-IN, zh-CN, ja-JP
+
+HOW TO IMPORT INTO GOOGLE PLAY CONSOLE:
+
+1. App UI Strings (Play Console -> Grow -> Translations -> App strings):
+   - Upload 'play-console-app-strings.zip' (contains res/values-<locale>/strings.xml).
+   - Note: These 17 locales are ALSO compiled directly into your next .aab bundle!
+
+2. Release Notes Bulk Import (Play Console -> Testing/Production -> Create/Edit release -> Release notes):
+   - Open 'play-console-release-notes.txt', copy the <lang>...</lang> blocks, and paste directly
+     into the Release notes box. Play Console automatically splits every language tag.
+   - Make sure any language tags you paste are added under Store Listing -> Manage translations first.
+
+3. Main Store Listing Translations (Play Console -> Grow -> Store presence -> Main store listing):
+   - Click 'Manage translations' -> 'Add translations' and select the languages you want.
+   - Use 'play-console-store-listings.csv', 'play-console-store-listings-xliff.zip' (XLIFF 1.2),
+     or 'play-console-fastlane-metadata.zip' (Fastlane supply / Gradle Play Publisher API),
+     or copy Title (<=30 chars), Short Description (<=80 chars), and Full Description (<=4000 chars)
+     with 1 tap inside ParserPro -> Settings -> Play Console Translations.
