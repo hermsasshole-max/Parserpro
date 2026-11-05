@@ -12,12 +12,24 @@
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
   }
+
+  /* Eliminate default mobile tap gray flash on interactive elements */
+  button,
+  [role="button"],
+  a,
+  input,
+  select,
+  textarea {
+    -webkit-tap-highlight-color: transparent;
+  }
 }
 
+/* Numeric alignment utility for invoices, ledgers, and prices */
 .tabular-nums {
   font-variant-numeric: tabular-nums;
 }
 
+/* Safe Area Inset utilities for notched devices, status bars, and home indicators */
 .pt-safe {
   padding-top: max(0px, env(safe-area-inset-top, 0px), var(--safe-area-inset-top, 0px));
 }
@@ -34,6 +46,56 @@
   );
 }
 
+/* Mobile Native & Touch Experience Utilities:
+   Disables native callout magnifying glass, text selection, and tap highlights */
+.touch-callout-none,
+.no-touch-callout {
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.select-none-interactive {
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+
+.tap-highlight-none {
+  -webkit-tap-highlight-color: transparent;
+}
+
+.touch-manipulation {
+  touch-action: manipulation;
+}
+
+/* Dynamic Viewport (100dvh) Utilities:
+   Standardizes full-height modal overlays and bottom sheets without mobile URL bar clipping */
+.h-dvh {
+  height: 100vh;
+  height: 100dvh;
+}
+
+.min-h-dvh {
+  min-height: 100vh;
+  min-height: 100dvh;
+}
+
+.max-h-dvh {
+  max-height: 100vh;
+  max-height: 100dvh;
+}
+
+.modal-viewport-height {
+  height: 100vh;
+  height: 100dvh;
+  max-height: 100vh;
+  max-height: 100dvh;
+}
+
+/* Print Style Engine Precision:
+   Guarantees exact vector PDF rendering without text clipping or awkward breaks across pages */
 @media print {
   @page {
     size: A4 portrait;
@@ -110,9 +172,16 @@
     visibility: visible !important;
   }
 
-  .print-page-break {
+  /* Explicit page-break prevention for invoice cards, line items, and media */
+  .print-page-break,
+  .print-avoid-break,
+  .invoice-card,
+  .receipt-card,
+  figure,
+  img {
     page-break-inside: avoid !important;
     break-inside: avoid !important;
+    -webkit-column-break-inside: avoid !important;
   }
 
   /* Expand full report container on print */
@@ -130,13 +199,22 @@
     overflow: visible !important;
   }
 
+  /* Invoice tables: prevent row slicing across page boundaries */
   table {
-    page-break-inside: auto;
+    page-break-inside: auto !important;
+    break-inside: auto !important;
     width: 100% !important;
     border-collapse: collapse !important;
   }
 
   tr {
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+    -webkit-column-break-inside: avoid !important;
+  }
+
+  td,
+  th {
     page-break-inside: avoid !important;
     break-inside: avoid !important;
   }
@@ -148,6 +226,24 @@
   tfoot {
     display: table-footer-group !important;
   }
+
+  /* Orphan and widow line control */
+  p,
+  li {
+    orphans: 3;
+    widows: 3;
+  }
+
+  /* Avoid orphan section headers */
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6 {
+    page-break-after: avoid !important;
+    break-after: avoid !important;
+  }
 }
 
 @media screen {
@@ -156,20 +252,27 @@
   }
 }
 
+/* GPU-Accelerated Laser Scan Animation:
+   Animates transform: translateY(...) and promotes to dedicated GPU compositor layer,
+   preventing mobile CPU reflows and layout recalculations during receipt scanning */
 @keyframes scanLaser {
   0% {
-    top: 2%;
-    opacity: 0.9;
+    transform: translateY(var(--scan-start, 0%));
+    opacity: 0.85;
   }
   50% {
     opacity: 1;
   }
   100% {
-    top: 96%;
-    opacity: 0.9;
+    transform: translateY(var(--scan-end, calc(100% - 2px)));
+    opacity: 0.85;
   }
 }
 
 .animate-scan-laser {
+  will-change: transform, opacity;
+  transform: translateZ(0);
+  -webkit-backface-visibility: hidden;
+  backface-visibility: hidden;
   animation: scanLaser 2s ease-in-out infinite alternate;
 }
