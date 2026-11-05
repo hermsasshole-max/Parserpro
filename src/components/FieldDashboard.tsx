@@ -1,62 +1,67 @@
 import React from 'react';
 import {
   Camera,
-  FileText,
-  CreditCard,
   Receipt,
-  Sparkles,
+  Plus,
   ArrowRight,
   TrendingUp,
-  AlertCircle,
-  Users,
-  Package,
+  PieChart,
+  ShieldCheck,
+  Settings2,
 } from 'lucide-react';
 import { useAppContext } from '../context/AppContext';
-import { formatMoney } from '../utils/currencyFormat';
+import { formatMoney, formatCategoryLabel } from '../utils/currencyFormat';
 import type { NavTab } from './Navigation';
 
 interface FieldDashboardProps {
   onNavigate: (tab: NavTab) => void;
   onOpenReceiptScanModal: () => void;
-  onOpenVoiceQuoteModal: () => void;
   onOpenAddManual: () => void;
+  onOpenBudgetModal: () => void;
 }
 
 export const FieldDashboard: React.FC<FieldDashboardProps> = ({
   onNavigate,
   onOpenReceiptScanModal,
-  onOpenVoiceQuoteModal,
   onOpenAddManual,
+  onOpenBudgetModal,
 }) => {
-  const { receipts, quotes, invoices, clients, inventory, currencyCode, tier } = useAppContext();
+  const { receipts, categoryBudgets, currencyCode, tier } = useAppContext();
 
-  const totalMonthlySpend = receipts.reduce((sum, r) => sum + (Number(r.total_amount) || 0), 0);
-  const totalUnpaidInvoices = invoices
-    .filter((inv) => inv.status === 'pending' || inv.status === 'overdue')
-    .reduce((sum, inv) => sum + (inv.totalAmount - inv.amountPaid), 0);
-  const lowStockCount = inventory.filter((i) => i.quantity <= i.minQuantity).length;
+  const currentMonth = new Date().toISOString().substring(0, 7);
+  const monthReceipts = receipts.filter((r) => r.month_year === currentMonth);
+  const totalMonthlySpend = monthReceipts.reduce((sum, r) => sum + (Number(r.total_amount) || 0), 0);
+  const totalItemCount = monthReceipts.reduce((sum, r) => sum + (r.line_items?.length || 0), 0);
+
+  const categoryTotals: Record<string, number> = {};
+  monthReceipts.forEach((r) => {
+    const cat = r.category || 'Other';
+    categoryTotals[cat] = (categoryTotals[cat] || 0) + (Number(r.total_amount) || 0);
+  });
 
   return (
     <div className="space-y-6 max-w-6xl mx-auto">
-      {/* Hero Field Quick Action Strip */}
-      <section className="p-5 sm:p-6 rounded-3xl bg-emerald-600 text-white shadow-md space-y-4">
+      {/* Hero Household Quick Action Strip */}
+      <section className="p-6 sm:p-8 rounded-3xl bg-emerald-600 text-white shadow-lg space-y-5">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div>
             <span className="text-xs font-semibold tracking-wider uppercase text-emerald-100">
-              Contractor Field Command
+              Household Expense &amp; Budget Command
             </span>
-            <h1 className="text-2xl font-bold tracking-tight">On-Site Rapid Actions</h1>
+            <h1 className="text-2xl sm:text-3xl font-bold tracking-tight mt-0.5">
+              Smart Receipt OCR &amp; Family Ledger
+            </h1>
           </div>
           <span className="text-xs font-mono bg-emerald-700/80 px-3 py-1.5 rounded-xl w-fit">
             Plan: {tier.toUpperCase()}
           </span>
         </div>
 
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 sm:gap-3 pt-1">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-1">
           <button
             type="button"
             onClick={onOpenReceiptScanModal}
-            className="p-3.5 rounded-2xl bg-white/10 hover:bg-white/20 active:scale-95 transition-all flex flex-col items-center justify-center text-center gap-1.5 border border-white/20 cursor-pointer"
+            className="p-4 rounded-2xl bg-white/10 hover:bg-white/20 active:scale-95 transition-all flex flex-col items-center justify-center text-center gap-2 border border-white/20 cursor-pointer"
           >
             <Camera className="w-6 h-6 text-emerald-200" />
             <span className="text-xs font-bold leading-tight">Snap Slip / OCR</span>
@@ -64,29 +69,29 @@ export const FieldDashboard: React.FC<FieldDashboardProps> = ({
 
           <button
             type="button"
-            onClick={onOpenVoiceQuoteModal}
-            className="p-3.5 rounded-2xl bg-white/10 hover:bg-white/20 active:scale-95 transition-all flex flex-col items-center justify-center text-center gap-1.5 border border-white/20 cursor-pointer"
-          >
-            <Sparkles className="w-6 h-6 text-amber-300" />
-            <span className="text-xs font-bold leading-tight">Voice Quote</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => onNavigate('invoices')}
-            className="p-3.5 rounded-2xl bg-white/10 hover:bg-white/20 active:scale-95 transition-all flex flex-col items-center justify-center text-center gap-1.5 border border-white/20 cursor-pointer"
-          >
-            <CreditCard className="w-6 h-6 text-emerald-200" />
-            <span className="text-xs font-bold leading-tight">New Invoice</span>
-          </button>
-
-          <button
-            type="button"
             onClick={onOpenAddManual}
-            className="p-3.5 rounded-2xl bg-white/10 hover:bg-white/20 active:scale-95 transition-all flex flex-col items-center justify-center text-center gap-1.5 border border-white/20 cursor-pointer"
+            className="p-4 rounded-2xl bg-white/10 hover:bg-white/20 active:scale-95 transition-all flex flex-col items-center justify-center text-center gap-2 border border-white/20 cursor-pointer"
           >
             <Receipt className="w-6 h-6 text-emerald-200" />
             <span className="text-xs font-bold leading-tight">Manual Expense</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={onOpenBudgetModal}
+            className="p-4 rounded-2xl bg-white/10 hover:bg-white/20 active:scale-95 transition-all flex flex-col items-center justify-center text-center gap-2 border border-white/20 cursor-pointer"
+          >
+            <Settings2 className="w-6 h-6 text-emerald-200" />
+            <span className="text-xs font-bold leading-tight">Set Budgets</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => onNavigate('reports')}
+            className="p-4 rounded-2xl bg-white/10 hover:bg-white/20 active:scale-95 transition-all flex flex-col items-center justify-center text-center gap-2 border border-white/20 cursor-pointer"
+          >
+            <PieChart className="w-6 h-6 text-emerald-200" />
+            <span className="text-xs font-bold leading-tight">Analytics</span>
           </button>
         </div>
       </section>
@@ -98,68 +103,65 @@ export const FieldDashboard: React.FC<FieldDashboardProps> = ({
           className="p-4 sm:p-5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800 space-y-1 cursor-pointer hover:border-emerald-500/50 transition-all shadow-xs"
         >
           <div className="flex items-center justify-between">
-            <span className="text-xs font-medium text-slate-500">Expenses Logged</span>
+            <span className="text-xs font-medium text-slate-500">This Month Spend</span>
             <Receipt className="w-4 h-4 text-emerald-600" />
           </div>
           <p className="text-xl font-bold font-mono text-slate-900 dark:text-white tabular-nums">
             {formatMoney(totalMonthlySpend, currencyCode)}
           </p>
-          <p className="text-xs text-slate-500 tabular-nums">{receipts.length} total slips</p>
+          <p className="text-xs text-slate-500 tabular-nums">{monthReceipts.length} slips this month</p>
         </div>
 
         <div
-          onClick={() => onNavigate('invoices')}
+          onClick={onOpenBudgetModal}
           className="p-4 sm:p-5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800 space-y-1 cursor-pointer hover:border-emerald-500/50 transition-all shadow-xs"
         >
           <div className="flex items-center justify-between">
-            <span className="text-xs font-medium text-slate-500">Unpaid Invoices</span>
-            <CreditCard className="w-4 h-4 text-amber-600" />
-          </div>
-          <p className="text-xl font-bold font-mono text-amber-600 dark:text-amber-400 tabular-nums">
-            {formatMoney(totalUnpaidInvoices, currencyCode)}
-          </p>
-          <p className="text-xs text-slate-500">
-            {invoices.filter((i) => i.status === 'pending' || i.status === 'overdue').length} pending
-          </p>
-        </div>
-
-        <div
-          onClick={() => onNavigate('quotes')}
-          className="p-4 sm:p-5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800 space-y-1 cursor-pointer hover:border-emerald-500/50 transition-all shadow-xs"
-        >
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-medium text-slate-500">Active Quotes</span>
-            <FileText className="w-4 h-4 text-blue-600" />
+            <span className="text-xs font-medium text-slate-500">Total Budget Limits</span>
+            <TrendingUp className="w-4 h-4 text-emerald-600" />
           </div>
           <p className="text-xl font-bold font-mono text-slate-900 dark:text-white tabular-nums">
-            {quotes.length} Quotes
+            {formatMoney(
+              Object.values(categoryBudgets).reduce((a, b) => a + (Number(b) || 0), 0),
+              currencyCode
+            )}
           </p>
-          <p className="text-xs text-slate-500">
-            {quotes.filter((q) => q.status === 'accepted').length} accepted
-          </p>
+          <p className="text-xs text-emerald-600 dark:text-emerald-400">Tap to edit budgets</p>
         </div>
 
         <div
-          onClick={() => onNavigate('inventory')}
+          onClick={() => onNavigate('expenses')}
           className="p-4 sm:p-5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800 space-y-1 cursor-pointer hover:border-emerald-500/50 transition-all shadow-xs"
         >
           <div className="flex items-center justify-between">
-            <span className="text-xs font-medium text-slate-500">Van &amp; Materials</span>
-            <Package className="w-4 h-4 text-slate-500" />
+            <span className="text-xs font-medium text-slate-500">All Saved Slips</span>
+            <ShieldCheck className="w-4 h-4 text-emerald-600" />
           </div>
           <p className="text-xl font-bold font-mono text-slate-900 dark:text-white tabular-nums">
-            {inventory.length} SKUs
+            {receipts.length} Receipts
           </p>
-          <p className="text-xs text-amber-600 dark:text-amber-400">
-            {lowStockCount > 0 ? `${lowStockCount} low stock` : 'Stock normal'}
+          <p className="text-xs text-slate-500">Duplicate blocker active</p>
+        </div>
+
+        <div
+          onClick={() => onNavigate('reports')}
+          className="p-4 sm:p-5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800 space-y-1 cursor-pointer hover:border-emerald-500/50 transition-all shadow-xs"
+        >
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-medium text-slate-500">Items Itemized</span>
+            <PieChart className="w-4 h-4 text-emerald-600" />
+          </div>
+          <p className="text-xl font-bold font-mono text-slate-900 dark:text-white tabular-nums">
+            {totalItemCount} Items
           </p>
+          <p className="text-xs text-slate-500">Extracted by AI OCR</p>
         </div>
       </section>
 
-      {/* Two Column Layout for Quick Logs */}
+      {/* Two Column Layout for Recent Receipts & Category Spending */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-        {/* Recent Receipts / Slips */}
-        <div className="rounded-3xl bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800 p-5 space-y-3">
+        {/* Recent Scanned Receipts */}
+        <div className="rounded-3xl bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800 p-5 sm:p-6 space-y-4">
           <div className="flex items-center justify-between">
             <h2 className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
               <Receipt className="w-4 h-4 text-emerald-600" />
@@ -168,24 +170,24 @@ export const FieldDashboard: React.FC<FieldDashboardProps> = ({
             <button
               type="button"
               onClick={() => onNavigate('expenses')}
-              className="text-xs font-semibold text-emerald-600 dark:text-emerald-400 hover:underline flex items-center gap-1"
+              className="text-xs font-semibold text-emerald-600 dark:text-emerald-400 hover:underline flex items-center gap-1 cursor-pointer"
             >
-              <span>View All</span>
+              <span>View Ledger</span>
               <ArrowRight className="w-3.5 h-3.5" />
             </button>
           </div>
 
           <div className="divide-y divide-slate-100 dark:divide-slate-800">
-            {receipts.slice(0, 4).map((rcpt) => (
+            {receipts.slice(0, 5).map((rcpt) => (
               <div
                 key={rcpt.id}
                 onClick={() => onNavigate('expenses')}
-                className="py-2.5 flex items-center justify-between gap-3 text-xs cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/40 rounded-xl px-2 transition-colors"
+                className="py-3 flex items-center justify-between gap-3 text-xs cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/40 rounded-xl px-2 transition-colors"
               >
                 <div className="min-w-0">
                   <p className="font-bold text-slate-900 dark:text-white truncate">{rcpt.vendor_name}</p>
                   <p className="text-slate-500 truncate mt-0.5">
-                    {rcpt.invoice_date} · {rcpt.category} · {rcpt.line_items?.length || 0} items
+                    {rcpt.invoice_date} · {formatCategoryLabel(rcpt.category)} · {rcpt.line_items?.length || 0} items
                   </p>
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
@@ -198,7 +200,7 @@ export const FieldDashboard: React.FC<FieldDashboardProps> = ({
                       e.stopPropagation();
                       onNavigate('expenses');
                     }}
-                    className="min-h-[36px] px-2 py-1 rounded-lg text-xs font-semibold text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 cursor-pointer"
+                    className="min-h-[36px] px-2.5 py-1 rounded-lg text-xs font-semibold text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 cursor-pointer"
                   >
                     Open
                   </button>
@@ -206,44 +208,74 @@ export const FieldDashboard: React.FC<FieldDashboardProps> = ({
               </div>
             ))}
             {receipts.length === 0 && (
-              <p className="py-4 text-xs text-slate-500 text-center">No receipts scanned yet.</p>
+              <div className="py-8 text-center space-y-2">
+                <p className="text-xs text-slate-500">No household receipts scanned yet.</p>
+                <button
+                  type="button"
+                  onClick={onOpenReceiptScanModal}
+                  className="px-4 py-2 rounded-xl bg-emerald-600 text-white text-xs font-semibold"
+                >
+                  Scan First Receipt
+                </button>
+              </div>
             )}
           </div>
         </div>
 
-        {/* Recent Quotes & Invoices */}
-        <div className="rounded-3xl bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800 p-5 space-y-3">
+        {/* Category Spending Breakdown */}
+        <div className="rounded-3xl bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800 p-5 sm:p-6 space-y-4">
           <div className="flex items-center justify-between">
             <h2 className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
-              <FileText className="w-4 h-4 text-emerald-600" />
-              <span>Active Quotes &amp; Billings</span>
+              <PieChart className="w-4 h-4 text-emerald-600" />
+              <span>Monthly Category Spend</span>
             </h2>
             <button
               type="button"
-              onClick={() => onNavigate('quotes')}
-              className="text-xs font-semibold text-emerald-600 dark:text-emerald-400 hover:underline flex items-center gap-1"
+              onClick={() => onNavigate('reports')}
+              className="text-xs font-semibold text-emerald-600 dark:text-emerald-400 hover:underline flex items-center gap-1 cursor-pointer"
             >
-              <span>Manage Quotes</span>
+              <span>Full Analytics</span>
               <ArrowRight className="w-3.5 h-3.5" />
             </button>
           </div>
 
-          <div className="divide-y divide-slate-100 dark:divide-slate-800">
-            {quotes.slice(0, 4).map((q) => (
-              <div key={q.id} className="py-2.5 flex items-center justify-between gap-3 text-xs">
-                <div>
-                  <p className="font-bold text-slate-900 dark:text-white">{q.projectTitle}</p>
-                  <p className="text-slate-500">
-                    {q.clientName} · {q.quoteNumber} · <span className="capitalize">{q.status}</span>
-                  </p>
-                </div>
-                <span className="font-mono font-bold text-emerald-600 dark:text-emerald-400 tabular-nums">
-                  {formatMoney(q.totalAmount, currencyCode)}
-                </span>
-              </div>
-            ))}
-            {quotes.length === 0 && (
-              <p className="py-4 text-xs text-slate-500 text-center">No quotes created yet.</p>
+          <div className="space-y-3 pt-1">
+            {Object.keys(categoryTotals).length === 0 ? (
+              <p className="py-8 text-xs text-slate-500 text-center">
+                No category expenses logged for this month yet.
+              </p>
+            ) : (
+              Object.entries(categoryTotals).map(([cat, amount]) => {
+                const limit = categoryBudgets[cat as any] || 0;
+                const pct = limit > 0 ? Math.min(100, Math.round((amount / limit) * 100)) : 0;
+                return (
+                  <div key={cat} className="space-y-1.5 text-xs">
+                    <div className="flex items-center justify-between">
+                      <span className="font-semibold text-slate-800 dark:text-slate-200">
+                        {formatCategoryLabel(cat as any)}
+                      </span>
+                      <span className="font-mono tabular-nums font-bold text-slate-900 dark:text-white">
+                        {formatMoney(amount, currencyCode)}
+                        {limit > 0 && (
+                          <span className="text-slate-400 font-normal ml-1">
+                            / {formatMoney(limit, currencyCode)}
+                          </span>
+                        )}
+                      </span>
+                    </div>
+                    {limit > 0 && (
+                      <div className="w-full h-2 rounded-full bg-slate-100 dark:bg-slate-800 overflow-hidden">
+                        <div
+                          className={`h-full rounded-full transition-all ${
+                            pct > 90 ? 'bg-rose-500' : pct > 75 ? 'bg-amber-500' : 'bg-emerald-600'
+                          }`}
+                          style={{ width: `${pct}%` }}
+                        />
+                      </div>
+                    )}
+                  </div>
+                );
+              })
             )}
           </div>
         </div>

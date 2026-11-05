@@ -20,7 +20,6 @@ import { AndroidBackupModal } from './components/AndroidBackupModal';
 import { OfflineOcrQueueModal } from './components/OfflineOcrQueueModal';
 import { PaywallModal } from './components/PaywallModal';
 import { ReceiptScannerModal } from './components/ReceiptScannerModal';
-import { VoiceQuoteModal } from './components/VoiceQuoteModal';
 
 // Utilities
 import { subscribeToQueue } from './utils/offlineOcrQueue';
@@ -32,12 +31,8 @@ import { getDisplayVersionInfo } from './constants/appVersion';
 // ---------------------------------------------------------------------------
 // 1. Production Code Splitting via React.lazy for Secondary View Modules
 // ---------------------------------------------------------------------------
-const QuotationEngine = React.lazy(() => import('./components/QuotationEngine'));
-const InvoicingPipeline = React.lazy(() => import('./components/InvoicingPipeline'));
 const ExpenseManager = React.lazy(() => import('./components/ExpenseManager'));
 const FinancialAnalysis = React.lazy(() => import('./components/FinancialAnalysis'));
-const ClientsDirectory = React.lazy(() => import('./components/ClientsDirectory'));
-const InventoryManager = React.lazy(() => import('./components/InventoryManager'));
 const SettingsManager = React.lazy(() => import('./components/SettingsManager'));
 const SqlSchemaViewer = React.lazy(() => import('./components/SqlSchemaViewer'));
 
@@ -77,7 +72,6 @@ function AppContent() {
 
   // Modals
   const [isReceiptScannerModalOpen, setIsReceiptScannerModalOpen] = useState(false);
-  const [isVoiceQuoteModalOpen, setIsVoiceQuoteModalOpen] = useState(false);
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [editingReceipt, setEditingReceipt] = useState<SavedReceipt | null>(null);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
@@ -102,10 +96,6 @@ function AppContent() {
           // Priority 1: Gracefully close any active top-level modal
           if (isReceiptScannerModalOpen) {
             setIsReceiptScannerModalOpen(false);
-            return;
-          }
-          if (isVoiceQuoteModalOpen) {
-            setIsVoiceQuoteModalOpen(false);
             return;
           }
           if (isAddModalOpen) {
@@ -164,7 +154,6 @@ function AppContent() {
     };
   }, [
     isReceiptScannerModalOpen,
-    isVoiceQuoteModalOpen,
     isAddModalOpen,
     editingReceipt,
     isSearchOpen,
@@ -256,7 +245,6 @@ function AppContent() {
         tier={subscriptionState.tier}
         onOpenUpgrade={openUpgradeModal}
         onOpenAddManual={() => setIsAddModalOpen(true)}
-        onOpenVoiceQuote={() => setIsVoiceQuoteModalOpen(true)}
       />
 
       {/* Main Dynamic Viewport */}
@@ -266,19 +254,10 @@ function AppContent() {
             <FieldDashboard
               onNavigate={setActiveTab}
               onOpenReceiptScanModal={() => setIsReceiptScannerModalOpen(true)}
-              onOpenVoiceQuoteModal={() => setIsVoiceQuoteModalOpen(true)}
               onOpenAddManual={() => setIsAddModalOpen(true)}
+              onOpenBudgetModal={() => setIsBudgetModalOpen(true)}
             />
           )}
-
-          {activeTab === 'quotes' && (
-            <QuotationEngine
-              onOpenVoiceQuote={() => setIsVoiceQuoteModalOpen(true)}
-              onOpenPaywall={() => openUpgradeModal('general')}
-            />
-          )}
-
-          {activeTab === 'invoices' && <InvoicingPipeline />}
 
           {(activeTab === 'expenses' || activeTab === 'scanner' || activeTab === 'receipts') && (
             <ExpenseManager
@@ -300,10 +279,6 @@ function AppContent() {
               onGoToScanner={() => setActiveTab('expenses')}
             />
           )}
-
-          {activeTab === 'clients' && <ClientsDirectory />}
-
-          {activeTab === 'inventory' && <InventoryManager />}
 
           {activeTab === 'settings' && (
             <SettingsManager
@@ -336,12 +311,6 @@ function AppContent() {
         onOpenAddManual={() => setIsAddModalOpen(true)}
         onOpenOfflineQueue={() => setIsOfflineQueueOpen(true)}
         pendingOfflineCount={pendingOfflineCount}
-      />
-
-      <VoiceQuoteModal
-        isOpen={isVoiceQuoteModalOpen}
-        onClose={() => setIsVoiceQuoteModalOpen(false)}
-        onQuoteCreated={() => setActiveTab('quotes')}
       />
 
       <AddReceiptModal

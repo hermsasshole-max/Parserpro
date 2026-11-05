@@ -47,17 +47,13 @@ export const Navigation: React.FC<NavigationProps> = ({
   }, []);
 
   const primaryNavItems: { id: NavTab; label: string }[] = [
-    { id: 'dashboard', label: 'Field Dashboard' },
-    { id: 'quotes', label: 'Quotes' },
-    { id: 'invoices', label: 'Invoices' },
+    { id: 'dashboard', label: 'Household Overview' },
     { id: 'expenses', label: 'Expenses & Scans' },
-    { id: 'reports', label: 'Analytics' },
+    { id: 'reports', label: 'Monthly Analytics' },
   ];
 
   const secondaryNavItems: { id: NavTab; label: string }[] = [
-    { id: 'clients', label: 'Clients Directory' },
-    { id: 'inventory', label: 'Van Stock & Inventory' },
-    { id: 'schema', label: 'Database & SQL' },
+    { id: 'schema', label: 'SQLite & Database' },
     { id: 'settings', label: 'Preferences & Backup' },
   ];
 
@@ -74,7 +70,7 @@ export const Navigation: React.FC<NavigationProps> = ({
           onClick={() => setActiveTab('dashboard')}
           className="text-lg font-bold tracking-tight text-slate-900 dark:text-white whitespace-nowrap shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600 rounded-md min-h-[44px] flex items-center cursor-pointer"
         >
-          ParserPro <span className="text-xs font-semibold text-emerald-600 ml-1.5 hidden md:inline">Field Pro</span>
+          ParserPro <span className="text-xs font-semibold text-emerald-600 ml-1.5 hidden md:inline">Household Budget</span>
         </button>
 
         {/* Zone 2: Navigation Links */}
@@ -146,16 +142,7 @@ export const Navigation: React.FC<NavigationProps> = ({
 
         {/* Zone 3: Voice Quote + Plans / Tier Action */}
         <div className="flex items-center gap-2 shrink-0">
-          {onOpenVoiceQuote && (
-            <button
-              type="button"
-              onClick={onOpenVoiceQuote}
-              className="hidden lg:flex min-h-[42px] px-3 py-2 text-xs font-semibold text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-xl transition-colors items-center gap-1.5 cursor-pointer"
-            >
-              <Sparkles className="w-3.5 h-3.5 text-emerald-600" />
-              <span>Voice</span>
-            </button>
-          )}
+
 
           {tier === 'full' ? (
             <button

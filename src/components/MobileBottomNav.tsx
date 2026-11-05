@@ -32,14 +32,13 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
     label: string;
     icon: React.FC<{ className?: string }>;
   }[] = [
-    { id: 'dashboard', label: 'Field', icon: LayoutDashboard },
-    { id: 'quotes', label: 'Quotes', icon: FileText },
-    { id: 'invoices', label: 'Invoices', icon: CreditCard },
+    { id: 'dashboard', label: 'Overview', icon: LayoutDashboard },
     {
       id: 'expenses',
       label: receiptCount > 0 ? `Expenses (${receiptCount})` : 'Expenses',
       icon: Receipt,
     },
+    { id: 'reports', label: 'Analytics', icon: BarChart3 },
   ];
 
   const secondaryMenuTabs: {
@@ -47,11 +46,8 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
     label: string;
     icon: React.FC<{ className?: string }>;
   }[] = [
-    { id: 'reports', label: 'Financial Analytics', icon: BarChart3 },
-    { id: 'clients', label: 'Clients Directory', icon: Users },
-    { id: 'inventory', label: 'Van Stock & Materials', icon: Package },
-    { id: 'schema', label: 'SQLite & Cloud DB', icon: Database },
-    { id: 'settings', label: 'Account & Backup', icon: Settings },
+    { id: 'schema', label: 'SQLite Database', icon: Database },
+    { id: 'settings', label: 'Settings & Backup', icon: Settings },
   ];
 
   return (
@@ -66,7 +62,7 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
           <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 p-4 space-y-2 shadow-2xl">
             <div className="flex items-center justify-between pb-2 border-b border-slate-100 dark:border-slate-800 px-2">
               <span className="text-xs font-bold uppercase tracking-wider text-slate-500">
-                Contractor Field Tools
+                Household Tools &amp; Backup
               </span>
               <button
                 type="button"
