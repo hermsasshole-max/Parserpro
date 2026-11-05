@@ -34,6 +34,17 @@ def resolvedVersionCode = (envVersionCode && envVersionCode.isInteger())
     ? Math.max(minVersionCode, envVersionCode.toInteger())
     : Math.max(minVersionCode, ghAutoVersionCode)
 def resolvedVersionName = envVersionName ?: "1.7.${Math.max(0, resolvedVersionCode - 240)}"
+
+// Output resolved version details to the Gradle build logs for Play Console verification
+println "==================================================================="
+println " [ParserPro Play Store Build Info]"
+println "   * GITHUB_RUN_NUMBER:    ${ghRunNumber ?: '(local build / unset)'}"
+println "   * GITHUB_RUN_ATTEMPT:   ${ghRunAttempt ?: '1'}"
+println "   * Env VersionCode:      ${envVersionCode ?: '(not passed directly)'}"
+println "   * Resolved versionCode: ${resolvedVersionCode} (Minimum required: >= ${minVersionCode})"
+println "   * Resolved versionName: ${resolvedVersionName}"
+println "==================================================================="
+
 def envNdkPath = System.getenv("ANDROID_NDK_PATH") ?: System.getenv("ANDROID_NDK_LATEST_HOME")
 def envNdkVersion = System.getenv("ANDROID_NDK_VERSION")
 
