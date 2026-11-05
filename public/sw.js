@@ -1,6 +1,6 @@
 // Service Worker for ParserPro Standalone Web PWA
 // Automatically self-unregisters on localhost (Capacitor Android/iOS) so Play Store updates never serve stale cached HTML/JS
-const CACHE_NAME = 'parserpro-v1.7.0-b240';
+const CACHE_NAME = 'parserpro-v1.8.0-b260';
 const IS_LOCAL_NATIVE_HOST =
   self.location.hostname === 'localhost' || self.location.hostname === '127.0.0.1';
 

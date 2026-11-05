@@ -123,13 +123,13 @@
                 });
               }
             }).then(function() {
-              if (hadController && !sessionStorage.getItem('parserpro_sw_migrated_v240')) {
-                sessionStorage.setItem('parserpro_sw_migrated_v240', '1');
+              if (hadController && !sessionStorage.getItem('parserpro_sw_migrated_v260')) {
+                sessionStorage.setItem('parserpro_sw_migrated_v260', '1');
                 window.location.reload();
               }
             }).catch(function() {});
           } else if (window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
-            var swUrl = './sw.js?v=1.7.0-b240';
+            var swUrl = './sw.js?v=1.8.0-b260';
             navigator.serviceWorker.register(swUrl)
               .then(function(registration) {
                 registration.update().catch(function() {});

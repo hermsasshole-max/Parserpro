@@ -105,7 +105,8 @@ public class MainActivity extends BridgeActivity {
 
             WebSettings settings = webView.getSettings();
             if (settings != null) {
-                settings.setCacheMode(WebSettings.LOAD_DEFAULT);
+                // Ensure packaged local assets always load directly from the updated APK without reading stale HTTP disk cache
+                settings.setCacheMode(WebSettings.LOAD_NO_CACHE);
             }
 
             PackageInfo pkgInfo = getPackageManager().getPackageInfo(getPackageName(), 0);
@@ -114,11 +115,10 @@ public class MainActivity extends BridgeActivity {
                 : pkgInfo.versionCode;
             final String currentVersionName = pkgInfo.versionName != null
                 ? pkgInfo.versionName.replace("'", "")
-                : "1.7.0";
+                : "1.8.0";
 
-            if (didAppUpdate) {
-                webView.clearCache(true);
-            }
+            // Unconditionally evict memory/disk webview cache to prevent stale chunk execution
+            webView.clearCache(true);
 
             webView.postDelayed(() -> {
                 try {
