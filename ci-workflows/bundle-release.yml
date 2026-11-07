@@ -93,10 +93,10 @@ jobs:
           INPUT_VERSION_CODE: ${{ inputs.version_code }}
           INPUT_VERSION_NAME: ${{ inputs.version_name }}
         run: |
-          MIN_VERSION_CODE=240
+          MIN_VERSION_CODE=3000
           ATTEMPT_NUM="${GITHUB_RUN_ATTEMPT:-1}"
           ATTEMPT_OFFSET=$(( ATTEMPT_NUM > 1 ? ATTEMPT_NUM - 1 : 0 ))
-          AUTO_VC=$(( 211 + GITHUB_RUN_NUMBER + ATTEMPT_OFFSET ))
+          AUTO_VC=$(( 3000 + GITHUB_RUN_NUMBER + ATTEMPT_OFFSET ))
           if [ "$AUTO_VC" -lt "$MIN_VERSION_CODE" ]; then
             AUTO_VC="$MIN_VERSION_CODE"
           fi
@@ -105,7 +105,7 @@ jobs:
           MAX_HIST_VC=$(python3 - << 'PYHIST'
           import json, os, re, subprocess, urllib.request
 
-          max_vc = 239  # Floor strictly above all prior Play Console versions (152, 204, 215, 216, 230, 235)
+          max_vc = 2999  # Floor strictly above all prior Play Console versions
           repo = os.environ.get("GITHUB_REPOSITORY", "")
           token = os.environ.get("GITHUB_TOKEN", "")
 

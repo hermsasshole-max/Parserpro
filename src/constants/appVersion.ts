@@ -24,9 +24,9 @@ export const APP_VERSION: string =
   '1.8.0';
 
 export const APP_BUILD_NUMBER: number =
-  (metaEnv && Number(metaEnv.VITE_APP_BUILD_NUMBER) >= 260
+  (metaEnv && Number(metaEnv.VITE_APP_BUILD_NUMBER) >= 3000
     ? Number(metaEnv.VITE_APP_BUILD_NUMBER)
-    : 0) || 260;
+    : 0) || 3000;
 
 export const APP_AGP_VERSION = '9.0.1';
 

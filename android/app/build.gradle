@@ -26,14 +26,14 @@ def envVersionCode = System.getenv("ANDROID_VERSION_CODE")?.trim()
 def envVersionName = System.getenv("ANDROID_VERSION_NAME")?.trim()
 def ghRunNumber = System.getenv("GITHUB_RUN_NUMBER")?.trim()
 def ghRunAttempt = System.getenv("GITHUB_RUN_ATTEMPT")?.trim()
-def minVersionCode = 260
+def minVersionCode = 3000
 def ghAutoVersionCode = (ghRunNumber && ghRunNumber.isInteger())
-    ? (260 + ghRunNumber.toInteger() + ((ghRunAttempt && ghRunAttempt.isInteger()) ? Math.max(0, ghRunAttempt.toInteger() - 1) : 0))
+    ? (3000 + ghRunNumber.toInteger() + ((ghRunAttempt && ghRunAttempt.isInteger()) ? Math.max(0, ghRunAttempt.toInteger() - 1) : 0))
     : minVersionCode
 def resolvedVersionCode = (envVersionCode && envVersionCode.isInteger())
     ? Math.max(minVersionCode, envVersionCode.toInteger())
     : Math.max(minVersionCode, ghAutoVersionCode)
-def resolvedVersionName = envVersionName ?: "1.8.${Math.max(0, resolvedVersionCode - 260)}"
+def resolvedVersionName = envVersionName ?: "1.8.${Math.max(0, resolvedVersionCode - 3000)}"
 
 // Output resolved version details to the Gradle build logs for Play Console verification
 println "==================================================================="
