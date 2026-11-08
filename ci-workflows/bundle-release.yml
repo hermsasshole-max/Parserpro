@@ -796,6 +796,14 @@ jobs:
           retention-days: 90
           if-no-files-found: error
 
+      - name: Upload Standard Play Console App Bundle (.aab) Artifact (Fixed Name)
+        uses: actions/upload-artifact@v4
+        with:
+          name: ParserPro-PlayConsole-AAB
+          path: ${{ github.workspace }}/ParserPro-release.aab
+          retention-days: 90
+          if-no-files-found: error
+
       - name: Upload Play Console R8 Deobfuscation Mapping (mapping.txt) Artifact
         uses: actions/upload-artifact@v4
         with:
