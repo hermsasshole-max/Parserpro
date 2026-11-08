@@ -12,6 +12,9 @@ import {
   Check,
   X,
   ExternalLink,
+  GitBranch,
+  CheckCircle2,
+  ArrowUpCircle,
 } from 'lucide-react';
 import type { SavedReceipt } from '../types';
 import {
@@ -103,6 +106,36 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       ? 'Mid Tier · $1.99/mo'
       : 'Free Tier · $0/mo';
 
+  const [remoteVersionData, setRemoteVersionData] = useState<{ tagName: string; htmlUrl: string } | null>(null);
+  const [isCheckingVersion, setIsCheckingVersion] = useState(false);
+  const [versionCheckStatus, setVersionCheckStatus] = useState<'idle' | 'up_to_date' | 'update_available' | 'offline'>('idle');
+
+  const checkRemoteVersion = async () => {
+    setIsCheckingVersion(true);
+    try {
+      const resp = await fetch('https://api.github.com/repos/hermsasshole-max/Parserpro/releases/latest', {
+        headers: { Accept: 'application/vnd.github+json' },
+      });
+      if (!resp.ok) throw new Error('Failed to reach GitHub API');
+      const data = await resp.json();
+      const tagName = data.tag_name || '';
+      const htmlUrl = data.html_url || 'https://github.com/hermsasshole-max/Parserpro/releases';
+      setRemoteVersionData({ tagName, htmlUrl });
+      
+      const remoteClean = tagName.replace(/^v/, '').trim();
+      const localClean = versionInfo.versionName.replace(/^v/, '').trim();
+      if (remoteClean && remoteClean !== localClean) {
+        setVersionCheckStatus('update_available');
+      } else {
+        setVersionCheckStatus('up_to_date');
+      }
+    } catch {
+      setVersionCheckStatus('offline');
+    } finally {
+      setIsCheckingVersion(false);
+    }
+  };
+
   return (
     <div className="space-y-6 max-w-3xl mx-auto">
       <div>
@@ -118,6 +151,68 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           Manage your Google Play plan, currency, household budgets, and private device backups.
         </p>
       </div>
+
+      {/* Version Status & Updates Card */}
+      <section className="rounded-3xl bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800 p-6 space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div className="space-y-1">
+            <div className="flex items-center gap-2">
+              <GitBranch className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+              <h2 className="text-base font-bold text-slate-900 dark:text-white">
+                Version Status &amp; Updates
+              </h2>
+            </div>
+            <p className="text-xs text-slate-600 dark:text-slate-400 tabular-nums">
+              Installed: <strong className="font-semibold text-slate-900 dark:text-white">v{versionInfo.versionName}</strong> (Build {versionInfo.buildNumber}) · AGP {versionInfo.agpVersion}
+            </p>
+          </div>
+
+          <button
+            type="button"
+            disabled={isCheckingVersion}
+            onClick={checkRemoteVersion}
+            className="min-h-[44px] px-4 py-2.5 rounded-2xl border border-slate-200 dark:border-slate-700 bg-slate-50/70 dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-xs font-semibold text-slate-800 dark:text-slate-200 flex items-center gap-2 whitespace-nowrap shrink-0 cursor-pointer"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${isCheckingVersion ? 'animate-spin' : ''}`} />
+            <span>{isCheckingVersion ? 'Checking Server...' : 'Check for Updates'}</span>
+          </button>
+        </div>
+
+        {versionCheckStatus !== 'idle' && (
+          <div className="pt-3 border-t border-slate-100 dark:border-slate-800 text-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            {versionCheckStatus === 'up_to_date' && (
+              <div className="flex items-center gap-2 text-emerald-700 dark:text-emerald-400 font-medium">
+                <CheckCircle2 className="w-4 h-4 shrink-0" />
+                <span>You are running the latest app version ({versionInfo.versionName}).</span>
+              </div>
+            )}
+            {versionCheckStatus === 'update_available' && (
+              <div className="flex items-center gap-2 text-emerald-700 dark:text-emerald-400 font-medium">
+                <ArrowUpCircle className="w-4 h-4 shrink-0" />
+                <span>New version {remoteVersionData?.tagName} available on GitHub &amp; Play Console!</span>
+              </div>
+            )}
+            {versionCheckStatus === 'offline' && (
+              <div className="flex items-center gap-2 text-slate-500 dark:text-slate-400">
+                <Clock className="w-4 h-4 shrink-0" />
+                <span>Offline mode — running local build v{versionInfo.versionName} (Build {versionInfo.buildNumber}).</span>
+              </div>
+            )}
+
+            {remoteVersionData?.htmlUrl && (
+              <a
+                href={remoteVersionData.htmlUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1.5 font-semibold text-emerald-700 dark:text-emerald-400 hover:underline shrink-0"
+              >
+                <span>View Release Notes</span>
+                <ExternalLink className="w-3.5 h-3.5" />
+              </a>
+            )}
+          </div>
+        )}
+      </section>
 
       {/* Membership & Google Play Billing Card */}
       <section className="rounded-3xl bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800 p-6 space-y-4">
