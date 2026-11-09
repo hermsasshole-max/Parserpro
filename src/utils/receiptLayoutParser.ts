@@ -1000,6 +1000,8 @@ export function reconcileAndCleanReceiptItems(receipt: ReceiptData): {
   const finalSum = Number(items.reduce((acc, it) => acc + it.total_price, 0).toFixed(2));
   if (totalAmount <= 0 && finalSum > 0) {
     totalAmount = finalSum;
+  } else if (finalSum > 0 && (totalAmount <= 0 || totalAmount < finalSum * 0.7 || totalAmount > finalSum * 1.5)) {
+    totalAmount = finalSum;
   }
 
   let subtotal = Number(receipt.subtotal) || 0;
