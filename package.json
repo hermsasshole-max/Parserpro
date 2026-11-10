@@ -1,15 +1,15 @@
 {
   "name": "react-example",
   "private": true,
-  "version": "1.8.0",
+  "version": "1.9.0",
   "type": "module",
   "scripts": {
     "dev": "node generate-icons.js && tsx server.ts",
     "build": "node generate-icons.js && vite build && esbuild server.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/server.cjs",
     "start": "node dist/server.cjs",
-    "preview": "vite preview",
-    "clean": "rm -rf dist server.js dist/server.cjs",
-    "lint": "tsc --noEmit",
+    "preview": "vite preview --host 0.0.0.0 --port 8081",
+    "typecheck": "tsc --noEmit",
+    "test": "tsx --test src/utils/householdInsights.test.ts",
     "android:sync": "cap sync android",
     "android:build": "vite build && cap sync android",
     "android:open": "cap open android"

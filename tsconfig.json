@@ -21,6 +21,30 @@
       ]
     },
     "allowImportingTsExtensions": true,
-    "noEmit": true
-  }
+    "noEmit": true,
+    "types": ["node"]
+  },
+  "include": [
+    "src/App.tsx",
+    "src/main.tsx",
+    "src/types.ts",
+    "src/components/**/*.ts",
+    "src/components/**/*.tsx",
+    "src/context/**/*.ts",
+    "src/context/**/*.tsx",
+    "src/utils/**/*.ts",
+    "src/data/**/*.ts",
+    "src/constants/**/*.ts",
+    "vite.config.ts",
+    "capacitor.config.ts",
+    "server.ts"
+  ],
+  "exclude": [
+    "src/lib",
+    "src/components/preview-host-bridge.tsx",
+    "server",
+    "node_modules",
+    "dist",
+    "android"
+  ]
 }
